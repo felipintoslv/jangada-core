@@ -2,7 +2,6 @@
 # Prova consultas, validação e percurso R sem módulos de apresentação.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
-repo_jangada="$PWD"
 marca="${JANGADA_MARCA_ISOLADO:-/tmp/.jangada-isolado}"
 if ! awk -v m="$marca" '$5 == m { a = 1 } END { exit !a }' /proc/self/mountinfo; then
   pasta_marca="$(mktemp -d)"
@@ -22,23 +21,27 @@ conferir() {
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 copia="$tmp/jangada"
-mkdir -p "$copia/bin" "$copia/default" "$tmp/bin" "$tmp/falso" \
+mkdir -p "$copia/bin" "$tmp/bin" "$tmp/falso" \
   "$tmp/config/jangada" "$tmp/estado/jangada/agentes" "$tmp/projeto"
-cp -a core "$copia/core"
 cp -a bin/jangada-config bin/jangada-gancho "$copia/bin/"
 for comando in jangada-validar jangada-isolar; do
   cp -a "bin/$comando" "$copia/bin/"
 done
-for recurso in orquestracao nucleo provedores delegacao; do
-  cp -a "default/$recurso" "$copia/default/"
+for recurso in nucleo orquestracao provedores delegacao validacao; do
+  cp -a "$recurso" "$copia/"
 done
 conferir 'Shell físico ausente' test ! -e "$copia/shell"
 conferir 'Monitor físico ausente' test ! -e "$copia/monitor"
-conferir 'link legado de diagnóstico é opcional e está pendurado' \
-  test -L "$copia/default/nucleo/monitoramento.py"
-conferir 'diagnóstico indisponível não é importação obrigatória' \
-  test ! -e "$copia/default/nucleo/monitoramento.py"
-PYTHONPATH="$copia/core" python3 -B - "$tmp/consulta" <<'PY'
+# Comandos do Shell e do Monitor, mesmo instalados na máquina, ficam fora do PATH.
+path_limpo() {
+  local d out="" IFS=:
+  for d in $PATH; do
+    [[ -x "$d/jangada-consumo" || -x "$d/jangada-subagentes" || -x "$d/jangada-snapshot" ]] || out+="${out:+:}$d"
+  done
+  printf '%s' "$out"
+}
+PATH="$(path_limpo)"
+PYTHONPATH="$copia" python3 -B - "$tmp/consulta" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -57,13 +60,9 @@ assert dados['sessoes'][0]['estado'] == 'Executando', dados
 assert antes == {str(p): p.read_bytes() for p in estado.rglob('*') if p.is_file()}
 PY
 conferir 'importações Core e consulta sintética sem Monitor, sem escrita na origem' test "$?" = 0
-conferir 'padrão legado ausente na cópia mínima' test ! -e "$copia/default/r"
 conferir 'fachada copiada resolve para o Core copiado' \
-  test "$(realpath "$copia/bin/jangada-validar")" = "$copia/core/bin/jangada-validar"
-conferir 'compatibilidade completa resolve para a fonte única' \
-  test "$(realpath default/r/lintr)" = "$repo_jangada/core/validacao/lintr"
-conferir 'compatibilidade é link relativo' \
-  test "$(readlink shell/integracoes/r/lintr)" = '../../../core/validacao/lintr'
+  test "$(realpath "$copia/bin/jangada-validar")" = "$copia/bin/jangada-validar"
+conferir 'padrão do lintr existe na cópia mínima' test -e "$copia/validacao/lintr"
 cat >"$tmp/bin/claude" <<'FALSO'
 #!/usr/bin/env bash
 cat >"$FALSO_DIR/pedido"
@@ -73,7 +72,7 @@ chmod +x "$tmp/bin/claude"
 export PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso"
 export JANGADA_ISOLAR_ESCRITA="$tmp/falso"
 export XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config"
-export JANGADA_PATH="$copia" JANGADA_SESSAO=s JANGADA_ISOLADO=1
+export JANGADA_CORE_PATH="$copia" JANGADA_SESSAO=s JANGADA_ISOLADO=1
 git -C "$tmp/projeto" init -q -b main
 printf 'x <- 1\n' >"$tmp/projeto/exemplo.R"
 git -C "$tmp/projeto" add exemplo.R
@@ -149,7 +148,7 @@ conferir 'perfil continua sem executar' test ! -e "$tmp/perfil-executado"
 nova_sessao
 git -C "$tmp/projeto" checkout -q -- .lintr
 git -C "$tmp/projeto" checkout -q agente/x~1
-mv "$copia/core/validacao/lintr" "$tmp/padrao"
+mv "$copia/validacao/lintr" "$tmp/padrao"
 validar; rc=$?
 conferir 'padrão indisponível reprova' test "$rc" = 3
 conferir 'falha do lintr explícita' grep -q 'FAILED: lintr falhou' "$tmp/saida"

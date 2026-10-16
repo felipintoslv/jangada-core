@@ -16,8 +16,8 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / 'default'))
-sys.path.insert(0, str(RAIZ / 'default/orquestracao'))
+sys.path.insert(0, str(RAIZ))
+sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from estado import Estado
 from projetos import cadastrar, chave, ler_projeto, reassociar
 from executor import contexto_principal, executar_uma
@@ -127,10 +127,10 @@ class Operacional(unittest.TestCase):
 
     def test_cli_sessao_confere_aborta_e_encerra_sem_concluir_tarefa(self):
         self.estado.importar([self.tarefa()])
-        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_PATH=str(RAIZ),
+        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_CORE_PATH=str(RAIZ),
                         JANGADA_CONFIG=str(self.config), JANGADA_ISOLADO='')
-        comando = [sys.executable, str(RAIZ / 'default/nucleo/cli.py'), '--projeto', str(self.projeto)]
-        ambiente['PYTHONPATH'] = str(RAIZ / 'default')
+        comando = [sys.executable, str(RAIZ / 'nucleo/cli.py'), '--projeto', str(self.projeto)]
+        ambiente['PYTHONPATH'] = str(RAIZ)
 
         def chamar(*args):
             resposta = subprocess.run([*comando, *args], env=ambiente, capture_output=True, text=True)
@@ -149,9 +149,9 @@ class Operacional(unittest.TestCase):
     def test_sessao_orfa_encerra_por_nome_e_orcamento_recupera_apos_janela(self):
         cadastrar(self.estado, self.projeto)
         self.estado.importar([self.tarefa()])
-        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_PATH=str(RAIZ),
-                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ / 'default'), JANGADA_ISOLADO='')
-        comando = [sys.executable, str(RAIZ / 'default/nucleo/cli.py'), '--projeto', str(self.projeto)]
+        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_CORE_PATH=str(RAIZ),
+                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ), JANGADA_ISOLADO='')
+        comando = [sys.executable, str(RAIZ / 'nucleo/cli.py'), '--projeto', str(self.projeto)]
         resposta = subprocess.run([*comando, 'sessao-iniciar', 'orfã', '--executor', 'codex'],
                                   env=ambiente, capture_output=True, text=True)
         self.assertEqual(resposta.returncode, 0, resposta.stderr)
@@ -178,9 +178,9 @@ class Operacional(unittest.TestCase):
 
     def test_conferencia_previa_nao_cria_estado_e_recusa_vinculo_ausente(self):
         raiz = self.raiz / 'sem-estado'
-        ambiente = dict(os.environ, JANGADA_ESTADO=str(raiz), JANGADA_PATH=str(RAIZ),
-                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ / 'default'))
-        comando = [sys.executable, str(RAIZ / 'default/nucleo/cli.py'), '--projeto', str(self.projeto),
+        ambiente = dict(os.environ, JANGADA_ESTADO=str(raiz), JANGADA_CORE_PATH=str(RAIZ),
+                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ))
+        comando = [sys.executable, str(RAIZ / 'nucleo/cli.py'), '--projeto', str(self.projeto),
                    'sessao-conferir', 'nova', '--executor', 'codex']
         resposta = subprocess.run(comando, env=ambiente, capture_output=True, text=True)
         self.assertEqual(resposta.returncode, 0, resposta.stderr)
@@ -208,9 +208,9 @@ class Operacional(unittest.TestCase):
         self.assertEqual([t['id'] for t in consulta['tarefas']], ['T1'])
         global_ = consultar(self.estado_raiz)
         self.assertEqual(len(global_['erros']), 3)
-        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_PATH=str(RAIZ),
-                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ / 'default'))
-        comando = [sys.executable, str(RAIZ / 'default/nucleo/cli.py'), '--projeto', str(self.projeto),
+        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_CORE_PATH=str(RAIZ),
+                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ))
+        comando = [sys.executable, str(RAIZ / 'nucleo/cli.py'), '--projeto', str(self.projeto),
                    'sessao-conferir', 'nova', '--executor', 'codex', '--tarefa-id', 'T1']
         resposta = subprocess.run(comando, env=ambiente, capture_output=True, text=True)
         self.assertEqual(resposta.returncode, 0, resposta.stderr)
@@ -236,9 +236,9 @@ class Operacional(unittest.TestCase):
 
     def test_conferencia_previa_preserva_banco_legado_e_recusa_politica_sem_gravar(self):
         self.estado.importar([self.tarefa()])
-        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_PATH=str(RAIZ),
-                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ / 'default'))
-        comando = [sys.executable, str(RAIZ / 'default/nucleo/cli.py'), '--projeto', str(self.projeto),
+        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_CORE_PATH=str(RAIZ),
+                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ))
+        comando = [sys.executable, str(RAIZ / 'nucleo/cli.py'), '--projeto', str(self.projeto),
                    'sessao-conferir', 'nova', '--executor', 'codex', '--tarefa-id', 'T1']
         for politica in (None, {'dados': 'local'}, {'orcamento': {'chamadas': 3}}):
             if politica is not None:
@@ -250,9 +250,9 @@ class Operacional(unittest.TestCase):
                                      for p in self.estado_raiz.rglob('*') if p.is_file()})
 
     def test_consulta_sem_catalogos_nao_depende_dos_executaveis(self):
-        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_PATH=str(self.raiz),
-                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ / 'default'))
-        comando = [sys.executable, str(RAIZ / 'default/nucleo/cli.py'), 'consultar', '--todos', '--sem-catalogos']
+        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_CORE_PATH=str(self.raiz),
+                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ))
+        comando = [sys.executable, str(RAIZ / 'nucleo/cli.py'), 'consultar', '--todos', '--sem-catalogos']
         resposta = subprocess.run(comando, env=ambiente, capture_output=True, text=True)
         self.assertEqual(resposta.returncode, 0, resposta.stderr)
         dados = json.loads(resposta.stdout)
@@ -326,7 +326,7 @@ class Operacional(unittest.TestCase):
         falso.write_text('#!/bin/sh\ntouch "' + str(marcador) + '"\nexit 1\n')
         falso.chmod(0o755)
         with patch.dict(os.environ, dict(PATH=str(binarios) + ':' + os.environ['PATH'],
-                JANGADA_PATH=str(RAIZ), JANGADA_DELEGAR='agy', XDG_CONFIG_HOME=str(self.config),
+                JANGADA_CORE_PATH=str(RAIZ), JANGADA_DELEGAR='agy', XDG_CONFIG_HOME=str(self.config),
                 XDG_STATE_HOME=str(self.raiz / 'temporario'), XDG_CACHE_HOME=str(self.raiz / 'cache'))):
             resultado = executar_uma(self.estado, self.projeto, RAIZ, 'quality', True, None)
         self.assertEqual(resultado['status'], 'WAITING_PROVIDER')
@@ -558,9 +558,9 @@ class Operacional(unittest.TestCase):
         cadastrar(self.estado, self.projeto, {'dados': 'local'})
         politica = self.raiz / 'politica.json'
         politica.write_text('{}')
-        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_PATH=str(RAIZ),
-                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ / 'default'), JANGADA_ISOLADO='1')
-        comando = [sys.executable, str(RAIZ / 'default/nucleo/cli.py'), '--projeto', str(self.projeto)]
+        ambiente = dict(os.environ, JANGADA_ESTADO=str(self.estado_raiz), JANGADA_CORE_PATH=str(RAIZ),
+                        JANGADA_CONFIG=str(self.config), PYTHONPATH=str(RAIZ), JANGADA_ISOLADO='1')
+        comando = [sys.executable, str(RAIZ / 'nucleo/cli.py'), '--projeto', str(self.projeto)]
         antes = {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
                  for p in self.estado_raiz.rglob('*') if p.is_file()}
         for argumentos in (['cadastrar', '--politica', str(politica)],
@@ -576,7 +576,7 @@ class Operacional(unittest.TestCase):
                                          for p in self.estado_raiz.rglob('*') if p.is_file()})
 
     def test_cli_cadastro_atividade_consulta_sem_provedor(self):
-        ambiente = dict(os.environ, JANGADA_PATH=str(RAIZ), XDG_CONFIG_HOME=str(self.config),
+        ambiente = dict(os.environ, JANGADA_CORE_PATH=str(RAIZ), XDG_CONFIG_HOME=str(self.config),
                         XDG_STATE_HOME=str(self.estado_raiz.parent), JANGADA_ISOLADO='')
         comando = [str(RAIZ / 'bin/jangada-projeto'), '--projeto', str(self.projeto)]
         resposta = subprocess.run([*comando, 'atividade', '--titulo', 'Teste', '--objetivo', 'Conferir',

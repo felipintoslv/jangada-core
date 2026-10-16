@@ -3,6 +3,10 @@
 Gerado das mensagens de commit por `jangada-versao --lancar`; não edite
 à mão. A versão instalada aparece em `jangada-versao`.
 
+## Não lançado
+
+- core: a raiz do Core passa a se chamar `JANGADA_CORE_PATH` (antes `JANGADA_PATH`) e o local de instalação padrão, `~/.local/share/jangada-core`. O Core ignora o `JANGADA_PATH` que o Shell exporta na sessão. A nova etapa `install/20-comandos.sh` grava em `~/.local/bin` um invólucro para cada comando de `bin/`.
+
 ## Planejado para v0.4.0
 
 - Remover os links de compatibilidade de `bin/` e `default/`.

@@ -48,29 +48,29 @@ O teste futuro de remoção deve examinar arquivos de configuração e links, al
 
 | ID | Tipo e achado | Evidência atual | Consequência |
 |---|---|---|---|
-| A1 | Fato: caminhos físicos e fachada legada | `bin/jangada-config:14` define `JANGADA_CORE_PY`; links `bin/jangada-agente` e `default/nucleo` chegam ao Core | Manter fachada durante evolução; mover pastas não basta |
-| A2 | Fato: configuração R do Shell usada pelo Core | `core/bin/jangada-validar:790`, especialmente `:803`; `default/r` aponta para `shell/integracoes/r` | Arquivos R sem `.lintr` da base precisam desse padrão; Core não é independente neste percurso |
-| A3 | Fato: link do Core chega ao Monitor | `core/nucleo/monitoramento.py` aponta para `../../monitor/painel/monitoramento.py`; `shell/bin/jangada-monitor:8` usa o caminho legado | Separar diagnóstico opcional de execução; link não prova necessidade em todo comando do Core |
+| A1 | Fato: caminhos físicos e fachada legada | `bin/jangada-config:14` define `JANGADA_CORE_PY`; links `bin/jangada-agente` e `nucleo` chegam ao Core | Manter fachada durante evolução; mover pastas não basta |
+| A2 | Fato: configuração R do Shell usada pelo Core | `bin/jangada-validar:790`, especialmente `:803`; `default/r` aponta para `shell/integracoes/r` | Arquivos R sem `.lintr` da base precisam desse padrão; Core não é independente neste percurso |
+| A3 | Fato: link do Core chega ao Monitor | `nucleo/monitoramento.py` aponta para `../../monitor/painel/monitoramento.py`; `shell/bin/jangada-monitor:8` usa o caminho legado | Separar diagnóstico opcional de execução; link não prova necessidade em todo comando do Core |
 | A4 | Fato: Central lê JSON de sessão diretamente | `shell/menus/tarefas/dados.py:89` abre arquivo; `:104` complementa a listagem com esses campos | Variável de caminho e leitura segura não substituem contrato de consulta |
 | A5 | Fato: Central conhece estrutura interna para vigiar estado | `shell/menus/tarefas/janela.py:692` observa revisões, projetos, JSON e SQLite; `:425` agrupa avisos e consulta periodicamente | Mudança de armazenamento afeta a interface; substituir por eventos e consulta incremental |
-| A6 | Fato: coordenador é declaração para exibição | `core/bin/jangada-agente:17`, `:106`, `:548`; `shell/menus/tarefas/dados.py:73`, `:116`; `janela.py:581` | Nome não autentica identidade, permissões, vínculos ou contexto |
-| A7 | Fato: coordenação atual é protocolo de sessão e arquivo textual | `core/agentes/claude/skills/coordenador/SKILL.md:11`, `:98` prevê `.jangada/coordenacao.md` | Útil como prática; texto gravável não é decisão humana autenticada nem armazenamento isolado de vários coordenadores |
+| A6 | Fato: coordenador é declaração para exibição | `bin/jangada-agente:17`, `:106`, `:548`; `shell/menus/tarefas/dados.py:73`, `:116`; `janela.py:581` | Nome não autentica identidade, permissões, vínculos ou contexto |
+| A7 | Fato: coordenação atual é protocolo de sessão e arquivo textual | `agentes/claude/skills/coordenador/SKILL.md:11`, `:98` prevê `.jangada/coordenacao.md` | Útil como prática; texto gravável não é decisão humana autenticada nem armazenamento isolado de vários coordenadores |
 | A8 | Fato: conversa local guarda mensagens em memória e chama Ollama diretamente | `shell/menus/conversa/janela.py:54`, `:181`, `:229`, `:258`, `:264` | Há contexto durante a janela; não há persistência própria identificada. Fechar aborta a chamada local |
-| A9 | Fato: fila, atividades, eventos e execuções persistem separadamente | `core/orquestracao/estado.py:148` a `:174`; reserva cria execução em `:195`; consulta conjunta em `core/nucleo/consultas.py:138` | Base reutilizável para tarefas e proveniência; não há tabelas de coordenadores e mensagens nesses esquemas |
-| A10 | Fato: escrita autoritativa exige controlador | `core/orquestracao/confianca.py:23`, `:28`, `:68`; `core/orquestracao/estado.py:118` | Modelo isolado não recebe autoridade ao ganhar o título de coordenador |
-| A11 | Fato: decisões de conclusão e artefatos são reconferidos | `core/orquestracao/confianca.py:114`, `:133`; arquivo histórico em `:220` | Reutilizar preservação; ampliar vínculo para plano, autorização, conversa e contexto selecionado |
-| A12 | Fato: reservas e orçamento têm controle transacional | `core/orquestracao/estado.py:185`, `:255`, `:270`, `:341`; importação imutável em `:294` | Há arbitragem por fila/projeto. Isso não comprova arbitragem de edição por múltiplos coordenadores |
-| A13 | Fato: acompanhamento é limitado e em primeiro plano | `core/orquestracao/acompanhamento.py:16`, `:31`, `:43`, `:90` | Trava por projeto evita dois acompanhamentos; não há serviço permanente neste mecanismo |
-| A14 | Fato: consulta usa cópia privada de SQLite e WAL | `core/nucleo/consultas.py:30`; consulta reúne tarefas, execuções e eventos em `:164` | Origem não recebe arquivos auxiliares. Cópias completas e resultados integrais exigem avaliação de volume |
+| A9 | Fato: fila, atividades, eventos e execuções persistem separadamente | `orquestracao/estado.py:148` a `:174`; reserva cria execução em `:195`; consulta conjunta em `nucleo/consultas.py:138` | Base reutilizável para tarefas e proveniência; não há tabelas de coordenadores e mensagens nesses esquemas |
+| A10 | Fato: escrita autoritativa exige controlador | `orquestracao/confianca.py:23`, `:28`, `:68`; `orquestracao/estado.py:118` | Modelo isolado não recebe autoridade ao ganhar o título de coordenador |
+| A11 | Fato: decisões de conclusão e artefatos são reconferidos | `orquestracao/confianca.py:114`, `:133`; arquivo histórico em `:220` | Reutilizar preservação; ampliar vínculo para plano, autorização, conversa e contexto selecionado |
+| A12 | Fato: reservas e orçamento têm controle transacional | `orquestracao/estado.py:185`, `:255`, `:270`, `:341`; importação imutável em `:294` | Há arbitragem por fila/projeto. Isso não comprova arbitragem de edição por múltiplos coordenadores |
+| A13 | Fato: acompanhamento é limitado e em primeiro plano | `orquestracao/acompanhamento.py:16`, `:31`, `:43`, `:90` | Trava por projeto evita dois acompanhamentos; não há serviço permanente neste mecanismo |
+| A14 | Fato: consulta usa cópia privada de SQLite e WAL | `nucleo/consultas.py:30`; consulta reúne tarefas, execuções e eventos em `:164` | Origem não recebe arquivos auxiliares. Cópias completas e resultados integrais exigem avaliação de volume |
 | A15 | Fato: Monitor já usa consulta sem herdar classe de escrita | `monitor/painel/orquestracao.py:14`, `:18`; ainda percorre bancos em `:42` | Aproveitar consulta; definir descoberta e paginação públicas para reduzir conhecimento interno |
-| A16 | Fato: revisão e integração têm portões distintos | `core/bin/jangada-validar:1193`, `:1225`; `core/bin/jangada-agente-fim:199`, `:349`, `:437`, `:454` | Preservar independência, commit/árvore/base exatos, confirmação humana e avanço rápido |
+| A16 | Fato: revisão e integração têm portões distintos | `bin/jangada-validar:1193`, `:1225`; `bin/jangada-agente-fim:199`, `:349`, `:437`, `:454` | Preservar independência, commit/árvore/base exatos, confirmação humana e avanço rápido |
 | A17 | Fato: integração pela Central fixa candidato antes do gesto | `shell/menus/tarefas/janela.py:849`, `:857`, `:927`; `:1057` bloqueia fechamento durante integração | Reutilizar apresentação e confirmação; corrigir rótulos que confundam integração e encerramento em trabalho futuro |
 | A18 | Fato: aviso especial de atualização não cobre pastas reais | `bin/jangada-update:99`; conferência de processos em `:31` a `:55` fica no modo `--somente-codigo` | Não generalizar essa proteção para toda atualização; versionamento de sessões ainda precisa de contrato |
 | A19 | Fato: configuração concentra partes dos módulos | `bin/jangada-config:6`, `:76`, `:675`, `:720` | Configuração é lida sem execução; funções gráficas estão na parte compartilhada. Extração seletiva pode reduzir acoplamento |
-| A20 | Limitação: isolamento atual não estabelece fronteira de leitura entre conversas | `core/bin/jangada-isolar:21`, `:112`, `:462`, `:514`, `:525`; [isolamento](../isolamento.md#modelo-de-ameaça) | Escrita controlada e registros protegidos não garantem sigilo de diálogos entre coordenadores |
+| A20 | Limitação: isolamento atual não estabelece fronteira de leitura entre conversas | `bin/jangada-isolar:21`, `:112`, `:462`, `:514`, `:525`; [isolamento](../isolamento.md#modelo-de-ameaça) | Escrita controlada e registros protegidos não garantem sigilo de diálogos entre coordenadores |
 
 A16 confirma integração existente no código, apesar de textos datados que dizem “bloqueada”.
-A janela concorrente com Git externo é documentada no próprio código em `core/bin/jangada-agente-fim:386`.
+A janela concorrente com Git externo é documentada no próprio código em `bin/jangada-agente-fim:386`.
 O procedimento detecta divergência após avanço, sem rollback destrutivo; a proposta não promete eliminar esse limite por uma trava interna.
 
 A20 exige proteção real do armazenamento e da formação de contexto.
@@ -92,16 +92,16 @@ A política de envio da fila também não equivale a filtragem geral da rede do 
 | Monitor | Indicadores, cópia derivada e cobertura de medidas | Contratos de consultas e volumes grandes; falta de medida continua desconhecida |
 
 Evidências complementares: Central operacional em `shell/menus/tarefas/operacional.py:14`, `:66`, `:84`;
-restauração recompõe comandos em `core/bin/jangada-agentes` na função `restaurar`;
+restauração recompõe comandos em `bin/jangada-agentes` na função `restaurar`;
 conversa usa trava local em `shell/menus/conversa/janela.py:161`.
 
 ## Delegação atual e decisão do dono
 
 A21, fato: o repositório usa agy por padrão para todos os papéis de Claude/Codex, inclusive leitor/redator.
-Evidências: `bin/jangada-config:30`, `:209`; `core/agentes/perfis/protocolo-delegar-codex.md:2`; `core/delegacao/roteamento.json:2`.
+Evidências: `bin/jangada-config:30`, `:209`; `agentes/perfis/protocolo-delegar-codex.md:2`; `delegacao/roteamento.json:2`.
 Escolhas locais explícitas continuam disponíveis por compatibilidade; ausência de agy não muda automaticamente o destino.
-`core/bin/jangada-delegar:391` exige autorização remota; `:834` distingue falha do catálogo de papel ausente.
-A skill exige subtarefa agy autorizada e contribuição conferida ou bloqueio rastreável em `core/agentes/claude/skills/coordenador/SKILL.md:38`, `:63`.
+`bin/jangada-delegar:391` exige autorização remota; `:834` distingue falha do catálogo de papel ausente.
+A skill exige subtarefa agy autorizada e contribuição conferida ou bloqueio rastreável em `agentes/claude/skills/coordenador/SKILL.md:38`, `:63`.
 Essas correções estão integradas em `main` local; a instalação ainda não foi atualizada.
 
 Diretriz recebida em 13/10/2026: todas as delegações usam `JANGADA_DELEGAR=agy`, inclusive leitor/redator.
@@ -131,11 +131,11 @@ Esta tarefa não modifica a skill.
 
 ## Provedores examinados
 
-Os arquivos `core/provedores/claude.conf:6`, `codex.conf:4`, `agy.conf:3` e `ollama.conf:5` declaram funções.
+Os arquivos `provedores/claude.conf:6`, `codex.conf:4`, `agy.conf:3` e `ollama.conf:5` declaram funções.
 O registro não implementa automaticamente essas funções.
-O validador procura adaptador de revisão em `core/bin/jangada-validar:1127`.
-A execução principal documental automática é Codex e não tem ferramentas, conforme `core/orquestracao/principal.py:37` a `:49`.
-O adaptador está em `core/delegacao/codex.py:58`; o código examinado oferece destinos documentais local, agy e Codex econômico.
+O validador procura adaptador de revisão em `bin/jangada-validar:1127`.
+A execução principal documental automática é Codex e não tem ferramentas, conforme `orquestracao/principal.py:37` a `:49`.
+O adaptador está em `delegacao/codex.py:58`; o código examinado oferece destinos documentais local, agy e Codex econômico.
 Esse inventário descreve capacidades existentes; a delegação proposta usa exclusivamente agy, não esses destinos como alternativas.
 A conversa Ollama não tem ferramentas de coordenação, conforme A8.
 

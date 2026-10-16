@@ -48,7 +48,7 @@ rodar() {
   env -u HYPRLAND_INSTANCE_SIGNATURE -u JANGADA_HOOK_DESLIGADO -u JANGADA_SESSAO -u JANGADA_ISOLADO \
     -u FALSO_RC -u FALSO_ACAO PATH="$tmp/bin:$PATH" HOME="$tmp/casa" WAYLAND_DISPLAY=wayland-teste \
     XDG_STATE_HOME="$tmp/state" XDG_CONFIG_HOME="$tmp/config" XDG_RUNTIME_DIR="$tmp/runtime" \
-    JANGADA_PATH="$repo_jangada" FALSO_SINAIS="$sinais" FALSO_AVISOS="$avisos" "$@"
+    JANGADA_CORE_PATH="$repo_jangada" FALSO_SINAIS="$sinais" FALSO_AVISOS="$avisos" "$@"
 }
 # Uso: hook NOME SESSAO EVENTO JSON [VARIÁVEL=VALOR...]
 hook() {

@@ -2,7 +2,7 @@
 # Testa o contrato K1 (docs/modularizacao-3.0/03-contratos.md): todo nome de
 # testes/contratos/comandos.txt existe em bin/ com permissão de execução, o
 # despachante bin/jangada chega a cada um e o jangada-config, carregado a
-# partir de bin/, define JANGADA_PATH como a pasta acima. Nome com a marca
+# partir de bin/, define JANGADA_CORE_PATH como a pasta acima. Nome com a marca
 # "carregado" é biblioteca lida por source: só precisa existir.
 #
 # Nenhum comando real roda: o despacho é conferido com o bin/jangada copiado
@@ -60,13 +60,13 @@ conferir "bin/jangada recusa comando desconhecido" \
 
 # Forma usada pelos comandos: source "$(dirname "${BASH_SOURCE[0]}")/jangada-config".
 mkdir -p "$tmp/casa"
-caminho="$(env -u JANGADA_PATH HOME="$tmp/casa" XDG_CONFIG_HOME="$tmp/casa/config" XDG_STATE_HOME="$tmp/casa/state" \
-  bash -c 'source "$(dirname "$1")/jangada-config" >/dev/null 2>&1; printf %s "$JANGADA_PATH"' _ "$repo_jangada/bin/jangada")"
-conferir "jangada-config carregado de bin/ define JANGADA_PATH como a pasta acima" [ "$caminho" = "$repo_jangada" ]
+caminho="$(env -u JANGADA_CORE_PATH HOME="$tmp/casa" XDG_CONFIG_HOME="$tmp/casa/config" XDG_STATE_HOME="$tmp/casa/state" \
+  bash -c 'source "$(dirname "$1")/jangada-config" >/dev/null 2>&1; printf %s "$JANGADA_CORE_PATH"' _ "$repo_jangada/bin/jangada")"
+conferir "jangada-config carregado de bin/ define JANGADA_CORE_PATH como a pasta acima" [ "$caminho" = "$repo_jangada" ]
 
 # O teste precisa falhar quando a fachada muda: prova em cópias de bin/. As
-# pastas dos módulos vão junto, para os links de bin/ resolverem na cópia.
-copia() { rm -rf "$tmp/copia"; mkdir "$tmp/copia"; cp -a "$repo_jangada"/{bin,core,shell,monitor} "$tmp/copia/"; }
+# cópia de bin/ basta, porque os comandos são arquivos reais.
+copia() { rm -rf "$tmp/copia"; mkdir "$tmp/copia"; cp -a "$repo_jangada/bin" "$tmp/copia/"; }
 copia
 conferir "cópia intacta de bin/ passa" [ -z "$(problemas "$tmp/copia")" ]
 rm "$tmp/copia/bin/jangada-mapa"

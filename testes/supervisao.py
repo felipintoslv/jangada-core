@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / 'default/orquestracao'))
+sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from estado import Estado
 from executor import executar
 from metricas_projeto import resumir
@@ -93,9 +93,9 @@ class Supervisao(unittest.TestCase):
         self.fonte.write_text('Uma regra documentada.\n')
         self.raiz = self.pasta / 'jangada'
         (self.raiz / 'bin').mkdir(parents=True)
-        (self.raiz / 'default/delegacao').mkdir(parents=True)
-        shutil.copyfile(RAIZ / 'default/delegacao/validar.py', self.raiz / 'default/delegacao/validar.py')
-        shutil.copyfile(RAIZ / 'default/delegacao/roteamento.json', self.raiz / 'default/delegacao/roteamento.json')
+        (self.raiz / 'delegacao').mkdir(parents=True)
+        shutil.copyfile(RAIZ / 'delegacao/validar.py', self.raiz / 'delegacao/validar.py')
+        shutil.copyfile(RAIZ / 'delegacao/roteamento.json', self.raiz / 'delegacao/roteamento.json')
         comando = self.raiz / 'bin/jangada-delegar'
         comando.write_text(SIMULADO)
         comando.chmod(0o700)

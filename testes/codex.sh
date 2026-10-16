@@ -20,7 +20,7 @@ cat >"$tmp/bin/codex" <<'EOF'
 #!/usr/bin/env bash
 for arg in "$@"; do
   if [[ "$arg" == app-server ]]; then
-    exec python3 "$JANGADA_PATH/testes/falso-codex-hooks.py" "$@"
+    exec python3 "$JANGADA_CORE_PATH/testes/falso-codex-hooks.py" "$@"
   fi
 done
 if [[ "${1:-}" == --help ]]; then
@@ -43,7 +43,7 @@ done
 chmod +x "$tmp/bin/"*
 rodar() {
   env -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_DELEGAR -u JANGADA_VALIDAR_REVISOR \
-    PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp" JANGADA_PATH="$repo_jangada" \
+    PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp" JANGADA_CORE_PATH="$repo_jangada" \
     CODEX_HOME="$tmp/codex" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
 }
 git init -q -b main "$tmp/projeto"
@@ -425,19 +425,15 @@ rm -f "$tmp/state/jangada/agentes/projeto--tarefa.json"
 hook inicio '{}'
 conferir "hook não recria sessão encerrada" test ! -e "$tmp/state/jangada/agentes/projeto--tarefa.json"
 
-# Árvore como fica depois da migração: adaptador e hook em core/bin, com link
-# relativo em bin/. O comando registrado no Codex é o da fachada e, chamado
-# como o Codex chama, muda o estado da sessão.
+# Cópia da árvore: o comando registrado no Codex é o de bin/ e, chamado como
+# o Codex chama, muda o estado da sessão.
 arvore="$tmp/arvore"
-mkdir -p "$arvore/core/bin" "$arvore/testes"
-cp -a "$repo_jangada/bin" "$repo_jangada/default" "$repo_jangada/core" "$arvore/"
+mkdir -p "$arvore/bin" "$arvore/testes"
+cp -a "$repo_jangada/bin" "$repo_jangada/agentes" "$repo_jangada/nucleo" "$repo_jangada/orquestracao" \
+  "$repo_jangada/delegacao" "$repo_jangada/provedores" "$repo_jangada/validacao" "$arvore/"
 cp "$repo_jangada/testes/falso-codex-hooks.py" "$arvore/testes/"
-for c in jangada-codex jangada-hook-codex; do
-  cp -aL "$repo_jangada/bin/$c" "$arvore/core/bin/$c"
-  ln -sfn "../core/bin/$c" "$arvore/bin/$c"
-done
 rm -f "$tmp/codex.args"
-rodar JANGADA_PATH="$arvore" JANGADA_ISOLADO=1 JANGADA_MARCA_ISOLADO=/ "$arvore/bin/jangada-codex" -- codex >"$tmp/saida" 2>&1
+rodar JANGADA_CORE_PATH="$arvore" JANGADA_ISOLADO=1 JANGADA_MARCA_ISOLADO=/ "$arvore/bin/jangada-codex" -- codex >"$tmp/saida" 2>&1
 conferir "adaptador executa pelo link" [ "$?" = 0 ]
 python3 - "$tmp/codex.args" >"$tmp/hook-link.comando" <<'PY'
 import pathlib, sys, tomllib
@@ -448,7 +444,7 @@ PY
 conferir "hook registrado pela fachada, sem resolver o link" \
   [ "$(cat "$tmp/hook-link.comando")" = "'$arvore/bin/jangada-hook-codex' trabalhando" ]
 jq -n --arg r "$tmp/projeto" '{estado: "novo", agente: "codex", raiz: $r}' >"$tmp/state/jangada/agentes/projeto--link.json"
-printf '{}' | rodar JANGADA_PATH="$arvore" JANGADA_SESSAO=projeto--link sh -c "$(cat "$tmp/hook-link.comando")"
+printf '{}' | rodar JANGADA_CORE_PATH="$arvore" JANGADA_SESSAO=projeto--link sh -c "$(cat "$tmp/hook-link.comando")"
 conferir "hook registrado muda o estado da sessão" jq -e '.estado == "trabalhando" and .atualizado' \
   "$tmp/state/jangada/agentes/projeto--link.json"
 conferir "hook registrado grava o evento" jq -se 'any(.[]; .sessao == "projeto--link" and .estado == "trabalhando")' \

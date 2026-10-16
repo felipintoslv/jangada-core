@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / 'default/orquestracao'))
+sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from estado import Estado
 from saude import Saude, retomar
 
@@ -190,7 +190,7 @@ class Disponibilidade(unittest.TestCase):
 
     def test_estado_compartilhado_entre_projetos_pela_cli(self):
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(RAIZ), XDG_STATE_HOME=str(self.pasta / 'state'),
+        ambiente.update(JANGADA_CORE_PATH=str(RAIZ), XDG_STATE_HOME=str(self.pasta / 'state'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config'))
         pausa = subprocess.run([str(RAIZ / 'bin/jangada-provedor'), 'pausar', 'agy'], cwd=self.pasta,
                                env=ambiente, capture_output=True, text=True, timeout=30)
@@ -238,7 +238,7 @@ class Disponibilidade(unittest.TestCase):
         fonte = self.pasta / 'fonte.md'
         fonte.write_text('regra')
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(RAIZ), XDG_STATE_HOME=str(self.pasta / 'state'),
+        ambiente.update(JANGADA_CORE_PATH=str(RAIZ), XDG_STATE_HOME=str(self.pasta / 'state'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config'),
                         JANGADA_DELEGAR_IMPEDIMENTOS=json.dumps([
                             {'destino': d, 'motivo_codigo': 'provedor_pausado', 'motivo': 'pausado'}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Testa o contrato K2 (docs/modularizacao-3.0/03-contratos.md): cada caminho de
-# testes/contratos/caminhos.txt existe, como arquivo ou como link, e nenhum
-# link no caminho é absoluto nem leva para fora do repositório.
+# testes/contratos/caminhos.txt existe e nenhum link no caminho (se houver) é
+# absoluto nem leva para fora do repositório.
 #
 # Uso: testes/contratos-caminhos.sh
 set -uo pipefail
@@ -41,57 +41,31 @@ achados="$(problemas "$repo_jangada")"
 conferir "todo caminho da lista existe e fica dentro do repositório" [ -z "$achados" ]
 [[ -n "$achados" ]] && printf '      %s\n' "$achados"
 
-# A configuração do usuário carrega os módulos por require("default.hypr.*").
-faltam=""
-for m in $(grep -ho 'require("default\.hypr\.[a-z_]*")' config/hypr/*.lua default/hypr/*.lua | sed 's/.*hypr\.//; s/")//' | sort -u); do
-  caminhos | grep -qxF "default/hypr/$m.lua" || faltam+=" $m"
-done
-conferir "todo módulo de require(\"default.hypr.*\") está na lista:$faltam" [ -z "$faltam" ]
-
 # O teste precisa falhar quando um caminho some ou sai do repositório: prova
 # em cópias que só têm os caminhos da lista.
 copia() {
   rm -rf "$tmp/copia" "$tmp/fora"
   mkdir "$tmp/copia" "$tmp/fora"
-  # Copia também links intermediários antes dos arquivos: default/r/lintr
-  # contém dois saltos, e --parents sozinho materializa default/r como pasta.
-  local c parcial parte
-  while IFS= read -r c; do
-    parcial=""
-    while IFS= read -r parte; do
-      parcial+="${parcial:+/}$parte"
-      if [[ -L "$parcial" ]]; then
-        cp -a --parents "$(realpath --relative-to=. "$parcial")" "$tmp/copia"
-        cp -a --parents "$parcial" "$tmp/copia"
-      fi
-    done < <(tr '/' '\n' <<<"$c")
-  done < <(caminhos)
   caminhos | xargs -d '\n' cp -a --parents -t "$tmp/copia"
-  # Caminho da lista que é link precisa do destino na cópia para existir.
-  caminhos | while IFS= read -r c; do [[ -L "$c" ]] && realpath --relative-to=. "$c"; done |
-    sort -u | xargs -r -d '\n' cp -a --parents -t "$tmp/copia"
 }
 copia
 conferir "cópia intacta dos caminhos passa" [ -z "$(problemas "$tmp/copia")" ]
-rm "$tmp/copia/default/waybar/base.css"
+rm "$tmp/copia/agentes/agy/hooks.json"
 conferir "caminho removido é apontado como ausente" \
-  grep -qxF "ausente: default/waybar/base.css" <<<"$(problemas "$tmp/copia")"
+  grep -qxF "ausente: agentes/agy/hooks.json" <<<"$(problemas "$tmp/copia")"
 copia
-mkdir -p "$tmp/copia/shell/integracoes"
-mv "$tmp/copia/shell/jangada.sh" "$tmp/copia/shell/integracoes/jangada.sh"
-ln -s integracoes/jangada.sh "$tmp/copia/shell/jangada.sh"
+mkdir -p "$tmp/copia/agentes/agy/real"
+mv "$tmp/copia/agentes/agy/hooks.json" "$tmp/copia/agentes/agy/real/hooks.json"
+ln -s real/hooks.json "$tmp/copia/agentes/agy/hooks.json"
 conferir "link relativo para dentro do repositório passa" [ -z "$(problemas "$tmp/copia")" ]
-ln -sfn "$tmp/copia/shell/integracoes/jangada.sh" "$tmp/copia/shell/jangada.sh"
+ln -sfn "$tmp/copia/agentes/agy/real/hooks.json" "$tmp/copia/agentes/agy/hooks.json"
 conferir "link absoluto é apontado" \
-  grep -qxF "link absoluto: shell/jangada.sh" <<<"$(problemas "$tmp/copia")"
+  grep -qxF "link absoluto: agentes/agy/hooks.json" <<<"$(problemas "$tmp/copia")"
 copia
-mv "$tmp/copia/default/claude/agents" "$tmp/fora/agents"
-# A cópia preserva default/claude como link para core/agentes/claude; a
-# referência externa deve partir desse destino físico.
-ln -s "$(realpath --relative-to="$(realpath "$tmp/copia/default/claude")" "$tmp/fora/agents")" \
-  "$tmp/copia/default/claude/agents"
+mv "$tmp/copia/agentes/claude/agents" "$tmp/fora/agents"
+ln -s "$(realpath --relative-to="$tmp/copia/agentes/claude" "$tmp/fora/agents")" "$tmp/copia/agentes/claude/agents"
 conferir "link para fora do repositório é apontado" \
-  grep -qxF "link para fora do repositório: default/claude/agents" <<<"$(problemas "$tmp/copia")"
+  grep -qxF "link para fora do repositório: agentes/claude/agents" <<<"$(problemas "$tmp/copia")"
 
 ((falhas == 0)) && echo "tudo certo" || echo "$falhas falha(s)"
 exit $((falhas > 0))

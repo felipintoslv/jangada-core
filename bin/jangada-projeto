@@ -1,1 +1,6 @@
-../core/bin/jangada-projeto
+#!/usr/bin/env bash
+# Cadastro e consulta operacional. Uso: jangada-projeto [--projeto PASTA] AÇÃO [OPÇÕES]
+set -euo pipefail
+# shellcheck source=bin/jangada-config
+source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
+exec python3 "$JANGADA_CORE_PATH/nucleo/cli.py" "$@"

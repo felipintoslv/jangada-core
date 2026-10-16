@@ -1,1 +1,6 @@
-../core/bin/jangada-executar
+#!/usr/bin/env bash
+# Executa a fila. Uso: jangada-executar [--perfil PERFIL] [--limite N] [--paralelo N] [--projeto PASTA]
+set -euo pipefail
+# shellcheck source=bin/jangada-config
+source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
+exec python3 "$JANGADA_CORE_PATH/orquestracao/cli.py" executar "$@"

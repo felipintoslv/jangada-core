@@ -40,11 +40,11 @@ renomeações e links em `git diff --stat -M`") precisa citar o `-B`.
 
 ## 1. Comandos movidos e `jangada-config`
 
-Rodados de `/`, sem `JANGADA_PATH`, com `HOME` e `XDG_*` temporários:
+Rodados de `/`, sem `JANGADA_CORE_PATH`, com `HOME` e `XDG_*` temporários:
 
 | Comando | Saída relevante | Resultado |
 |---|---|---|
-| `source $S/prova/bin/jangada-config; echo $JANGADA_PATH` | `$S/prova` | pasta acima de `bin/`, não de `core/bin` |
+| `source $S/prova/bin/jangada-config; echo $JANGADA_CORE_PATH` | `$S/prova` | pasta acima de `bin/`, não de `core/bin` |
 | `bin/jangada-barra --posicao` | `topo`, saída 0 | ok |
 | `bin/jangada-barra --ajuda` | texto da ajuda, saída 0 | ok |
 | `bin/jangada-painel --waybar` | `{"text":"󰄪",...,"class":"parado"}`, saída 0 | ok |
@@ -122,7 +122,7 @@ Comando, em cada cópia:
 
 ```
 cd $S/<cópia> && env -u JANGADA_ISOLADO -u JANGADA_DELEGAR -u JANGADA_PAPEL \
-  -u JANGADA_PAPEL_AJUSTE JANGADA_PATH=$S/<cópia> bash testes/verificar.sh </dev/null
+  -u JANGADA_PAPEL_AJUSTE JANGADA_CORE_PATH=$S/<cópia> bash testes/verificar.sh </dev/null
 ```
 
 | Cópia | Saída | Grupos falhos |
@@ -170,11 +170,11 @@ git clone -q ~/Projetos/jangada "$P" && cd "$P" && mkdir -p core/bin shell/bin m
  && git mv default/painel monitor/painel && ln -s ../monitor/painel default/painel \
  && git add -A && git commit -qm prova
 for casa in "" minima; do
-  (cd "$(mktemp -d)" && JANGADA_ISOLAR_CASA=$casa JANGADA_PATH="$P" "$P/bin/jangada-isolar" -- bash -c '
-    readlink "$JANGADA_PATH/bin/jangada-fila" "$JANGADA_PATH/default/painel"
-    ls "$JANGADA_PATH/default/waybar"
-    "$JANGADA_PATH/bin/jangada-barra" --posicao
-    "$JANGADA_PATH/bin/jangada-painel" --waybar')
+  (cd "$(mktemp -d)" && JANGADA_ISOLAR_CASA=$casa JANGADA_CORE_PATH="$P" "$P/bin/jangada-isolar" -- bash -c '
+    readlink "$JANGADA_CORE_PATH/bin/jangada-fila" "$JANGADA_CORE_PATH/default/painel"
+    ls "$JANGADA_CORE_PATH/default/waybar"
+    "$JANGADA_CORE_PATH/bin/jangada-barra" --posicao
+    "$JANGADA_CORE_PATH/bin/jangada-painel" --waybar')
 done
 ```
 
@@ -227,7 +227,7 @@ sessões de agente abertas:
 I="$(mktemp -d ~/instalada-falsa.XXXXXX)/jangada"
 git clone -q "$P" "$I" && git -C "$I" switch -q -C main HEAD~1 && git -C "$I" branch -q -u origin/main
 mkdir -p "$I/default/painel/__pycache__" && : >"$I/default/painel/__pycache__/x.pyc"
-JANGADA_PATH="$I" XDG_CONFIG_HOME="$(mktemp -d)" TMUX_TMPDIR="$(mktemp -d)" \
+JANGADA_CORE_PATH="$I" XDG_CONFIG_HOME="$(mktemp -d)" TMUX_TMPDIR="$(mktemp -d)" \
   "$I/bin/jangada-update" --somente-codigo
 readlink "$I/bin/jangada-fila" "$I/default/painel"
 ```
@@ -236,7 +236,7 @@ Resultado: lista com o commit `prova`, pergunta `[s/N]`, `código instalado em`
 e os dois links resolvendo; `git status` limpo.
 
 Ressalva: a conferência de processos do `jangada-update` (linhas 48 a 50)
-procura `"$JANGADA_PATH/default/"` e `"$JANGADA_PATH/bin/jangada-"` na linha de
+procura `"$JANGADA_CORE_PATH/default/"` e `"$JANGADA_CORE_PATH/bin/jangada-"` na linha de
 comando. Processo aberto por caminho resolvido (`core/...`, `monitor/...`),
 como o `python3` do `jangada-subagentes`, escapa dela.
 
@@ -261,7 +261,7 @@ aceitação da M3-03.
 ## 7. `install.sh` com `JANGADA_SIMULAR=1`
 
 ```
-cd $S/<cópia> && env -u JANGADA_PATH -u JANGADA_ISOLADO -u JANGADA_CONFIG -u JANGADA_ESTADO \
+cd $S/<cópia> && env -u JANGADA_CORE_PATH -u JANGADA_ISOLADO -u JANGADA_CONFIG -u JANGADA_ESTADO \
   -u JANGADA_REPO -u JANGADA_WORKTREES HOME=$H XDG_CONFIG_HOME=$H/.config \
   XDG_STATE_HOME=$H/.local/state XDG_CACHE_HOME=$H/.cache JANGADA_SIMULAR=1 bash install.sh </dev/null
 ```
@@ -269,7 +269,7 @@ cd $S/<cópia> && env -u JANGADA_PATH -u JANGADA_ISOLADO -u JANGADA_CONFIG -u JA
 As duas cópias saem com 0 e `ok instalação concluída`, em 137 linhas. O
 `diff` das saídas, trocada a pasta da cópia, só mostra o horário no nome da
 cópia de segurança de `jangada.desktop`. As pastas `$H` ficaram vazias. O
-`style.css` gerado aponta `@JANGADA_PATH@/default/waybar/base.css`, que
+`style.css` gerado aponta `@JANGADA_CORE_PATH@/default/waybar/base.css`, que
 resolve pelo link.
 
 ## 8. `git archive` e clone novo
@@ -293,7 +293,7 @@ Extraídos do `tar`, do `zip` (`git archive --format=zip`) e de
 
 `git -C $S/prova worktree add $S/wt -b teste-wt`: os cinco links existem e
 resolvem, `git status` limpo, e `jangada-config` carregado de `$S/wt/bin`
-define `JANGADA_PATH=$S/wt`.
+define `JANGADA_CORE_PATH=$S/wt`.
 
 ## Ressalvas para as tarefas seguintes
 
@@ -304,7 +304,7 @@ define `JANGADA_PATH=$S/wt`.
    motivo; a linha `:658` não está na lista de arquivos permitidos da tarefa.
 3. `bin/jangada-subagentes:13`, `bin/jangada-hook-leitor:15` e
    `bin/jangada-codex:102` usam `realpath` e quebram ao mover; precisam usar
-   `JANGADA_PATH` ou deixar de resolver o link antes da M3-17 e da M3-18.
+   `JANGADA_CORE_PATH` ou deixar de resolver o link antes da M3-17 e da M3-18.
 4. `testes/contratos-fachada.sh:68` e `testes/fronteiras.sh:191` precisam
    copiar também `core/`, `shell/` e `monitor/`; `testes/contratos/modulos.txt`
    muda junto com cada mudança de pasta.

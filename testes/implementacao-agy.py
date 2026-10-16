@@ -16,7 +16,7 @@ import unittest
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("implementacao", REPO / "core/delegacao/implementacao.py")
+spec = importlib.util.spec_from_file_location("implementacao", REPO / "delegacao/implementacao.py")
 modulo = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(modulo)
 
@@ -37,7 +37,7 @@ class Implementacao(unittest.TestCase):
         cli.mkdir()
         agentes = self.tmp / "agentes/implementador"
         agentes.mkdir(parents=True)
-        (agentes / "agent.md").write_text((REPO / "core/agentes/agy/agents/implementador/agent.md").read_text())
+        (agentes / "agent.md").write_text((REPO / "agentes/agy/agents/implementador/agent.md").read_text())
         (cfg / "agents.json").write_text(json.dumps({"entries": [{"path": str(agentes.parent)}]}))
         (cli / "settings.json").write_text(json.dumps({"trustedWorkspaces": [str(self.raiz)]}))
         (self.raiz / "dados.txt").write_text("valor=1\n")
@@ -48,7 +48,7 @@ class Implementacao(unittest.TestCase):
         self.base = self.git("rev-parse", "HEAD").strip()
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(("JANGADA_", "XDG_"))}
         self.env.pop("DBUS_SESSION_BUS_ADDRESS", None)
-        self.env.update(HOME=str(self.casa), PATH=str(self.bin) + ":/usr/bin:/bin", JANGADA_PATH=str(REPO),
+        self.env.update(HOME=str(self.casa), PATH=str(self.bin) + ":/usr/bin:/bin", JANGADA_CORE_PATH=str(REPO),
                         XDG_STATE_HOME=str(self.tmp / "estado"), JANGADA_ESTADO=str(self.tmp / "estado/jangada"), XDG_CONFIG_HOME=str(self.tmp / "config"),
                         XDG_CACHE_HOME=str(self.tmp / "cache"), JANGADA_SESSAO="sintetica")
         self.script("agy", '''import json,sys
@@ -150,12 +150,12 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
                                   arquivos=["fonte.txt"], pedido="atividade", criterio=["valor=2"], prazo=30)
         registro = self.casa / ".gemini/config/agents.json"
         valido = registro.read_text()
-        for falha in ("path", "JANGADA_PATH"):
+        for falha in ("path", "JANGADA_CORE_PATH"):
             with self.subTest(falha=falha):
                 registro.write_text('{"entries":[{}]}' if falha == "path" else valido)
                 ambiente = dict(self.env)
-                if falha == "JANGADA_PATH":
-                    ambiente.pop("JANGADA_PATH")
+                if falha == "JANGADA_CORE_PATH":
+                    ambiente.pop("JANGADA_CORE_PATH")
                 saida = io.StringIO()
                 with mock.patch.dict(os.environ, ambiente, clear=True), \
                         mock.patch.object(Path, "home", return_value=self.casa), \

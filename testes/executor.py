@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / 'default/orquestracao'))
+sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from estado import Estado
 from executor import executar, assumir_principal, entregar_principal
 from acompanhamento import acompanhar
@@ -81,8 +81,8 @@ class Execucao(unittest.TestCase):
         self.fonte.write_text('regra de teste', encoding='utf-8')
         self.raiz = self.pasta / 'jangada'
         (self.raiz / 'bin').mkdir(parents=True)
-        (self.raiz / 'default/delegacao').mkdir(parents=True)
-        shutil.copyfile(RAIZ / 'default/delegacao/validar.py', self.raiz / 'default/delegacao/validar.py')
+        (self.raiz / 'delegacao').mkdir(parents=True)
+        shutil.copyfile(RAIZ / 'delegacao/validar.py', self.raiz / 'delegacao/validar.py')
         simulador = self.raiz / 'bin/jangada-delegar'
         simulador.write_text(SIMULADO, encoding='utf-8')
         simulador.chmod(0o700)
@@ -268,12 +268,12 @@ class Execucao(unittest.TestCase):
 
     def test_cli_principal_entrega_e_revisao_liberam_dependente(self):
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(RAIZ), JANGADA_ESTADO=str(self.pasta / 'cli-estado'),
+        ambiente.update(JANGADA_CORE_PATH=str(RAIZ), JANGADA_ESTADO=str(self.pasta / 'cli-estado'),
                         XDG_STATE_HOME=str(self.pasta / 'state'), XDG_CONFIG_HOME=str(self.pasta / 'config'))
         plano = self.projeto / 'plano.json'
         plano.write_text(json.dumps([self.tarefa(risco=3), self.tarefa('T2', dependencias=['T1'])]))
         def comando(*args):
-            return subprocess.run([sys.executable, str(RAIZ / 'default/orquestracao/cli.py'), *args,
+            return subprocess.run([sys.executable, str(RAIZ / 'orquestracao/cli.py'), *args,
                                    '--projeto', str(self.projeto)], env=ambiente, capture_output=True, text=True, timeout=10)
         self.assertEqual(comando('fila', '--importar', str(plano)).returncode, 0)
         for args in (('assumir', '--executor', 'claude', '--dono', 'indevido'),
@@ -524,12 +524,12 @@ class Execucao(unittest.TestCase):
         self.assertNotIn('--permitir-codex', json.loads(self.registro.read_text())['args'])
 
     def test_cli_executa_plano_sem_interpretar_pedido(self):
-        shutil.copytree(RAIZ / 'default/orquestracao', self.raiz / 'default/orquestracao')
-        shutil.copytree(RAIZ / 'default/nucleo', self.raiz / 'default/nucleo')
+        shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')
+        shutil.copytree(RAIZ / 'nucleo', self.raiz / 'nucleo')
         plano = self.projeto / 'plano.json'
         plano.write_text(json.dumps([self.tarefa(pedido='$(touch invasao); --opcao')]), encoding='utf-8')
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
+        ambiente.update(JANGADA_CORE_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config-cli'))
         importacao = subprocess.run([str(RAIZ / 'bin/jangada-fila'), '--importar', str(plano)],
                                    cwd=self.projeto, env=ambiente, text=True, capture_output=True, timeout=30)
@@ -541,12 +541,12 @@ class Execucao(unittest.TestCase):
         self.assertFalse((self.projeto / 'invasao').exists())
 
     def test_cli_lista_revisao_e_revisa_em_lote(self):
-        shutil.copytree(RAIZ / 'default/orquestracao', self.raiz / 'default/orquestracao')
-        shutil.copytree(RAIZ / 'default/nucleo', self.raiz / 'default/nucleo')
+        shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')
+        shutil.copytree(RAIZ / 'nucleo', self.raiz / 'nucleo')
         plano = self.projeto / 'plano.json'
         plano.write_text(json.dumps([self.tarefa(), self.tarefa('T2'), self.tarefa('T3')]), encoding='utf-8')
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
+        ambiente.update(JANGADA_CORE_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config-cli'))
 
         def comando(nome, *argumentos):
@@ -570,13 +570,13 @@ class Execucao(unittest.TestCase):
         self.assertEqual(json.loads(comando('jangada-fila', '--revisao', '--json').stdout)['revisao'], [])
 
     def test_cli_paralelo_executa_tarefas_distintas_ao_mesmo_tempo(self):
-        shutil.copytree(RAIZ / 'default/orquestracao', self.raiz / 'default/orquestracao')
-        shutil.copytree(RAIZ / 'default/nucleo', self.raiz / 'default/nucleo')
-        shutil.copyfile(RAIZ / 'default/delegacao/roteamento.json', self.raiz / 'default/delegacao/roteamento.json')
+        shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')
+        shutil.copytree(RAIZ / 'nucleo', self.raiz / 'nucleo')
+        shutil.copyfile(RAIZ / 'delegacao/roteamento.json', self.raiz / 'delegacao/roteamento.json')
         plano = self.projeto / 'plano.json'
         plano.write_text(json.dumps([self.tarefa(f'T{i}', permitir_remoto=True) for i in range(5)]), encoding='utf-8')
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
+        ambiente.update(JANGADA_CORE_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config-cli'), MODO_TESTE='paralelo')
 
         def comando(nome, *argumentos):
@@ -605,13 +605,13 @@ class Execucao(unittest.TestCase):
         self.assertEqual([t['tentativas'] for t in fila], [1, 1, 1, 0, 0])
 
     def test_cli_paralelo_encerrado_interrompe_os_processos_filhos(self):
-        shutil.copytree(RAIZ / 'default/orquestracao', self.raiz / 'default/orquestracao')
-        shutil.copytree(RAIZ / 'default/nucleo', self.raiz / 'default/nucleo')
-        shutil.copyfile(RAIZ / 'default/delegacao/roteamento.json', self.raiz / 'default/delegacao/roteamento.json')
+        shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')
+        shutil.copytree(RAIZ / 'nucleo', self.raiz / 'nucleo')
+        shutil.copyfile(RAIZ / 'delegacao/roteamento.json', self.raiz / 'delegacao/roteamento.json')
         plano = self.projeto / 'plano.json'
         plano.write_text(json.dumps([self.tarefa(f'T{i}', permitir_remoto=True) for i in range(4)]), encoding='utf-8')
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
+        ambiente.update(JANGADA_CORE_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config-cli'), MODO_TESTE='demorado')
         comum = dict(cwd=self.projeto, env=ambiente, text=True)
         self.assertEqual(subprocess.run([str(RAIZ / 'bin/jangada-fila'), '--importar', str(plano)],
@@ -636,13 +636,13 @@ class Execucao(unittest.TestCase):
         self.assertEqual({t['status'] for t in fila}, {'REVISION_REQUIRED'})
 
     def test_cli_retomada_repassa_a_amostragem(self):
-        shutil.copytree(RAIZ / 'default/orquestracao', self.raiz / 'default/orquestracao')
-        shutil.copytree(RAIZ / 'default/nucleo', self.raiz / 'default/nucleo')
-        shutil.copyfile(RAIZ / 'default/delegacao/roteamento.json', self.raiz / 'default/delegacao/roteamento.json')
+        shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')
+        shutil.copytree(RAIZ / 'nucleo', self.raiz / 'nucleo')
+        shutil.copyfile(RAIZ / 'delegacao/roteamento.json', self.raiz / 'delegacao/roteamento.json')
         plano = self.projeto / 'plano.json'
         plano.write_text(json.dumps([self.tarefa(intermediaria=True, amostragem=True)]), encoding='utf-8')
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
+        ambiente.update(JANGADA_CORE_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config-cli'))
         comum = dict(cwd=self.projeto, env=ambiente, text=True, capture_output=True, timeout=30)
         self.assertEqual(subprocess.run([str(RAIZ / 'bin/jangada-fila'), '--importar', str(plano)], **comum).returncode, 0)
@@ -654,18 +654,18 @@ class Execucao(unittest.TestCase):
         self.assertEqual(resultado['amostragem']['taxa'], 1)
 
     def test_cli_paralelo_informa_falha_de_um_processo(self):
-        shutil.copytree(RAIZ / 'default/orquestracao', self.raiz / 'default/orquestracao')
-        shutil.copytree(RAIZ / 'default/nucleo', self.raiz / 'default/nucleo')
-        shutil.copyfile(RAIZ / 'default/delegacao/roteamento.json', self.raiz / 'default/delegacao/roteamento.json')
-        (self.raiz / 'default/orquestracao/executor.py').write_text(
-            (RAIZ / 'default/orquestracao/executor.py').read_text(encoding='utf-8')
+        shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')
+        shutil.copytree(RAIZ / 'nucleo', self.raiz / 'nucleo')
+        shutil.copyfile(RAIZ / 'delegacao/roteamento.json', self.raiz / 'delegacao/roteamento.json')
+        (self.raiz / 'orquestracao/executor.py').write_text(
+            (RAIZ / 'orquestracao/executor.py').read_text(encoding='utf-8')
             + "\n\n_original = executar\n\n\ndef executar(estado, projeto, raiz, perfil, limite, *resto):\n"
               "    if limite == 1:\n        raise ValueError('falha simulada')\n"
               "    return _original(estado, projeto, raiz, perfil, limite, *resto)\n", encoding='utf-8')
         plano = self.projeto / 'plano.json'
         plano.write_text(json.dumps([self.tarefa(f'T{i}', permitir_remoto=True) for i in range(3)]), encoding='utf-8')
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
+        ambiente.update(JANGADA_CORE_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config-cli'))
         comum = dict(cwd=self.projeto, env=ambiente, text=True, capture_output=True, timeout=30)
         self.assertEqual(subprocess.run([str(RAIZ / 'bin/jangada-fila'), '--importar', str(plano)], **comum).returncode, 0)
@@ -676,16 +676,16 @@ class Execucao(unittest.TestCase):
         self.assertEqual(len(json.loads(execucao.stdout)['resultados']), 2)
 
     def test_cli_retomada_executa_com_provedor_verificado(self):
-        shutil.copytree(RAIZ / 'default/orquestracao', self.raiz / 'default/orquestracao')
-        shutil.copytree(RAIZ / 'default/nucleo', self.raiz / 'default/nucleo')
-        shutil.copyfile(RAIZ / 'default/delegacao/roteamento.json', self.raiz / 'default/delegacao/roteamento.json')
+        shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')
+        shutil.copytree(RAIZ / 'nucleo', self.raiz / 'nucleo')
+        shutil.copyfile(RAIZ / 'delegacao/roteamento.json', self.raiz / 'delegacao/roteamento.json')
         config = self.pasta / 'config-cli/jangada'
         config.mkdir(parents=True)
         (config / 'delegacao.json').write_text(json.dumps({'leitura_documental': ['local']}))
         plano = self.projeto / 'plano.json'
         plano.write_text(json.dumps([self.tarefa()]), encoding='utf-8')
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
+        ambiente.update(JANGADA_CORE_PATH=str(self.raiz), XDG_STATE_HOME=str(self.pasta / 'state-cli'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config-cli'), MODO_TESTE='cota')
 
         def comando(nome, *argumentos):

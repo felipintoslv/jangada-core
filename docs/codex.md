@@ -2,8 +2,8 @@
 
 O Codex implementa no mesmo ciclo de worktree, tmux, validação e integração
 usado pelos outros agentes. Desde a modularização 3.0, os perfis moram em
-`core/agentes/perfis/` e os comandos em `core/bin/`; os caminhos
-`default/agentes/` e `bin/jangada-*` citados aqui são links de
+`agentes/perfis/` e os comandos em `bin/`; os caminhos
+`agentes/perfis/` e `bin/jangada-*` citados aqui são links de
 compatibilidade e continuam sendo a forma de uso. Há dois perfis padrão, e
 o Codex participa dos dois:
 
@@ -28,10 +28,10 @@ versão que ofereça `--no-daemon`, para não conectar a sessão a um processo
 compartilhado fora do isolamento. A implementação foi conferida com a ajuda
 do Codex CLI 0.159.2 e com executáveis simulados nos testes.
 
-Os perfis são lidos diretamente de `default/agentes/`, com precedência da
+Os perfis são lidos diretamente de `agentes/perfis/`, com precedência da
 cópia em `~/.config/jangada/agentes/`. Não exigem migração de configuração
 ou instalação de hooks globais. A cópia instalada precisa receber a
-atualização pelo fluxo habitual do `jangada-update`.
+atualização pelo fluxo habitual de atualização (`git merge --ff-only` na cópia instalada).
 
 ## Execução e isolamento
 

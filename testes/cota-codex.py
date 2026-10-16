@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / 'default/orquestracao'))
+sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from cota_codex import consultar, percentual
 from estado import Estado
 from saude import Saude
@@ -152,7 +152,7 @@ sys.stdin.read()
                       + ').write_text(json.dumps({"pid": os.getpid(), "casa": os.environ["CODEX_HOME"]}))\n'
                       + 'time.sleep(60)\n')
         pedido = 'import sys; sys.dont_write_bytecode = True; sys.path.insert(0, ' \
-                 + repr(str(RAIZ / 'default/orquestracao')) \
+                 + repr(str(RAIZ / 'orquestracao')) \
                  + '); from cota_codex import consultar; consultar(' + repr(str(self.estado.pasta)) + ')'
         for numero in (signal.SIGTERM, signal.SIGHUP):
             with self.subTest(sinal=numero):
@@ -248,7 +248,7 @@ sys.stdin.read()
     def test_cli_explicita_e_falha_sem_divulgar_resposta(self):
         self.resposta(cotas())
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(RAIZ), XDG_STATE_HOME=str(self.pasta / 'state'),
+        ambiente.update(JANGADA_CORE_PATH=str(RAIZ), XDG_STATE_HOME=str(self.pasta / 'state'),
                         XDG_CONFIG_HOME=str(self.pasta / 'config'))
         comando = [str(RAIZ / 'bin/jangada-router'), 'status', '--atualizar-codex']
         negada = subprocess.run(comando, env=ambiente, capture_output=True, text=True, timeout=20)

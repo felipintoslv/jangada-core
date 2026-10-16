@@ -24,7 +24,7 @@ código foi movido, descreve o estado daquela data.
 
 1. O repositório continua único. `core/`, `shell/` e `monitor/` passam a ser
    pastas reais na raiz, e `bin/` permanece como fachada pública: todo
-   `jangada-*` continua em `$JANGADA_PATH/bin`.
+   `jangada-*` continua em `$JANGADA_CORE_PATH/bin`.
 2. Dos 59 comandos, 23 vão para o Core, 25 para o Shell, 4 para o Monitor e
    7 ficam compartilhados em `bin/`. Dos 127 arquivos de `default/`, 78 vão
    para o Core, 36 para o Shell, 10 para o Monitor e 3 ficam compartilhados.
@@ -51,7 +51,7 @@ código foi movido, descreve o estado daquela data.
 | Referência Git | etiqueta anotada local `jangada-pre-modularizacao-3.0` em `ad30fdd`, não enviada |
 | Worktree de planejamento | `~/.local/share/jangada-worktrees/jangada/modularizacao-3-0-planejamento`, ramo `agente/modularizacao-3-0-planejamento` |
 | Worktrees que já existiam | `tarefa-a57239626af5`, `~/Projetos/jangada-baseline-2026-10`, `~/Projetos/jangada-confianca-p0`; nenhum foi alterado |
-| Suíte de testes | `JANGADA_PATH=$PWD testes/verificar.sh` em `ad30fdd`, em 09/10/2026: saída 0, "tudo certo", 3 min 43 s |
+| Suíte de testes | `JANGADA_CORE_PATH=$PWD testes/verificar.sh` em `ad30fdd`, em 09/10/2026: saída 0, "tudo certo", 3 min 43 s |
 
 A execução anterior registrada em `docs/estabilizacao/TESTES_BASELINE.md`
 (commit `5816c76e8182`) saiu com 1 e sete grupos falhos por limite do

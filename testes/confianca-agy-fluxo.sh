@@ -72,7 +72,7 @@ rodar() {
   env -u JANGADA_ISOLADO -u JANGADA_SESSAO -u JANGADA_DELEGAR -u JANGADA_VALIDAR_REVISOR \
     -u JANGADA_AGY_SETTINGS -u TMUX -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" \
-    PATH="${CAMINHO:-$tmp/bin:$PATH}" JANGADA_PATH="$repo_jangada" FALSO_DIR="$tmp" \
+    PATH="${CAMINHO:-$tmp/bin:$PATH}" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp" \
     JANGADA_AGENTE_ESCOLHER=0 "$@" </dev/null >"$tmp/saida" 2>&1
 }
 # O mesmo num pseudoterminal, com RESPOSTA digitada na pergunta.
@@ -81,7 +81,7 @@ rodar_tty() {
   printf '%s\n' "$resposta" | env -u JANGADA_ISOLADO -u JANGADA_SESSAO -u JANGADA_DELEGAR \
     -u JANGADA_VALIDAR_REVISOR -u JANGADA_AGY_SETTINGS -u TMUX -u WAYLAND_DISPLAY \
     -u HYPRLAND_INSTANCE_SIGNATURE HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" \
-    XDG_STATE_HOME="$tmp/state" PATH="$tmp/bin:$PATH" JANGADA_PATH="$repo_jangada" \
+    XDG_STATE_HOME="$tmp/state" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" \
     FALSO_DIR="$tmp" JANGADA_AGENTE_ESCOLHER=0 \
     script -qec "$(printf '%q ' "$@")" /dev/null >"$tmp/saida" 2>&1
 }

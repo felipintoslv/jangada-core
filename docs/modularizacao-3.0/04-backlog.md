@@ -221,7 +221,7 @@ trecho de cada exceção não mudou. Ver
 | Agente | Monitor (`claude`), revisor `codex` |
 | Arquivos permitidos | `default/painel/orquestracao.py`, `default/painel/coletor.py`, `bin/jangada-config` (só a variável nova), `bin/jangada-painel`, `default/painel/app.R`, `default/painel/fichas.R`, `default/painel/operacional.R`, `testes/painel-motores.R`, `testes/painel-operacional.R`, `testes/painel-orquestracao.py`, `testes/contratos/fronteiras-excecoes.txt` |
 | Dependências | M3-04 (fila do `jangada-config`), M3-02 |
-| Aceitação | painel mostra os mesmos números com o banco somente leitura; exceções retiradas; ressalva 1: `JANGADA_CORE_PY` permite importar `coletor` e `orquestracao` com `default/painel` como link; o app R recebe `JANGADA_PATH` e carrega visual, logo e monitoramento sem depender de `getwd()`, antes da M3-17 |
+| Aceitação | painel mostra os mesmos números com o banco somente leitura; exceções retiradas; ressalva 1: `JANGADA_CORE_PY` permite importar `coletor` e `orquestracao` com `default/painel` como link; o app R recebe `JANGADA_CORE_PATH` e carrega visual, logo e monitoramento sem depender de `getwd()`, antes da M3-17 |
 | Testes | `testes/painel-orquestracao.py`, `testes/painel-local.py`, `testes/painel.sh`, `testes/painel-motores.R`, `testes/painel-operacional.R`, `verificar.sh` |
 | Riscos | consulta que dependia de método herdado sem equivalente de leitura |
 | Reversão | `git revert` |
@@ -234,7 +234,7 @@ trecho de cada exceção não mudou. Ver
 | Agente | Core (`claude`), revisor `codex` |
 | Arquivos permitidos | `default/delegacao/entrega.py` (novo), `default/painel/subagentes.py`, `bin/jangada-subagentes`, `bin/jangada-validar` (só o trecho da linha 159), `bin/jangada-agentes` (só o trecho da linha 635), `testes/validar.sh`, `testes/subagentes.sh`, lista de exceções |
 | Dependências | M3-07 (mesma pasta `default/painel`), M3-05 (mesmo `jangada-agentes`) |
-| Aceitação | parecer idêntico com e sem `jangada-subagentes` no `PATH`; saída de `--entrega` idêntica byte a byte à atual em três amostras; ressalva 3, `jangada-subagentes`: usa `JANGADA_PATH` em vez do `realpath` da linha 13 e executa pela fachada com destino em `monitor/bin`, antes da M3-17 |
+| Aceitação | parecer idêntico com e sem `jangada-subagentes` no `PATH`; saída de `--entrega` idêntica byte a byte à atual em três amostras; ressalva 3, `jangada-subagentes`: usa `JANGADA_CORE_PATH` em vez do `realpath` da linha 13 e executa pela fachada com destino em `monitor/bin`, antes da M3-17 |
 | Testes | `testes/validar.sh`, `testes/subagentes.sh`, `testes/amostras-subagentes.py`, `verificar.sh` |
 | Riscos | mexer no `jangada-validar`, que é a porta de aprovação |
 | Reversão | `git revert` |
@@ -274,7 +274,7 @@ trecho de cada exceção não mudou. Ver
 | Agente | Core (`claude`), revisor `codex` |
 | Arquivos permitidos | `default/tarefas/janela.py`, `bin/jangada-hook-leitor`, `bin/jangada-codex`, `bin/jangada-update`, `testes/tarefas.py`, `testes/tarefas.sh`, `testes/hooks.sh`, `testes/codex.sh`, `testes/update.sh`, `testes/update-codigo.py` |
 | Dependências | M3-02, M3-07 (variáveis de K5) |
-| Aceitação | ressalva 2: importação de `visual` (linha 25) e logo (linha 658) usam `JANGADA_PATH` e funcionam com `default/tarefas` e `default/logo` como links, antes da M3-13 e M3-15; ressalva 3: `jangada-hook-leitor:15` usa `JANGADA_PATH` e executa pelo link, e `jangada-codex:101,102` registra o hook pela fachada sem `realpath`; o hook altera de fato o estado da sessão, antes da M3-18; ressalva 5: atualização recusa processos com caminhos em `core/`, `shell/` e `monitor/`, além dos legados, em instalação falsa |
+| Aceitação | ressalva 2: importação de `visual` (linha 25) e logo (linha 658) usam `JANGADA_CORE_PATH` e funcionam com `default/tarefas` e `default/logo` como links, antes da M3-13 e M3-15; ressalva 3: `jangada-hook-leitor:15` usa `JANGADA_CORE_PATH` e executa pelo link, e `jangada-codex:101,102` registra o hook pela fachada sem `realpath`; o hook altera de fato o estado da sessão, antes da M3-18; ressalva 5: atualização recusa processos com caminhos em `core/`, `shell/` e `monitor/`, além dos legados, em instalação falsa |
 | Testes | `testes/tarefas.py`, `testes/tarefas.sh`, `testes/hooks.sh`, `testes/codex.sh`, `testes/update.sh`, `testes/update-codigo.py`, `testes/verificar.sh` |
 | Riscos | hook sair com 0 sem atualizar o estado; conferência de processos incluir a própria atualização |
 | Reversão | `git revert`; sem mudança de pasta |

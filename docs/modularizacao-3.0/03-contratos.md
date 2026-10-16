@@ -21,14 +21,14 @@ uma chamada direta por uma indireta.
 ## K1. Fachada de comandos
 
 - Todo nome `jangada-*` hoje presente em `bin/` continua resolvendo em
-  `$JANGADA_PATH/bin/<nome>` e continua executável. São 59 nomes.
+  `$JANGADA_CORE_PATH/bin/<nome>` e continua executável. São 59 nomes.
 - Opções, códigos de saída e saídas `--json` não mudam nesta modularização.
   Em especial: `jangada-validar` sai com 0 (aprovado), 3 (revisar), 4
   (limite) ou 1 (erro), e a primeira linha do parecer é `STATUS: APROVADO`
   ou `STATUS: REVISAR`.
 - `jangada-config` continua carregável por
   `source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"` a partir de
-  `bin/`, forma usada por 43 comandos, e continua definindo `JANGADA_PATH`
+  `bin/`, forma usada por 43 comandos, e continua definindo `JANGADA_CORE_PATH`
   como a pasta acima de `bin/` (`bin/jangada-config:6`).
 - Teste `testes/contratos-fachada.sh`: lê `testes/contratos/comandos.txt`
   (lista congelada dos 59 nomes), confere existência e permissão de execução
@@ -106,15 +106,15 @@ Os itens abaixo registram o plano anterior da modularização.
   `Path(__file__).resolve().parent.parent`. Sem isso o painel deixa de achar
   o núcleo no dia em que `default/painel` virar link para `monitor/painel`,
   porque `resolve()` segue o link.
-- O caminho do jangada chega por `JANGADA_PATH` ao app R
+- O caminho do jangada chega por `JANGADA_CORE_PATH` ao app R
   (`default/painel/app.R:9`, hoje `getwd()`) e à Central de Tarefas
   (`default/tarefas/janela.py:25` e `:658`, hoje `resolve()` para importar
   `visual` e localizar o logo). Recursos usam os caminhos legados sob essa
   raiz; importações do Core usam `JANGADA_CORE_PY`.
 - Os comandos `bin/jangada-subagentes:13` e `bin/jangada-hook-leitor:15`
-  deixam de inferir a raiz por `realpath`; recebem `JANGADA_PATH`.
+  deixam de inferir a raiz por `realpath`; recebem `JANGADA_CORE_PATH`.
   `bin/jangada-codex:101` e `:102` devem registrar o caminho da fachada
-  `$JANGADA_PATH/bin/jangada-hook-codex`, sem resolver o link. O destino
+  `$JANGADA_CORE_PATH/bin/jangada-hook-codex`, sem resolver o link. O destino
   físico procura `jangada-config` na pasta errada. Esse caso falha em
   silêncio: o hook sai com 0 e descarta a saída, mas não atualiza a sessão.
 - A [prova dos links](prova-links.md)
@@ -269,5 +269,5 @@ porque o teste não o aponta; o destino fica para a M3-10c (ver K5).
 
 Nenhum comando muda de nome, de opção ou de código de saída. A única opção
 nova é `jangada-agentes --limpar-orfaos` (K4). As funções de K10 e a
-variável da pasta de sessões (K5) são internas de `jangada-config`. As variáveis `JANGADA_PATH`,
+variável da pasta de sessões (K5) são internas de `jangada-config`. As variáveis `JANGADA_CORE_PATH`,
 `JANGADA_REPO`, `JANGADA_CONFIG` e `JANGADA_PROJETOS` mantêm o sentido.

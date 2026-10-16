@@ -42,7 +42,7 @@ git -C "$tmp/repo" worktree add -q -b agente/t "$tmp/wt"
 
 isolar() {
   (cd "$1" && env -u JANGADA_SESSAO -u CODEX_HOME -u XDG_CACHE_HOME -u JANGADA_ISOLADO HOME="$casa" XDG_STATE_HOME="$casa/.local/state" XDG_CONFIG_HOME="$tmp/config" \
-    JANGADA_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" "${@:2}")
+    JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" "${@:2}")
 }
 mostrar() { isolar "$tmp/wt" "$@" "$repo_jangada/bin/jangada-isolar" --mostrar -- true >"$tmp/args"; }
 seguidos() { grep -A2 -xF -- "$1" "$tmp/args" | paste -sd' ' | grep -qF -- "$1 $2 $3"; }
@@ -128,7 +128,7 @@ retirada() { grep -A1 -xF -- --unsetenv "$tmp/args" | grep -qxF "$1"; }
 conferir "ambiente mínimo: variável fora da lista sai" retirada SENHA_DO_BANCO
 conferir "ambiente mínimo: variável comum sai" retirada LESS
 conferir "ambiente mínimo: PATH, HOME e as do jangada ficam" \
-  bash -c 'for v in PATH HOME JANGADA_PATH XDG_STATE_HOME ANTHROPIC_API_KEY; do
+  bash -c 'for v in PATH HOME JANGADA_CORE_PATH XDG_STATE_HOME ANTHROPIC_API_KEY; do
     ! grep -A1 -xF -- --unsetenv "$1" | grep -qxF "$v" || exit 1; done' _ "$tmp/args"
 mantida() { ! retirada "$1"; }
 conferir "ambiente mínimo: JANGADA_ISOLAR_AMBIENTE_MANTER fica" mantida R_LIBS_USER
@@ -287,7 +287,7 @@ if bwrap --ro-bind / / --dev /dev --proc /proc true 2>/dev/null; then
 #!/usr/bin/env bash
 for arg in "$@"; do
   if [[ "$arg" == app-server ]]; then
-    exec python3 "$JANGADA_PATH/testes/falso-codex-hooks.py" "$@"
+    exec python3 "$JANGADA_CORE_PATH/testes/falso-codex-hooks.py" "$@"
   fi
 done
 if [[ "${1:-}" == --help ]]; then echo --no-daemon; exit 0; fi
@@ -454,7 +454,7 @@ EOF
   # confere com uma casa fora dele.
   if casa_fora="$(mktemp -d -p /var/tmp 2>/dev/null)"; then
     echo pessoal >"$casa_fora/documento.txt"
-    le() { (cd "$tmp/wt" && env -u JANGADA_ISOLADO HOME="$casa_fora" JANGADA_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" \
+    le() { (cd "$tmp/wt" && env -u JANGADA_ISOLADO HOME="$casa_fora" JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" \
       "${@:2}" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>&1); }
     conferir "casa mínima: sem ela o documento pessoal é legível" le "grep -q pessoal '$casa_fora/documento.txt'"
     conferir "casa mínima: documento pessoal fora de alcance" \
@@ -658,7 +658,7 @@ env.pop("JANGADA_ISOLADO", None)
 env["HOME"] = casa
 env["XDG_STATE_HOME"] = f"{casa}/.local/state"
 env["XDG_CONFIG_HOME"] = config
-env["JANGADA_PATH"] = repo
+env["JANGADA_CORE_PATH"] = repo
 env["JANGADA_MARCA_ISOLADO"] = marca
 
 def achar_sleep():
@@ -731,7 +731,7 @@ env.pop("JANGADA_ISOLADO", None)
 env["HOME"] = casa
 env["XDG_STATE_HOME"] = f"{casa}/.local/state"
 env["XDG_CONFIG_HOME"] = config
-env["JANGADA_PATH"] = repo
+env["JANGADA_CORE_PATH"] = repo
 env["JANGADA_MARCA_ISOLADO"] = marca
 
 def achar_sleep():
@@ -818,7 +818,7 @@ env.pop("JANGADA_ISOLADO", None)
 env["HOME"] = casa
 env["XDG_STATE_HOME"] = f"{casa}/.local/state"
 env["XDG_CONFIG_HOME"] = config
-env["JANGADA_PATH"] = repo
+env["JANGADA_CORE_PATH"] = repo
 env["JANGADA_MARCA_ISOLADO"] = marca
 
 sig_file = os.path.join(wt, ".sigint_recebido")
@@ -893,7 +893,7 @@ env.pop("JANGADA_ISOLADO", None)
 env["HOME"] = casa
 env["XDG_STATE_HOME"] = f"{casa}/.local/state"
 env["XDG_CONFIG_HOME"] = config
-env["JANGADA_PATH"] = repo
+env["JANGADA_CORE_PATH"] = repo
 env["JANGADA_MARCA_ISOLADO"] = marca
 
 sig_file = os.path.join(wt, ".sigint_zero_recebido")
@@ -1079,7 +1079,7 @@ EOF
         sleep 0.2
         printf "{}\n" >"$JANGADA_ESTADO/agentes/outra-sessao.json"
         for estado in trabalhando aguardando concluido; do
-          printf "{}\n" | "$JANGADA_PATH/bin/jangada-hook-codex" "$estado"
+          printf "{}\n" | "$JANGADA_CORE_PATH/bin/jangada-hook-codex" "$estado"
           sleep 0.3
         done
       ' >"$tmp/status.log" 2>&1

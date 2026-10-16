@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / 'default/orquestracao'))
+sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from estado import Estado
 from metricas_projeto import ler_precos, resumir
 
@@ -276,8 +276,8 @@ class Indicadores(unittest.TestCase):
 
     def test_cli_consulta_metricas_e_rejeita_importacao_simultanea(self):
         ambiente = {**os.environ, 'JANGADA_ESTADO': str(self.pasta / 'cli-estado'),
-                    'JANGADA_PATH': str(RAIZ)}
-        comando = [sys.executable, str(RAIZ / 'default/orquestracao/cli.py'), 'fila', '--projeto', str(self.pasta)]
+                    'JANGADA_CORE_PATH': str(RAIZ)}
+        comando = [sys.executable, str(RAIZ / 'orquestracao/cli.py'), 'fila', '--projeto', str(self.pasta)]
         consulta = subprocess.run([*comando, '--metricas'], env=ambiente, capture_output=True, text=True, timeout=5)
         self.assertEqual(consulta.returncode, 0, consulta.stderr)
         self.assertEqual(json.loads(consulta.stdout)['metricas']['tarefas'], 0)

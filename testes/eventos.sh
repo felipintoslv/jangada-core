@@ -25,7 +25,7 @@ chmod +x "$tmp/bin/"*
 
 rodar() {
   env -u HYPRLAND_INSTANCE_SIGNATURE -u JANGADA_HOOK_DESLIGADO -u JANGADA_SESSAO -u JANGADA_ISOLADO PATH="$tmp/bin:$PATH" \
-    XDG_STATE_HOME="$tmp/state" XDG_CONFIG_HOME="$tmp/config" JANGADA_PATH="$repo_jangada" "$@"
+    XDG_STATE_HOME="$tmp/state" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" "$@"
 }
 claude() { printf '%s' "${2:-{\}}" | rodar JANGADA_SESSAO=proj--tarefa "$repo_jangada/bin/jangada-hook-claude" "$1"; }
 agy() { printf '%s' "${2:-{\}}" | rodar JANGADA_SESSAO=outro "$repo_jangada/bin/jangada-hook-agy" "$1" >/dev/null; }

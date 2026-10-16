@@ -28,7 +28,7 @@ class Baseline(unittest.TestCase):
         self.env = dict(os.environ, HOME=str(self.raiz / 'casa'),
                         XDG_STATE_HOME=str(self.raiz / 'estado'),
                         XDG_CONFIG_HOME=str(self.raiz / 'config'),
-                        JANGADA_PATH=str(REPO), JANGADA_SESSAO='teste',
+                        JANGADA_CORE_PATH=str(REPO), JANGADA_SESSAO='teste',
                         GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1',
                         GIT_AUTHOR_NAME='teste', GIT_AUTHOR_EMAIL='teste@localhost',
                         GIT_COMMITTER_NAME='teste', GIT_COMMITTER_EMAIL='teste@localhost')

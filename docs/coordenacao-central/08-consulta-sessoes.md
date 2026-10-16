@@ -37,7 +37,7 @@ A integração continua exigindo o contrato protegido existente.
 
 ## Seleção e compatibilidade
 
-`core/nucleo/sessoes.py` concentra a seleção usada por JSON e TSV:
+`nucleo/sessoes.py` concentra a seleção usada por JSON e TSV:
 
 1. Sessões presentes no tmux, inclusive quando não há registro.
 2. Registros com PID que responde à consulta de existência.

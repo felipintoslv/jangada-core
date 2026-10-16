@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
-# Atualiza o jangada e o sistema, avisando quando o conjunto do Hyprland muda.
+# Atualiza o código do jangada-core na cópia instalada e aplica as migrações.
 #
-# Ordem: busca do repositório (aplicada só com a sua confirmação), lista de
-# atualizações, confirmação quando houver mudança no Hyprland, pacman -Syu
-# (snap-pac cria os snapshots), AUR, migrações e, por fim, recarga com
-# conferência de erros. Depois confere o initramfs e o driver NVIDIA e roda os
-# ganchos pos-update do usuário.
+# Ordem: busca do repositório (aplicada só com a sua confirmação), conferência
+# das assinaturas, avanço por fast-forward e migrações. Depois, se existir o
+# jangada-sistema-update (do jangada-shell), roda a atualização do sistema; a
+# opção --so-core pula essa etapa.
 #
 # A cópia instalada acompanha o ramo JANGADA_CANAL (main ou estavel).
 set -euo pipefail
 # shellcheck source=bin/jangada-config
 source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
 
-somente_codigo=0
+so_core=0
 case "${1:-}" in
   "") ;;
-  --somente-codigo) somente_codigo=1; shift ;;
+  --so-core) so_core=1; shift ;;
   --ajuda|--help|-h)
-    printf '%s\n' 'Uso: jangada-update [--somente-codigo]' \
-      '--somente-codigo atualiza apenas o Git instalado, sem pacotes, migrações, recarga ou ganchos.'
+    printf '%s\n' 'Uso: jangada-update [--so-core]' \
+      'Atualiza o código do Core e aplica as migrações. Sem --so-core, roda depois o jangada-sistema-update, se existir.'
     exit 0 ;;
   *) echo "opção desconhecida: $1" >&2; exit 1 ;;
 esac
@@ -28,43 +27,35 @@ esac
   exit 1
 }
 
-if ((somente_codigo)); then
-  if [[ -n "${JANGADA_ISOLADO:-}" ]] || mountpoint -q /tmp/.jangada-isolado \
-      || mountpoint -q /tmp/.jangada-sem-autoridade; then
-    echo "atualização exige terminal externo ao agente isolado" >&2
-    exit 1
-  fi
-  if ! sessoes="$("${JANGADA_TMUX[@]}" list-sessions -F '#{session_name}' 2>&1)"; then
-    case "$sessoes" in
-      'no server running on '*|'error connecting to '*' (No such file or directory)'|'no sessions') sessoes="" ;;
-      *) echo "não foi possível conferir as sessões; nada atualizado" >&2; exit 1 ;;
-    esac
-  fi
-  if [[ -n "$sessoes" ]]; then
-    echo "interrompa as sessões de agentes antes de atualizar; nada atualizado" >&2
-    printf '%s\n' "$sessoes" | tr -d '\000-\010\013-\037\177' >&2
-    exit 1
-  fi
-  processos="$(ps -eo pid=,args= | awk -v pasta="$JANGADA_PATH/" '
-    index($0, pasta "default/") || index($0, pasta "core/") ||
-    index($0, pasta "shell/") || index($0, pasta "monitor/") ||
-    (index($0, pasta "bin/jangada-") && !index($0, pasta "bin/jangada-update")) {print $1}')"
-  if [[ -n "$processos" ]]; then
-    echo "há processos usando a instalação (PID: $processos); interrompa-os antes de atualizar" >&2
-    exit 1
-  fi
+if [[ -n "${JANGADA_ISOLADO:-}" ]] || mountpoint -q /tmp/.jangada-isolado \
+    || mountpoint -q /tmp/.jangada-sem-autoridade; then
+  echo "atualização exige terminal externo ao agente isolado" >&2
+  exit 1
 fi
-
-# Pacotes do conjunto Hyprland. Atualizar só parte deles causa quebras
-# (bibliotecas com versões incompatíveis), por isso o jangada não os fixa com
-# IgnorePkg: avisa e deixa você decidir antes de atualizar tudo junto.
-# O Noctalia entra no pacote noctalia-shell, e em algumas máquinas no
-# noctalia-shell-git do AUR; os dois contam.
-conjunto_hypr='^(hyprland|aquamarine|hyprutils|hyprlang|hyprgraphics|hyprcursor|hyprwire|hyprtoolkit|hyprland-guiutils|hyprlock|hypridle|hyprpolkitagent|xdg-desktop-portal-hyprland|quickshell(-git)?|noctalia-shell(-git)?|noctalia-qs(-git)?)$'
+# Sessões de agente e processos que usam a instalação impedem só o avanço do
+# código, que trocaria arquivos sob eles; o sistema ainda pode ser atualizado.
+bloqueio=""
+if ! sessoes="$("${JANGADA_TMUX[@]}" list-sessions -F '#{session_name}' 2>&1)"; then
+  case "$sessoes" in
+    'no server running on '*|'error connecting to '*' (No such file or directory)'|'no sessions') sessoes="" ;;
+    *) bloqueio="não foi possível conferir as sessões de agentes" ;;
+  esac
+fi
+if [[ -z "$bloqueio" && -n "$sessoes" ]]; then
+  bloqueio="há sessões de agentes abertas: $(printf '%s' "$sessoes" | tr -d '\000-\010\013-\037\177' | tr '\n' ' ')"
+fi
+if [[ -z "$bloqueio" ]]; then
+  processos="$(ps -eo pid=,args= | awk -v pasta="$JANGADA_CORE_PATH/" '
+    index($0, pasta "nucleo/") || index($0, pasta "orquestracao/") ||
+    index($0, pasta "delegacao/") || index($0, pasta "provedores/") ||
+    index($0, pasta "validacao/") || index($0, pasta "agentes/") ||
+    (index($0, pasta "bin/jangada-") && !index($0, pasta "bin/jangada-update")) {print $1}' | tr '\n' ' ')"
+  [[ -z "${processos// /}" ]] || bloqueio="há processos usando a instalação (PID: $processos)"
+fi
 
 # O git roda fora do isolamento sobre a cópia instalada: sem fsmonitor nem
 # ganchos, que viriam da configuração do repositório.
-g() { jangada_git_seguro -C "$JANGADA_PATH" "$@"; }
+g() { jangada_git_seguro -C "$JANGADA_CORE_PATH" "$@"; }
 
 # Com ~/.config/jangada/allowed_signers, todo commit de $1 até $2 precisa de
 # assinatura válida por esse arquivo; o jangada-assinar assina, fora do
@@ -111,18 +102,16 @@ opcoes_merge=(--ff-only --quiet)
 
 codigo_ok=1
 echo "==> repositório jangada (canal $JANGADA_CANAL)"
-if estado="$(g status --porcelain --ignore-submodules=all 2>&1)" && [[ -z "$estado" ]]; then
+if [[ -n "$bloqueio" ]]; then
+  codigo_ok=0
+  echo "!! $bloqueio; o código do Core não foi atualizado (encerre-as e rode jangada-update --so-core)" >&2
+elif estado="$(g status --porcelain --ignore-submodules=all 2>&1)" && [[ -z "$estado" ]]; then
   # Só busca: nada chega à cópia instalada antes da confirmação abaixo.
   if ! g fetch --quiet origin; then
     echo "!! não consegui buscar o repositório de origem"
-    ((somente_codigo)) && exit 1
   fi
   ramo_atual="$(g rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   if [[ "$ramo_atual" != "$JANGADA_CANAL" ]]; then
-    if ((somente_codigo)); then
-      echo "modo somente código exige a instalação no canal $JANGADA_CANAL; nada aplicado" >&2
-      exit 1
-    fi
     if g show-ref --verify --quiet "refs/heads/$JANGADA_CANAL"; then
       g switch --quiet "$JANGADA_CANAL"
     elif g show-ref --verify --quiet "refs/remotes/origin/$JANGADA_CANAL"; then
@@ -157,145 +146,36 @@ if estado="$(g status --porcelain --ignore-submodules=all 2>&1)" && [[ -z "$esta
   fi
   # O que chegou, nos grupos do CHANGELOG.md.
   if [[ "$(g rev-parse HEAD)" != "$antes" ]]; then
-    echo "jangada agora em $("$JANGADA_PATH/bin/jangada-versao" -C "$JANGADA_PATH")"
-    "$JANGADA_PATH/bin/jangada-versao" -C "$JANGADA_PATH" --novidades "$antes" HEAD \
+    echo "jangada agora em $("$JANGADA_CORE_PATH/bin/jangada-versao" -C "$JANGADA_CORE_PATH")"
+    "$JANGADA_CORE_PATH/bin/jangada-versao" -C "$JANGADA_CORE_PATH" --novidades "$antes" HEAD \
       | tr -d '\000-\010\013-\037\177' | sed 's/^/   /' || true
   fi
 else
   codigo_ok=0
   if [[ -n "${estado:-}" ]]; then
-    echo "!! o repositório em $JANGADA_PATH não está limpo ou reportou erro; a cópia instalada não foi atualizada:"
+    echo "!! o repositório em $JANGADA_CORE_PATH não está limpo ou reportou erro; a cópia instalada não foi atualizada:"
     printf '%s\n' "$estado" | sed 's/^/   /'
   else
-    echo "!! há alterações locais em $JANGADA_PATH; a cópia instalada não foi atualizada"
+    echo "!! há alterações locais em $JANGADA_CORE_PATH; a cópia instalada não foi atualizada"
   fi
 fi
 
-if ((somente_codigo)); then
-  ((codigo_ok)) || exit 1
-  echo "código instalado em $(g rev-parse HEAD)"
-  echo "confira as migrações com JANGADA_SIMULAR=1 jangada-migrar antes de aplicá-las"
-  exit 0
-fi
 
-echo "==> atualizações disponíveis"
-atualizacoes=""
-# Código 2 é "nenhuma atualização". Com "if !", o $? seria o da negação, 0.
-rc=0
-atualizacoes="$(checkupdates 2>/dev/null)" || rc=$?
-if ((rc != 0)); then
-  if ((rc != 2)); then
-    echo "!! checkupdates falhou (código $rc)"
-  fi
-  atualizacoes=""
-fi
-
-atualizacoes_aur=""
-for aur_cmd in paru yay; do
-  if command -v "$aur_cmd" >/dev/null 2>&1; then
-    atualizacoes_aur="$("$aur_cmd" -Qua 2>/dev/null || true)"
-    break
-  fi
-done
-
-if [[ -z "$atualizacoes" ]]; then
-  echo "nenhuma atualização nos repositórios oficiais"
-else
-  printf '%s\n' "$atualizacoes"
-fi
-
-todas_atualizacoes="${atualizacoes}${atualizacoes:+$'\n'}${atualizacoes_aur}"
-hypr="$(awk '{print $1}' <<<"$todas_atualizacoes" | grep -E "$conjunto_hypr" || true)"
-if [[ -n "$hypr" ]]; then
-  echo
-  echo "!! esta atualização muda o conjunto do Hyprland:"
-  grep -E "^($(paste -sd'|' <<<"$hypr")) " <<<"$todas_atualizacoes" | sed 's/^/   /'
-  echo "   notas de versão: https://github.com/hyprwm/Hyprland/releases"
-  read -r -p "continuar com a atualização completa? [s/N] " r || r=n
-  [[ "${r,,}" == s* ]] || { echo "atualização cancelada"; exit 0; }
-fi
-
-if [[ "$(findmnt -no FSTYPE /)" != "btrfs" ]] || ! pacman -Qq snap-pac >/dev/null 2>&1; then
-  echo "!! sem snap-pac em btrfs: esta atualização não terá snapshot automático"
-fi
-
-# O pacman.log guarda a saída dos scriptlets (mkinitcpio, dkms): as linhas
-# novas depois da atualização mostram se a imagem de boot foi gerada inteira.
-log_pacman=/var/log/pacman.log
-linhas_antes="$(wc -l <"$log_pacman" 2>/dev/null || echo 0)"
-
-# Uma falha do pacman não interrompe o script: é justamente quando um hook do
-# mkinitcpio ou do dkms falha que a conferência da imagem de boot, mais abaixo,
-# precisa rodar. O que depende da atualização completa (AUR, migrações,
-# recarga) fica para depois do conserto.
-falhou=""
-echo "==> pacman -Syu"
-sudo pacman -Syu || falhou="pacman"
-
-if [[ -z "$falhou" ]]; then
-  for aur in paru yay; do
-    if command -v "$aur" >/dev/null 2>&1; then
-      echo "==> AUR ($aur)"
-      "$aur" -Sua || falhou="AUR"
-      break
-    fi
-  done
-fi
-
-if [[ -z "$falhou" ]]; then
+if ((codigo_ok)); then
   echo "==> migrações"
-  "$JANGADA_PATH/bin/jangada-migrar" || falhou="migrações"
-  if [[ -z "$falhou" && -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-    echo "==> recarregando o Hyprland"
-    "$JANGADA_PATH/bin/jangada-recarregar" || echo "!! há erros de configuração; veja acima"
-  fi
+  "$JANGADA_CORE_PATH/bin/jangada-migrar" || { codigo_ok=0; echo "!! migrações não aplicadas; corrija e rode jangada-migrar de novo"; }
 fi
 
-if [[ -n "$falhou" ]]; then
-  # Pacote do AUR compilado contra a versão anterior de uma biblioteca do
-  # repositório oficial pode não abrir mais: recarregar agora trocaria uma
-  # sessão que funciona por uma quebrada.
-  echo "!! a atualização pelo $falhou falhou; migrações e recarga do Hyprland não foram feitas"
-  echo "   o sistema pode estar com atualização parcial: resolva e rode jangada-update de novo"
+rc=0
+((codigo_ok)) || rc=1
+if ((so_core)); then
+  exit "$rc"
 fi
-
-# Os módulos do kernel em execução somem de /usr/lib/modules quando o kernel é atualizado.
-reiniciar=0
-if [[ ! -d "/usr/lib/modules/$(uname -r)" ]]; then
-  echo "!! o kernel foi atualizado; reinicie quando puder"
-  reiniciar=1
+# A atualização do sistema (pacotes, snapshots, recarga) é do jangada-shell.
+if command -v jangada-sistema-update >/dev/null 2>&1; then
+  echo "==> sistema (jangada-sistema-update)"
+  rc_sistema=0
+  jangada-sistema-update || rc_sistema=$?
+  ((rc_sistema == 0)) || exit "$rc_sistema"
 fi
-
-echo "==> imagem de boot e módulos"
-erros_boot="$(tail -n +"$((linhas_antes + 1))" "$log_pacman" 2>/dev/null \
-  | grep -a 'ALPM-SCRIPTLET' | grep -aE '==> ERROR|errors were encountered|dkms.*(error|failed)|Error! ' || true)"
-if [[ -n "$erros_boot" ]]; then
-  echo "!! a atualização registrou erros na geração da imagem de boot ou dos módulos:"
-  printf '%s\n' "$erros_boot" | sed 's/^/   /'
-  echo "   confira antes de reiniciar (sudo mkinitcpio -P refaz as imagens)"
-else
-  echo "sem erros de mkinitcpio ou dkms nesta atualização"
-fi
-
-# Driver NVIDIA: depois de atualizar o nvidia-utils sem reiniciar, o módulo
-# carregado fica na versão antiga e as bibliotecas na nova. Jogos e o próprio
-# Hyprland falham com erros de versão até o reboot. O lib32 fora de passo tem o
-# mesmo efeito nos jogos de 32 bits.
-if [[ -r /sys/module/nvidia/version ]] && pacman -Qq nvidia-utils >/dev/null 2>&1; then
-  carregado="$(</sys/module/nvidia/version)"
-  instalado="$(pacman -Q nvidia-utils | awk '{print $2}')"; instalado="${instalado%-*}"
-  if [[ "$carregado" != "$instalado" ]]; then
-    echo "!! driver NVIDIA carregado $carregado, instalado $instalado; reinicie antes de abrir jogos"
-    reiniciar=1
-  else
-    echo "driver NVIDIA $carregado carregado e instalado"
-  fi
-  if pacman -Qq lib32-nvidia-utils >/dev/null 2>&1; then
-    lib32="$(pacman -Q lib32-nvidia-utils | awk '{print $2}')"; lib32="${lib32%-*}"
-    [[ "$lib32" == "$instalado" ]] || echo "!! lib32-nvidia-utils $lib32 diferente de nvidia-utils $instalado"
-  fi
-fi
-((reiniciar)) && echo "!! reinicie quando puder"
-
-"$JANGADA_PATH/bin/jangada-gancho" pos-update
-[[ -z "$falhou" ]]
+exit "$rc"

@@ -19,8 +19,8 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / 'default/orquestracao'))
-sys.path.insert(0, str(REPO / 'default'))
+sys.path.insert(0, str(REPO / 'orquestracao'))
+sys.path.insert(0, str(REPO))
 from estado import Estado
 from projetos import cadastrar, chave
 from confianca import arquivar, guardar, registrar_inicio
@@ -113,7 +113,7 @@ else:
         configuracao.write_text(json.dumps({'trustedWorkspaces': [str(self.projeto)]}))
         hooks = Path(self.env['HOME']) / '.gemini/config/hooks.json'
         hooks.parent.mkdir(parents=True, exist_ok=True)
-        hooks.write_text((REPO / 'default/agy/hooks.json').read_text().replace('@JANGADA_PATH@', str(REPO)))
+        hooks.write_text((REPO / 'agentes/agy/hooks.json').read_text().replace('@JANGADA_CORE_PATH@', str(REPO)))
         self.executavel('agy', """#!/usr/bin/python3
 import os,sqlite3,sys,json
 if sys.argv[1]=='agents':
@@ -228,12 +228,12 @@ else:
 
     def test_J_codigo_do_controlador_nao_pode_ser_alterado(self):
         instalacao = self.raiz / 'instalacao-sintetica'
-        helper = instalacao / 'default/orquestracao'
+        helper = instalacao / 'orquestracao'
         helper.mkdir(parents=True)
-        shutil.copyfile(REPO / 'default/orquestracao/confianca.py', helper / 'confianca.py')
+        shutil.copyfile(REPO / 'orquestracao/confianca.py', helper / 'confianca.py')
         codigo = instalacao / 'controlador.txt'
         codigo.write_text('original')
-        self.env['JANGADA_PATH'] = str(instalacao)
+        self.env['JANGADA_CORE_PATH'] = str(instalacao)
         self.env['JANGADA_ISOLAR_ESCRITA'] = str(instalacao)
         resultado = self.isolar(f'from pathlib import Path;Path({str(codigo)!r}).write_text("ATAQUE")')
         self.assertNotEqual(resultado.returncode, 0)
@@ -261,7 +261,7 @@ else:
         self.assertIn('descritor padrão', resultado.stderr)
 
     def test_B_interface_recusa_executor_mesmo_sem_variavel(self):
-        codigo = f'import os,sys;os.environ.pop("JANGADA_ISOLADO",None);sys.path.insert(0,{str(REPO / "default/orquestracao")!r});from estado import Estado;Estado({str(self.pasta)!r},raiz={str(self.estado)!r})'
+        codigo = f'import os,sys;os.environ.pop("JANGADA_ISOLADO",None);sys.path.insert(0,{str(REPO / "orquestracao")!r});from estado import Estado;Estado({str(self.pasta)!r},raiz={str(self.estado)!r})'
         resultado = self.isolar(codigo)
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn('AUTORIZACAO_RECUSADA', resultado.stderr)

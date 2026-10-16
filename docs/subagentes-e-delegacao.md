@@ -10,14 +10,14 @@ um só. Paralelismo de implementação é outra sessão do jangada.
 ## Papéis
 
 São nove papéis, e cada um existe no Claude e no agy, com o mesmo nome: no Claude em
-`default/claude/agents/PAPEL.md`, no agy em `default/agy/agents/PAPEL/agent.md`.
+`agentes/claude/agents/PAPEL.md`, no agy em `agentes/agy/agents/PAPEL/agent.md`.
 
 Desde a modularização 3.0, os caminhos de `default/` e `bin/` citados neste
 documento são links de compatibilidade e continuam sendo a forma de uso. Os
-arquivos moram em `core/agentes/claude/`, `core/agentes/agy/`,
-`core/agentes/perfis/` (antes `default/agentes/`), `core/delegacao/`,
-`core/nucleo/` e `core/bin/`; o `jangada-subagentes` e o
-`default/painel/subagentes.py` moram em `monitor/bin/` e `monitor/painel/`.
+arquivos moram em `agentes/claude/`, `agentes/agy/`,
+`agentes/perfis/`, `delegacao/`,
+`nucleo/` e `bin/`. O `jangada-subagentes` e o painel de subagentes ficam
+em comando opcional, fora do Core por ora.
 O mapa das pastas está na seção Estrutura do [README](../README.md).
 
 | Papel | Uso | Claude |
@@ -67,8 +67,8 @@ flowchart TD
     A --> F[mesclar_hooks_claude:<br>SubagentStart e SubagentStop]
 ```
 
-As funções ficam em `install/lib.sh`. Papel novo entra numa instalação
-existente por migração, como `migrations/202609272200-subagentes-novos.sh`.
+As funções ficam em `install/lib.sh`. A migração que leva papel novo a uma
+instalação existente fica no repositório jangada-shell.
 
 ## Para onde vai a delegação
 
@@ -92,7 +92,7 @@ comando continuam agy. O perfil prevalece sobre a configuração global. Falha
 local nunca vira envio remoto, e recusa do agy nunca vira chamada local ou ao
 Claude. Sem agy instalado, os demais papéis registram recusa.
 
-| Agente e destino | Protocolo em `default/agentes/` | Regra |
+| Agente e destino | Protocolo em `agentes/perfis/` | Regra |
 |---|---|---|
 | Claude, `agy` | `protocolo-delegar-agy.md` | leitor e redator no Ollama, demais no agy; recusa registrada |
 | Claude, `claude` explícito | `protocolo-delegar-claude.md` | subagentes do Claude |
@@ -103,7 +103,7 @@ Claude. Sem agy instalado, os demais papéis registram recusa.
 O Codex não chama subagentes do Claude. O agy só recebe delegações e revisa;
 o destino `nativo` resta para sessões antigas do agy restauradas.
 
-Todos recebem também `default/agentes/protocolo-delegar.md`: citar fontes,
+Todos recebem também `agentes/perfis/protocolo-delegar.md`: citar fontes,
 conferir contribuição e aproveitamento, não editar nem substituir revisão
 independente pelo `jangada-validar`. Perfil com destino agy não comprova
 participação; o coordenador cobra apoio executado ou bloqueio rastreável.
@@ -144,7 +144,7 @@ jangada-delegar leitor "Compare os documentos" \
   --arquivos fontes/a.txt fontes/b.txt
 ```
 
-A política padrão em `default/delegacao/roteamento.json` contém somente agy
+A política padrão em `delegacao/roteamento.json` contém somente agy
 para as três capacidades, sem alternativa local automática. Um arquivo opcional
 `~/.config/jangada/delegacao.json` substitui essa política: contém um objeto
 com capacidades e listas de destinos, sem comandos. Aceita apenas `local`,
@@ -537,7 +537,7 @@ O comando exige sessões encerradas, nenhuma reserva ativa e destino sem
 estado. Preserva identidade, especificações e hashes; fontes são resolvidas
 para a raiz atual em memória e reconferidas antes da execução.
 
-O núcleo em `default/nucleo/` consulta cópias estáveis do banco e WAL,
+O núcleo em `nucleo/` consulta cópias estáveis do banco e WAL,
 sem criar arquivos na origem. Estados da 2.0 e da atividade são calculados.
 As ações chamam `bin/`; integração conserva a confirmação dos SHA e a
 revisão protegida do backend. O painel lê a coleta do núcleo em `nucleo.json`;
@@ -1062,16 +1062,14 @@ comprova independência ou qualidade real das respostas.
   `delegacoes.jsonl`, com papel, modelo, segundos, código, palavras, cota
   antes e depois e motivo da recusa.
 - Os hooks `SubagentStart` e `SubagentStop` do Claude
-  (`default/claude/hooks.json`, `bin/jangada-hook-claude`) gravam
+  (`agentes/claude/hooks.json`, `bin/jangada-hook-claude`) gravam
   `subagente-inicio` e `subagente-fim` em `eventos-agentes.jsonl`, com o id e
   o tipo do subagente.
-- `default/painel/subagentes.py` lê esses registros e as conversas dos
-  subagentes. O `bin/jangada-subagentes` mostra os indicadores, o resumo de
+- Um comando opcional, fora do Core por ora, lê esses registros e as conversas dos
+  subagentes. Seu `jangada-subagentes` mostra os indicadores, o resumo de
   uma entrega (`--entrega`, que o `jangada-validar` grava no campo
-  `subagentes` do `validar.jsonl`) e os registros crus (`--registros`).
-  No painel, cada nó filho da árvore hierárquica mostra o papel e o agente,
-  separados por ` - `; nas recusas, mostra o destino tentado quando registrado.
-  O modelo permanece na dica ao passar o mouse.
+  `subagentes` do `validar.jsonl`, quando o comando existe) e os registros
+  crus (`--registros`). A árvore do painel também é dele.
 
 Os campos de cada arquivo estão em [registros](registros.md).
 
@@ -1092,7 +1090,7 @@ Veja o [contrato do piloto](coordenacao-central/10-executor-agy.md).
 
 ## Critérios de acompanhamento do apoio
 
-A aba Autonomia de agentes e `jangada-subagentes` mostram os indicadores
+A aba Autonomia de agentes e o `jangada-subagentes`, ambos comandos opcionais fora do Core por ora, mostram os indicadores
 por entrega: tokens do Claude com e sem agy, fração delegada, recusas,
 compressão, cota gasta, aprovação na primeira rodada, afirmações sem fonte,
 desvios do protocolo e árvore de subagentes. Um `*` marca grupos com menos

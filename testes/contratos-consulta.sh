@@ -32,7 +32,7 @@ jq -n --arg a "$agora" --arg d "$tmp/pasta" '{estado:"trabalhando", agente:"code
 
 agentes() {
   env -u TMUX -u JANGADA_ISOLADO -u JANGADA_AGENTES_GUARDAR PATH="$tmp/bin:$PATH" HOME="$tmp/home" \
-    XDG_STATE_HOME="$tmp/state" XDG_CONFIG_HOME="$tmp/config" JANGADA_PATH="$repo_jangada" \
+    XDG_STATE_HOME="$tmp/state" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
     "$repo_jangada/bin/jangada-agentes" "$@"
 }
 
@@ -86,7 +86,7 @@ origem = tmp / 'json-state'
 pasta = origem / 'jangada/agentes'
 ambiente = dict(os.environ, PATH=str(tmp / 'bin') + ':' + os.environ['PATH'],
                 HOME=str(tmp / 'home'), XDG_CONFIG_HOME=str(tmp / 'config'),
-                XDG_STATE_HOME=str(origem), JANGADA_PATH=str(repo))
+                XDG_STATE_HOME=str(origem), JANGADA_CORE_PATH=str(repo))
 for nome in ('JANGADA_ISOLADO', 'TMUX', 'JANGADA_AGENTES_GUARDAR'):
     ambiente.pop(nome, None)
 
@@ -251,12 +251,12 @@ for p in pasta.glob('grande-*.json'):
 # Core e fachada funcionam sem pastas Shell e Monitor.
 minimo = tmp / 'core-sem-interface'
 (minimo / 'bin').mkdir(parents=True)
-(minimo / 'core/nucleo').mkdir(parents=True)
+(minimo / 'nucleo').mkdir(parents=True)
 for nome, fonte in (('bin/jangada-config', 'bin/jangada-config'),
-                    ('bin/jangada-agentes', 'core/bin/jangada-agentes'),
-                    ('core/nucleo/sessoes.py', 'core/nucleo/sessoes.py')):
+                    ('bin/jangada-agentes', 'bin/jangada-agentes'),
+                    ('nucleo/sessoes.py', 'nucleo/sessoes.py')):
     shutil.copy2(repo / fonte, minimo / nome)
-ambiente['JANGADA_PATH'] = str(minimo)
+ambiente['JANGADA_CORE_PATH'] = str(minimo)
 r = subprocess.run([str(minimo / 'bin/jangada-agentes'), '--lista-json'],
                    env=ambiente, capture_output=True, timeout=5)
 assert r.returncode == 0, r.stderr
@@ -274,7 +274,7 @@ for date_disponivel in (False, True):
         (sem_data / 'date').write_text('#!/bin/sh\nexit 1\n')
         (sem_data / 'date').chmod(0o700)
     for prazo, esperado in (('168', ['antiga']), ('0', [])):
-        r = subprocess.run([sys.executable, str(repo / 'core/nucleo/sessoes.py'),
+        r = subprocess.run([sys.executable, str(repo / 'nucleo/sessoes.py'),
                             str(retencao), '24', prazo, 'json'], input='', text=True,
                            capture_output=True, env=dict(ambiente, PATH=str(sem_data)), timeout=5)
         assert r.returncode == 0, r.stderr
@@ -282,7 +282,7 @@ for date_disponivel in (False, True):
 
 (sem_data / 'date').write_text('#!' + sys.executable + '\nimport time\ntime.sleep(3)\n')
 (sem_data / 'date').chmod(0o700)
-r = subprocess.run([sys.executable, str(repo / 'core/nucleo/sessoes.py'),
+r = subprocess.run([sys.executable, str(repo / 'nucleo/sessoes.py'),
                     str(retencao), '24', '168', 'json'], input='', text=True,
                    capture_output=True, env=dict(ambiente, PATH=str(sem_data)), timeout=5)
 assert r.returncode == 0 and json.loads(r.stdout)['sessoes'][0]['nome'] == 'antiga', r.stderr
@@ -291,7 +291,7 @@ assert r.returncode == 0 and json.loads(r.stdout)['sessoes'][0]['nome'] == 'anti
 import importlib.util
 from unittest.mock import patch
 sys.dont_write_bytecode = True
-spec = importlib.util.spec_from_file_location('sessoes', repo / 'core/nucleo/sessoes.py')
+spec = importlib.util.spec_from_file_location('sessoes', repo / 'nucleo/sessoes.py')
 modulo = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(modulo)
 abrir_original = modulo.os.open
@@ -318,7 +318,7 @@ with patch.object(modulo.subprocess, 'run', side_effect=OSError('date indisponí
     assert modulo.selecionar(retencao, [], 24, 168, True)[0]['nome'] == 'antiga'
 
 # O TSV não valida metadados que não apresenta nem limita a tarefa antes do resumo.
-ambiente['JANGADA_PATH'] = str(repo)
+ambiente['JANGADA_CORE_PATH'] = str(repo)
 for chave in ('WAYLAND_DISPLAY', 'HYPRLAND_INSTANCE_SIGNATURE', 'DISPLAY'):
     ambiente.pop(chave, None)
 viva['mensagem'] = []
@@ -429,7 +429,7 @@ projetos.unlink()
 projetos.with_name('projetos-originais').rename(projetos)
 
 # Projetos removidos ou inacessíveis durante a leitura são omitidos; falha de base é explícita.
-spec_observacao = importlib.util.spec_from_file_location('observacao', repo / 'core/nucleo/observacao.py')
+spec_observacao = importlib.util.spec_from_file_location('observacao', repo / 'nucleo/observacao.py')
 modulo_observacao = importlib.util.module_from_spec(spec_observacao)
 spec_observacao.loader.exec_module(modulo_observacao)
 scandir_original = modulo_observacao.os.scandir

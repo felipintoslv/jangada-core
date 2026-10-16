@@ -205,8 +205,8 @@ class Gerador:
         (tmp / 'config/jangada/jangada.conf').write_text(f'JANGADA_WORKTREES={tmp}/worktrees\n')
         (self.casa / '.gemini/antigravity-cli/settings.json').write_text(
             json.dumps({'trustedWorkspaces': [str(self.projeto.resolve())]}))
-        hooks = (RAIZ / 'default/agy/hooks.json').read_text(encoding='utf-8')
-        (self.casa / '.gemini/config/hooks.json').write_text(hooks.replace('@JANGADA_PATH@', str(self.arvore)))
+        hooks = (RAIZ / 'agentes/agy/hooks.json').read_text(encoding='utf-8')
+        (self.casa / '.gemini/config/hooks.json').write_text(hooks.replace('@JANGADA_CORE_PATH@', str(self.arvore)))
         # Ambiente montado do zero: nenhuma variável JANGADA_*, TMUX ou XDG_* da
         # sessão que roda o teste chega aos comandos.
         self.ambiente = {
@@ -215,7 +215,7 @@ class Gerador:
             'XDG_STATE_HOME': str(tmp / 'estado'), 'XDG_CONFIG_HOME': str(tmp / 'config'),
             'XDG_CACHE_HOME': str(tmp / 'cache'), 'XDG_RUNTIME_DIR': str(tmp / 'run'),
             'TMUX_TMPDIR': str(tmp / 'run'), 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_NOSYSTEM': '1',
-            'JANGADA_PATH': str(self.arvore), 'FALSO_DIR': str(self.falso),
+            'JANGADA_CORE_PATH': str(self.arvore), 'FALSO_DIR': str(self.falso),
             'JANGADA_ISOLAR_ESCRITA': str(self.falso), 'FALSO_COTA': '0.9', 'FALSO_RESPOSTA': '',
         }
         if 'TMPDIR' in os.environ:
@@ -424,9 +424,9 @@ def main():
             conferir(f'{nome}: campo {campo} renomeado numa cópia do registro é apontado',
                      f'{nome}: falta o campo obrigatório {campo}' in achado
                      and f'{nome}: campo fora da tabela: {campo}_novo' in achado, achado)
-        internos = [('validar.jsonl', ['subagentes', 'claude'], 'principal_cache_lido',
-                     'subagentes.claude.principal_cache_lido'),
-                    ('delegacoes.jsonl', ['tentativas', 0], 'chamadas', 'tentativas.chamadas'),
+        # Os campos subagentes.* do validar.jsonl vêm de comando opcional, fora do Core por ora
+        # (jangada-subagentes) e ficam em "sem_exemplo".
+        internos = [('delegacoes.jsonl', ['tentativas', 0], 'chamadas', 'tentativas.chamadas'),
                     ('delegacoes.jsonl', ['chamadas_local', 0, 'tempos_ms'], 'total', 'chamadas_local.tempos_ms.total')]
         for nome, rota, campo, caminho in internos:
             alterado = copy.deepcopy(registros[nome][-1][1]) if registros[nome] else {}

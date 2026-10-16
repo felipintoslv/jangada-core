@@ -1,1 +1,0 @@
-../../monitor/painel/monitoramento.py

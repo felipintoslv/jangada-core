@@ -14,7 +14,7 @@ conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-export XDG_CONFIG_HOME="$tmp/config" JANGADA_PATH="$repo_jangada"
+export XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada"
 usuario="$tmp/config/jangada/provedores"
 mkdir -p "$usuario"
 # shellcheck source=bin/jangada-config
@@ -89,33 +89,30 @@ conferir "Codex com caminho absoluto continua isolado no catálogo público" \
   "$tmp/perfis.json" >/dev/null
 
 cat >"$tmp/config/jangada/jangada.conf" <<'CONF'
-JANGADA_INTERFACE=invalida
 JANGADA_AGENTE=desconhecido
 JANGADA_DELEGAR=externo
 JANGADA_VALIDAR_REVISOR=desconhecido
-JANGADA_TEMA_ESQUEMA=esquema-invalido
-JANGADA_PAINEL_PORTA=99999
 JANGADA_AGENTE_ARGS=segredo-sintetico
 CONF
 "$repo_jangada/bin/jangada-config" --publico-json >"$tmp/publico.json"
 conferir "valores públicos inválidos viram null" \
-  jq -e '.valores | length == 6 and all(.[]; .valor == null)' "$tmp/publico.json" >/dev/null
+  jq -e '.valores | length == 3 and all(.[]; .valor == null)' "$tmp/publico.json" >/dev/null
 conferir "argumentos livres não aparecem na configuração pública" \
   bash -c '! grep -q segredo-sintetico "$1"' _ "$tmp/publico.json"
-printf 'JANGADA_INTERFACE=noctalia\nJANGADA_PAINEL_PORTA=65535\n' >"$tmp/config/jangada/jangada.conf"
+printf 'JANGADA_AGENTE=codex\nJANGADA_VALIDAR_REVISOR=claude\n' >"$tmp/config/jangada/jangada.conf"
 "$repo_jangada/bin/jangada-config" --publico-json >"$tmp/publico.json"
-conferir "interface e porta válidas permanecem públicas" \
+conferir "agente e revisor válidos permanecem públicos" \
   jq -e '(.valores | map({key:.chave, value:.valor}) | from_entries)
-    | .JANGADA_INTERFACE == "noctalia" and .JANGADA_PAINEL_PORTA == "65535"' "$tmp/publico.json" >/dev/null
+    | .JANGADA_AGENTE == "codex" and .JANGADA_VALIDAR_REVISOR == "claude"' "$tmp/publico.json" >/dev/null
 rm "$tmp/config/jangada/jangada.conf"
 
 mkdir -p "$tmp/vazio"
-if XDG_CONFIG_HOME="$tmp/vazio" JANGADA_PATH="$tmp/vazio" "$repo_jangada/bin/jangada-agente" --capacidades-json >"$tmp/vazio.out" 2>"$tmp/vazio.err"; then
+if XDG_CONFIG_HOME="$tmp/vazio" JANGADA_CORE_PATH="$tmp/vazio" "$repo_jangada/bin/jangada-agente" --capacidades-json >"$tmp/vazio.out" 2>"$tmp/vazio.err"; then
   falha "registro vazio foi aceito pelo jangada-agente"
 else
   ok "registro vazio faz o jangada-agente parar"
 fi
-conferir "e o erro diz onde o registro foi procurado" grep -q "default/provedores" "$tmp/vazio.err"
+conferir "e o erro diz onde o registro foi procurado" grep -q "provedores" "$tmp/vazio.err"
 conferir "sem imprimir catálogo" test ! -s "$tmp/vazio.out"
 
 if ((falhas)); then

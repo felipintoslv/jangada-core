@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# Abre a janela de conversa com o modelo local do Ollama, ou foca a que já
-# está aberta. Uso: jangada-conversa
-set -euo pipefail
-# shellcheck source=bin/jangada-config
-source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
-
-jangada_focar_classe org.jangada.conversa && exit 0
-exec setsid -f python3 "$JANGADA_PATH/default/conversa/janela.py"

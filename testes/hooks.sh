@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Testa a instalação e a conferência dos hooks do Claude e do agy com o
 # arquivo de configuração vazio ou inválido: a mescla trata o vazio como {} e
-# grava os hooks, e o jangada-verificar aponta o arquivo em vez de dar tudo
-# certo (o jq não devolve nada para uma entrada vazia).
+# grava os hooks e não mexe no arquivo inválido. A conferência do arquivo
+# vazio pelo jangada-verificar é de comando opcional, fora do Core por ora.
 #
 # Uso: testes/hooks.sh
 set -uo pipefail
@@ -15,7 +15,7 @@ conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/estado"
-export JANGADA_PATH="$PWD" JANGADA_SIMULAR=0
+export JANGADA_CORE_PATH="$PWD" JANGADA_SIMULAR=0
 unset HYPRLAND_INSTANCE_SIGNATURE
 claude_cfg="$HOME/.claude/settings.json"
 agy_cfg="$HOME/.gemini/config/hooks.json"
@@ -24,22 +24,16 @@ mkdir -p "$HOME/.claude" "$HOME/.gemini/config"
 mesclar() { # função da lib
   bash -c 'source install/lib.sh && "$1"' _ "$1" >"$tmp/saida" 2>&1
 }
-# Linha logo abaixo do título da seção na saída do jangada-verificar.
-secao() {
-  bin/jangada-verificar 2>&1 | grep -A1 -F "== $1" | tail -1
-}
-eventos_claude() { jq -r '.hooks | keys | join(" ")' default/claude/hooks.json; }
+eventos_claude() { jq -r '.hooks | keys | join(" ")' agentes/claude/hooks.json; }
 
 echo "== settings.json do Claude vazio"
 : >"$claude_cfg"
-conferir "verificar aponta o arquivo vazio" bash -c '[[ "$1" == *"settings.json vazio ou inválido"* ]]' _ "$(secao "hooks do Claude Code")"
 mesclar mesclar_hooks_claude
 conferir "a mescla grava os hooks" \
   [ "$(jq -r '.hooks | keys | join(" ")' "$claude_cfg" 2>/dev/null)" = "$(eventos_claude)" ]
 conferir "a mescla não diz que já estavam instalados" bash -c '! grep -q "já instalados" "$1"' _ "$tmp/saida"
 conferir "a mescla guarda a cópia do vazio" \
   bash -c 'ls "$1".jangada-*.bak >/dev/null 2>&1' _ "$claude_cfg"
-conferir "verificar dá os hooks por instalados" bash -c '[[ "$1" == *"hooks instalados em todos os eventos"* ]]' _ "$(secao "hooks do Claude Code")"
 mesclar mesclar_hooks_claude
 conferir "rodar de novo não muda nada" grep -q "já instalados" "$tmp/saida"
 
@@ -48,17 +42,14 @@ printf '{"hooks": \n' >"$claude_cfg"
 mesclar mesclar_hooks_claude
 conferir "a mescla avisa e não grava" \
   bash -c 'grep -q "não consegui ler" "$1" && [ "$(cat "$2")" = "{\"hooks\": " ]' _ "$tmp/saida" "$claude_cfg"
-conferir "verificar aponta o arquivo inválido" bash -c '[[ "$1" == *"settings.json vazio ou inválido"* ]]' _ "$(secao "hooks do Claude Code")"
 
 echo "== hooks.json do agy vazio"
 : >"$agy_cfg"
-conferir "verificar aponta o arquivo vazio" bash -c '[[ "$1" == *"hooks.json vazio ou inválido"* ]]' _ "$(secao "hooks do Antigravity")"
 mesclar mesclar_hooks_agy
 conferir "a mescla grava os hooks" bash -c 'jq -e "$1" "$2" >/dev/null' _ '.jangada.PreToolUse and .jangada.Stop' "$agy_cfg"
 conferir "a mescla não diz que já estavam instalados" bash -c '! grep -q "já instalados" "$1"' _ "$tmp/saida"
 conferir "a mescla guarda a cópia do vazio" \
   bash -c 'ls "$1".jangada-*.bak >/dev/null 2>&1' _ "$agy_cfg"
-conferir "verificar dá os hooks por instalados" bash -c '[[ "$1" == *"hooks instalados em todos os eventos"* ]]' _ "$(secao "hooks do Antigravity")"
 mesclar mesclar_hooks_agy
 conferir "rodar de novo não muda nada" grep -q "já instalados" "$tmp/saida"
 
@@ -67,7 +58,6 @@ printf '{"jangada": \n' >"$agy_cfg"
 mesclar mesclar_hooks_agy
 conferir "a mescla avisa e não grava" \
   bash -c 'grep -q "não consegui ler" "$1" && [ "$(cat "$2")" = "{\"jangada\": " ]' _ "$tmp/saida" "$agy_cfg"
-conferir "verificar aponta o arquivo inválido" bash -c '[[ "$1" == *"hooks.json vazio ou inválido"* ]]' _ "$(secao "hooks do Antigravity")"
 
 echo "== escrita atômica do settings.json"
 # Quem abriu o arquivo antes da mescla continua lendo o conteúdo antigo
@@ -102,15 +92,12 @@ mesclar mesclar_hooks_claude
 conferir "link simbólico preservado e alvo atualizado" \
   bash -c '[ -L "$1" ] && jq -e ".antigo == 3 and (.hooks | length > 0)" "$2" >/dev/null' _ "$claude_cfg" "$tmp/dot/settings.json"
 
-echo "== hook do leitor chamado pelo link de bin/"
-# Árvore como fica depois da migração: o comando e a conferência em core/,
-# com links relativos nos caminhos antigos.
+echo "== hook do leitor sem JANGADA_CORE_PATH"
+# Árvore mínima: o comando e a conferência, sem JANGADA_CORE_PATH no ambiente.
 arvore="$tmp/arvore"
-mkdir -p "$arvore/bin" "$arvore/core/bin" "$arvore/core/claude" "$arvore/default"
-cp bin/jangada-hook-leitor "$arvore/core/bin/"
-cp default/claude/hook-leitor.py "$arvore/core/claude/"
-ln -s ../core/bin/jangada-hook-leitor "$arvore/bin/jangada-hook-leitor"
-ln -s ../core/claude "$arvore/default/claude"
+mkdir -p "$arvore/bin" "$arvore/agentes/claude"
+cp bin/jangada-hook-leitor "$arvore/bin/"
+cp agentes/claude/hook-leitor.py "$arvore/agentes/claude/"
 leitor_link() { # comando; demais argumentos vão para o env
   local cmd="$1"; shift
   jq -cn --arg c "$cmd" '{tool_name: "Bash", tool_input: {command: $c}}' \
@@ -118,12 +105,12 @@ leitor_link() { # comando; demais argumentos vão para o env
 }
 agy_link() { # comando, papel
   jq -cn --arg c "$1" '{conversationId: "x", toolCall: {name: "run_command", args: {CommandLine: $c}}}' \
-    | env -u JANGADA_PATH JANGADA_AGY_DIR="$tmp/agy" JANGADA_AGY_PAPEL="$2" "$arvore/bin/jangada-hook-leitor" --agy | jq -r .decision
+    | env -u JANGADA_CORE_PATH JANGADA_AGY_DIR="$tmp/agy" JANGADA_AGY_PAPEL="$2" "$arvore/bin/jangada-hook-leitor" --agy | jq -r .decision
 }
-conferir "com JANGADA_PATH, leitura liberada" leitor_link "head a.txt" JANGADA_PATH="$arvore"
-conferir "sem JANGADA_PATH, leitura liberada pela pasta do link" leitor_link "head a.txt" -u JANGADA_PATH
-leitor_link "rm a" -u JANGADA_PATH
-conferir "sem JANGADA_PATH, escrita recusada com 2" [ "$?" = 2 ]
+conferir "com JANGADA_CORE_PATH, leitura liberada" leitor_link "head a.txt" JANGADA_CORE_PATH="$arvore"
+conferir "sem JANGADA_CORE_PATH, leitura liberada pela pasta do comando" leitor_link "head a.txt" -u JANGADA_CORE_PATH
+leitor_link "rm a" -u JANGADA_CORE_PATH
+conferir "sem JANGADA_CORE_PATH, escrita recusada com 2" [ "$?" = 2 ]
 conferir "agy: outro agente segue as permissões" [ "$(agy_link "rm a" "")" = ask ]
 conferir "agy: leitor que grava é recusado" [ "$(agy_link "rm a" leitor)" = deny ]
 

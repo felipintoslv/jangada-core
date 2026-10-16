@@ -14,8 +14,8 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / 'default/orquestracao'))
-SPEC = importlib.util.spec_from_file_location('estado', RAIZ / 'default/orquestracao/estado.py')
+sys.path.insert(0, str(RAIZ / 'orquestracao'))
+SPEC = importlib.util.spec_from_file_location('estado', RAIZ / 'orquestracao/estado.py')
 MODULO = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULO)
 
@@ -330,7 +330,7 @@ class Persistencia(unittest.TestCase):
         (projeto / 'plano.json').write_text(json.dumps([tarefa(comando='touch invasao'),
                                                      tarefa('T2', prioridade='critical')]))
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(RAIZ), XDG_STATE_HOME=str(pathlib.Path(self.tmp.name) / 'state'),
+        ambiente.update(JANGADA_CORE_PATH=str(RAIZ), XDG_STATE_HOME=str(pathlib.Path(self.tmp.name) / 'state'),
                         XDG_CONFIG_HOME=str(pathlib.Path(self.tmp.name) / 'config'))
 
         def executar(comando, *args):
@@ -359,7 +359,7 @@ class Persistencia(unittest.TestCase):
         segredo.write_text('não enviar')
         (projeto / 'plano.json').write_text(json.dumps([tarefa(fontes=['../segredo.txt'])]))
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(RAIZ), XDG_STATE_HOME=str(pathlib.Path(self.tmp.name) / 'state'),
+        ambiente.update(JANGADA_CORE_PATH=str(RAIZ), XDG_STATE_HOME=str(pathlib.Path(self.tmp.name) / 'state'),
                         XDG_CONFIG_HOME=str(pathlib.Path(self.tmp.name) / 'config'))
         resultado = subprocess.run([str(RAIZ / 'bin/jangada-fila'), '--importar', 'plano.json'],
                                    cwd=projeto, env=ambiente, capture_output=True, text=True, timeout=30)
@@ -377,7 +377,7 @@ class Persistencia(unittest.TestCase):
         plano = projeto / 'plano.json'
         plano.write_text(json.dumps([tarefa()]), encoding='utf-8')
         ambiente = os.environ.copy()
-        ambiente.update(JANGADA_PATH=str(RAIZ), XDG_STATE_HOME=str(pathlib.Path(self.tmp.name) / 'state'),
+        ambiente.update(JANGADA_CORE_PATH=str(RAIZ), XDG_STATE_HOME=str(pathlib.Path(self.tmp.name) / 'state'),
                         XDG_CONFIG_HOME=str(pathlib.Path(self.tmp.name) / 'config'))
 
         def consultar(pasta, *args):

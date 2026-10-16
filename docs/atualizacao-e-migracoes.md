@@ -1,9 +1,12 @@
 # Atualização e migrações
 
-O jangada roda de uma cópia instalada em `~/.local/share/jangada`
-(`JANGADA_PATH`), que só avança pelo `jangada-update` e só depois de você ver
+O Core roda de uma cópia instalada em `~/.local/share/jangada-core`
+(`JANGADA_CORE_PATH`), que só avança pelo `jangada-update` e só depois de você ver
 e aceitar os commits novos. Mudança que exige ajuste numa instalação
-existente chega por uma migração, aplicada uma única vez pelo `jangada-migrar`.
+existente chega por uma migração do Core, aplicada uma única vez pelo
+`jangada-migrar`. O sistema (pacotes, snapshots, recarga da sessão) é do
+`jangada-sistema-update`, do jangada-shell, que o `jangada-update` chama no
+fim quando ele está no PATH.
 
 ## Instalação inicial
 
@@ -14,19 +17,15 @@ flowchart TD
     B -- não --> B2{cópia de trabalho,<br>worktree ou JANGADA_WORKTREES?}
     B2 -- sim, sem simulação --> X
     B2 -- não, ou simulação --> C[install/NN-*.sh em ordem numérica]
-    C --> D[00 verificações] --> E[10 pacotes] --> F[20 snapshots]
-    F --> G[30 shell] --> H[40 interface] --> I[50 agentes]
-    I --> J[90 marca todas as migrações<br>como aplicadas]
+    C --> D[00 verificações] --> E[10 pacotes] --> I[50 agentes]
 ```
 
-- Com argumentos, roda só as etapas com esse prefixo: `./install.sh 20 50`.
+- Com argumentos, roda só as etapas com esse prefixo: `./install.sh 10 50`.
 - `JANGADA_SIMULAR=1 ./install.sh` mostra o que seria feito sem executar.
-- A pasta de onde o `install.sh` roda vira o `JANGADA_PATH`. A cópia de
+- A pasta de onde o `install.sh` roda vira o `JANGADA_CORE_PATH`. A cópia de
   trabalho e os worktrees são graváveis de dentro do isolamento, então
   instalar dali faria os hooks e a sessão rodarem o que o agente muda. Nelas
   só a simulação roda.
-- A etapa 90 marca as migrações como aplicadas porque uma instalação nova já
-  recebe os padrões atualizados.
 
 ## Como escrever uma etapa ou migração
 
@@ -47,18 +46,16 @@ Regras de uma migração (`migrations/README.md`):
    tentada outra vez.
 3. Nunca apaga arquivo do usuário; move para `.bak` com data.
 4. Explica no topo o que mudou e por quê.
-5. O padrão em `default/` é corrigido também, para a instalação nova.
-
-Exemplo curto, `migrations/202609272200-subagentes-novos.sh`: carrega
-`install/lib.sh` e chama `ligar_agentes_claude` e `mesclar_agentes_agy` só se
-o Claude ou o agy estiverem presentes.
+5. O padrão correspondente é corrigido também, para a instalação nova.
 
 ## jangada-update
 
 ```mermaid
 flowchart TD
-    A[jangada-update] --> B{cópia instalada limpa?}
-    B -- não --> S[avisa e segue só com o sistema]
+    A[jangada-update] --> G0{fora do isolamento,<br>sem sessões nem processos<br>da instalação?}
+    G0 -- não --> X[recusa, código 1]
+    G0 -- sim --> B{cópia instalada limpa?}
+    B -- não --> S[avisa e segue]
     B -- sim --> C[git fetch origin]
     C --> D{no ramo JANGADA_CANAL?}
     D -- não --> D1[troca de ramo,<br>com confirmação se vier da origem]
@@ -66,35 +63,23 @@ flowchart TD
     D1 --> E{origem à frente<br>em linha reta?}
     E -- não --> S
     E -- sim --> F0{com allowed_signers,<br>todos assinados?}
-    F0 -- não --> S2
+    F0 -- não --> S
     F0 -- sim, ou sem o arquivo --> F[confirmar_novidades:<br>commits, arquivos e aviso<br>de migrations, install, bin]
-    F -- não ou sem terminal --> S2[sistema sem migrações novas]
+    F -- não ou sem terminal --> S
     F -- s --> G[merge --ff-only]
-    G --> S
-    S --> H[checkupdates e AUR]
-    S2 --> H
-    H --> I{muda o conjunto<br>do Hyprland?}
-    I -- sim, e recusa --> X0[atualização cancelada, código 0]
-    I -- não, ou aceita --> J[pacman -Syu]
-    J -- falhou --> K
-    J -- ok --> J2[AUR]
-    J2 -- falhou --> K
-    J2 -- ok --> M[jangada-migrar]
-    M -- ok --> R[jangada-recarregar,<br>se dentro do Hyprland]
-    M -- falhou --> K[avisa: atualização parcial,<br>sem migrações nem recarga]
-    R --> L
-    K --> L[erros de mkinitcpio e dkms<br>no pacman.log, kernel e NVIDIA]
-    L --> P[jangada-gancho pos-update]
+    G --> M[jangada-migrar]
+    M --> P{--so-core?}
+    S --> P
+    P -- sim --> Z[fim]
+    P -- não --> Q{jangada-sistema-update<br>no PATH?}
+    Q -- sim --> R[roda sem argumentos<br>e repassa o código de saída]
+    Q -- não --> Z
 ```
 
 - **Confirmação.** A origem da cópia instalada é a cópia de trabalho, cujas
   refs um agente isolado pode gravar. Por isso nada que chega por ela roda
   sem você ver: `confirmar_novidades` mostra os commits, os arquivos e um
-  aviso quando mudam `migrations/`, `install/` ou `bin/`. Desde a
-  modularização 3.0, 52 dos 59 comandos de `bin/` são links para `core/bin`,
-  `shell/bin` e `monitor/bin`: mudança no arquivo real não altera o link e
-  não entra nesse aviso, só no resumo por arquivo. A pendência está em
-  [modularizacao-3.0/06-validacao-final.md](modularizacao-3.0/06-validacao-final.md). Os textos passam
+  aviso quando mudam `migrations/`, `install/` ou `bin/`. Os textos passam
   por um filtro de caracteres de controle, para que uma sequência de escape
   não disfarce a lista. Sem terminal, a resposta é não.
 - **Assinaturas.** Com `~/.config/jangada/allowed_signers`, todo commit que
@@ -110,69 +95,33 @@ flowchart TD
   assinatura e ainda não aplicado fica fora do que ele reescreve e dentro do
   que o `jangada-update` confere: o `jangada-assinar` avisa e mostra o
   comando que avança a cópia instalada à mão, depois de você conferir esses
-  commits. Os merges do
-  `jangada-agente-fim --integrar` são refeitos e assinados junto, e o
-  próprio `--integrar` chama o `jangada-assinar` depois de apagar o ramo,
-  quando a raiz é a cópia de trabalho do jangada; chamado de dentro da
-  própria sessão, ele só avisa, porque a limpeza segue sem terminal. Refazer
-  um merge perde o que foi resolvido ou alterado nele à mão: com conflito, o
-  rebase para e `git rebase --abort` desfaz; sem conflito, o comando nota a
-  diferença, volta o ramo ao que era e não assina nada. O `jangada-update` e
-  o `jangada-assinar` fixam o `gpg.ssh.program` em `ssh-keygen`, porque o da configuração do repositório
-  rodaria fora do isolamento.
+  commits. Os merges do `jangada-agente-fim --integrar` são refeitos e
+  assinados junto, e o próprio `--integrar` chama o `jangada-assinar` depois
+  de apagar o ramo, quando a raiz é a cópia de trabalho do jangada; chamado
+  de dentro da própria sessão, ele só avisa, porque a limpeza segue sem
+  terminal. Refazer um merge perde o que foi resolvido ou alterado nele à
+  mão: com conflito, o rebase para e `git rebase --abort` desfaz; sem
+  conflito, o comando nota a diferença, volta o ramo ao que era e não assina
+  nada. O `jangada-update` e o `jangada-assinar` fixam o `gpg.ssh.program`
+  em `ssh-keygen`, porque o da configuração do repositório rodaria fora do
+  isolamento.
 - **Avanço rápido.** Só `--ff-only`: origem que não avança em linha reta
   não é aplicada.
-- **Hyprland.** Se a atualização toca `hyprland`, `aquamarine`, `hyprutils`,
-  o Noctalia e o resto do conjunto, mostra os pacotes e pede confirmação.
-- **Falha do pacman.** Não interrompe o script: é justamente quando um hook
-  do mkinitcpio ou do dkms falha que a conferência da imagem de boot precisa
-  rodar. O que depende da atualização completa (AUR, migrações, recarga)
-  fica para depois do conserto, e o código de saída é diferente de zero.
-- **Depois.** Kernel trocado e driver NVIDIA carregado diferente do instalado
-  pedem reinício.
+- **Canal.** `JANGADA_CANAL` (`main` ou `estavel`) escolhe o ramo que a cópia
+  instalada acompanha.
+- **Guardas.** O comando recusa rodar dentro do isolamento, com sessões de
+  agentes abertas no tmux do Jangada ou com processos que usam a instalação.
+  Interrompa os executores e preserve os registros antes de atualizar. Não há
+  simulação: `JANGADA_SIMULAR=1` é recusado, e as migrações se conferem com
+  `JANGADA_SIMULAR=1 jangada-migrar`.
 - **Git sem ganchos.** Todo git sobre a cópia instalada passa por
   `jangada_git_seguro`, sem fsmonitor nem ganchos da configuração do
   repositório.
-
-## Atualizar somente o código
-
-`jangada-update --somente-codigo` atualiza apenas o Git da cópia instalada.
-Mantém confirmação dos commits, conferência de assinaturas e avanço rápido.
-Não executa pacotes, migrações, recarga, serviços ou ganchos do usuário.
-Falha ou recusa devolve código diferente de zero, preservando a instalação.
-
-O modo recusa agentes isolados, sessões no tmux do Jangada e processos que usam o código instalado.
-Interrompa os executores, preserve os registros e feche os aplicativos antes de atualizar.
-Faça o backup integral no terminal externo conforme `docs/estabilizacao/BACKUP_RECUPERACAO.md`.
-Não use o encerrador antigo para limpar evidências que ainda precisam de preservação.
-
-**Instalações anteriores não reconhecem esta opção e podem atualizar o sistema.**
-Para a primeira atualização, depois de integrar, revisar e conferir as assinaturas da cópia principal,
-execute o programa novo dessa cópia, apontando para a instalação existente:
-
-```sh
-JANGADA_PATH="$HOME/.local/share/jangada" bash "$HOME/Projetos/jangada/bin/jangada-update" --somente-codigo
-```
-
-Isso utiliza o atualizador nativo conferido; não copia executáveis manualmente.
-Não execute uma versão sem revisão ou ainda modificável por um executor em andamento.
-Confira o SHA exibido e a versão efetivamente instalada.
-
-O atualizador não oferece simulação; `JANGADA_SIMULAR=1` é recusado antes de buscar commits.
-As migrações são conferidas separadamente, pelo programa já instalado:
-
-```sh
-JANGADA_SIMULAR=1 "$HOME/.local/share/jangada/bin/jangada-migrar"
-```
-
-Se houver migrações pendentes, confira os comandos previstos antes de aplicar.
-Migrações podem exigir pacotes ou alterações de sistema; não aplique essas etapas quando estiverem fora da autorização.
-Com o plano conferido e permitido, rode `"$HOME/.local/share/jangada/bin/jangada-migrar"`.
-Reabra os processos do Jangada para usar o código novo.
-Isso não exige reiniciar o computador nem atualizar kernel, drivers ou Hyprland.
-
-`testes/update-codigo.py` usa clones descartáveis e comandos de sistema que falham se forem chamados.
-Confere confirmação, assinaturas, arquivos pendentes e recusas de atualização com sessões, processos ou isolamento.
+- **Sistema.** Sem `--so-core`, e se `jangada-sistema-update` existir no
+  PATH, ele roda no fim, sem argumentos, e o código de saída dele é o do
+  comando. Pacotes, AUR, Hyprland, snapshots, initramfs, NVIDIA, recarga da
+  sessão e ganchos `pos-update` ficam com o Shell. Código recusado não
+  impede o sistema, mas o comando termina com erro.
 
 ## jangada-migrar
 
@@ -180,7 +129,7 @@ Confere confirmação, assinaturas, arquivos pendentes e recusas de atualizaçã
 flowchart TD
     A[jangada-migrar] --> B[flock na pasta de marcas, 60 s]
     B -- ocupada --> X[outra migração em andamento, código 1]
-    B -- ok --> C[migrations/*.sh em ordem de nome]
+    B -- ok --> C[migrations/*.sh em ordem de nome,<br>pasta sem scripts: nada a fazer]
     C --> D{marca em<br>estado/migracoes/NOME?}
     D -- sim --> C
     D -- não --> E[bash MIGRAÇÃO]
@@ -194,21 +143,19 @@ flowchart TD
 Em simulação a marca não é gravada: gravar faria a execução seguinte, a de
 verdade, pular uma migração que nunca foi aplicada.
 
-## Migração do vidro fosco
-
-`202610111800-vidro-fosco.sh` adapta fundos gerados que ainda correspondem
-aos modelos anteriores. Arquivos pessoais ficam intactos, sem recarga da
-sessão. A decisão, os limites e a verificação de repetibilidade estão em
-[vidro fosco](vidro-fosco.md#atualização-de-instalações-existentes).
+A pasta `migrations/` começa vazia no Core. As migrações anteriores à
+separação ficam no histórico do monorepo, e as marcas delas em
+`$JANGADA_ESTADO/migracoes/` impedem que sejam reaplicadas.
 
 ## Testes
 
 | Arquivo | O que cobre |
 |---|---|
-| `testes/update.sh` | só aplica com `s`; sem terminal não aplica; migração nova roda e grava marca; filtro de caracteres de controle; origem reescrita recusada; com `allowed_signers`, commit sem assinatura ou com chave de fora não é aplicado, o `jangada-assinar` assina só a partir do primeiro sem assinatura, assina também os merges da integração, avisa do commit enviado sem assinatura, recusa merge alterado à mão, não roda sem terminal nem sem a chave e ignora o `gpg.ssh.program` do repositório; `jangada-agente-fim --integrar` não mexe na cópia instalada e, com `allowed_signers`, assina depois da confirmação e, de dentro da própria sessão, só avisa; `install.sh` recusa a cópia de trabalho, um worktree e `JANGADA_WORKTREES` |
+| `testes/update.sh` | resposta `n` e sem terminal não aplicam; `s` avança, roda a migração e grava a marca; filtro de caracteres de controle; origem reescrita recusada; com `allowed_signers`, commit sem assinatura ou com chave de fora não é aplicado; `gpg.ssh.program`, fsmonitor e ganchos da cópia instalada não rodam; canal `estavel`; `jangada-migrar` com a pasta vazia, em simulação e com falha; `--so-core` não chama o `jangada-sistema-update`, e sem ele o comando é chamado e o código de saída repassado |
+| `testes/update-codigo.py` | em clones descartáveis e com bubblewrap: recusa com árvore suja, sessão ativa, processo da instalação, isolamento e simulação, sem chamar pacote nem migração |
+| `testes/consumo.sh` | `jangada-consumo` com registros sintéticos e a dica da barra |
 | `testes/hooks.sh` | `mesclar_hooks_claude` e `mesclar_hooks_agy` com o arquivo vazio gravam os hooks (o vazio conta como `{}`); com JSON inválido, avisam e não gravam; o `jangada-verificar` aponta o arquivo vazio ou inválido |
-| `testes/barra.sh` | exemplo de migração testada: a que acrescenta o módulo de indicadores |
-| `.github/workflows/verificar.yml` | a CI simula a instalação como usuário sem sudo e confere que nada foi escrito |
+|| `.github/workflows/verificar.yml` | a CI simula a instalação como usuário sem sudo e confere que nada foi escrito |
 
 Veja também as [boas práticas](boas-praticas.md) e o ciclo de versão no
 README (`jangada-versao`).

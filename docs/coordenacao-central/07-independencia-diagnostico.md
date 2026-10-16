@@ -12,8 +12,8 @@ O modo JSON não abre terminal. Sem Monitor, sai com código 1, mensagem explíc
 Medições indisponíveis continuam nulas com erros explícitos; não se transformam em zero ou sucesso vazio.
 Os limites de tamanho e as recusas de endereço remoto, redirecionamento e JSON inválido permanecem no coletor.
 
-O link `core/nucleo/monitoramento.py` foi preservado somente por compatibilidade, sem cópia de implementação.
-Ele mantém `default/nucleo/monitoramento.py`, documentado na modularização e usado por `monitor/painel/operacional.R:247`.
+O link `nucleo/monitoramento.py` foi preservado somente por compatibilidade, sem cópia de implementação.
+Ele mantém `nucleo/monitoramento.py`, documentado na modularização e usado por `monitor/painel/operacional.R:247`.
 Retirá-lo quebraria esse consumidor versionado. Os dois caminhos legados entram na prova K2 de links relativos internos.
 A classificação K9 atribui o arquivo legado ao Monitor pela entrada específica, com precedência sobre a pasta do Core.
 Uma regressão confere que esse acesso também recusa importação de classe de escrita; nenhuma exceção de fronteira foi acrescentada.

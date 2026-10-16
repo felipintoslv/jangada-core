@@ -1,1 +1,6 @@
-../core/bin/jangada-avaliar-ollama
+#!/usr/bin/env bash
+# Avalia leitura no Ollama com fontes sintéticas. Uso: jangada-avaliar-ollama [--repeticoes N] [--saida PASTA]
+set -euo pipefail
+# shellcheck source=bin/jangada-config
+source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
+exec python3 "$JANGADA_CORE_PATH/delegacao/avaliar_ollama.py" "$@"

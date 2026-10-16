@@ -8,17 +8,14 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / 'core'))
-sys.path.insert(0, str(REPO / 'core/orquestracao'))
-os.environ['JANGADA_CORE_PY'] = str(REPO / 'core')
-sys.path.insert(0, str(REPO / 'monitor/painel'))
+sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / 'orquestracao'))
+os.environ['JANGADA_CORE_PY'] = str(REPO)
 from nucleo import consultas
 from metricas_projeto import calcular
-import orquestracao
 
 
 def retrato(pasta):
@@ -76,9 +73,6 @@ class ConsultasModulos(unittest.TestCase):
                         t['especificacao'] = json.loads(t['especificacao'])
                     return tarefas
             esperado = calcular(Legado(db), precos)
-            config = raiz / 'config'
-            config.mkdir()
-            (config / 'precos.json').write_text(json.dumps(precos))
             db.execute('BEGIN IMMEDIATE')
             db.execute("UPDATE tarefas SET status='FAILED' WHERE id='leitura'")
             antes = retrato(raiz)
@@ -96,26 +90,6 @@ class ConsultasModulos(unittest.TestCase):
             codex = next(p for p in consulta['provedores'] if p['id'] == 'codex')
             self.assertEqual(codex['status'], 'UNKNOWN')
             self.assertIsNone(codex['cota'])
-            # O consumidor não pode descobrir, abrir ou sequer testar caminho privado.
-            with patch.object(Path, 'glob', side_effect=AssertionError('descoberta privada')), \
-                    patch.object(Path, 'iterdir', side_effect=AssertionError('descoberta privada')), \
-                    patch.object(Path, 'exists', side_effect=AssertionError('leitura privada')), \
-                    patch.object(orquestracao, 'consultar_filas', return_value=consulta), \
-                    patch.object(orquestracao, 'ler_precos', return_value=precos):
-                painel = orquestracao.coletar('/estado/reposicionado/ausente', [projeto], lambda p: 'Meu projeto')
-            with patch.dict(os.environ, JANGADA_CONFIG=str(config)):
-                real = orquestracao.coletar(raiz, [projeto], lambda p: 'Meu projeto')
-            self.assertEqual(real, painel)
-            self.assertEqual(retrato(raiz), antes)
-            self.assertEqual(painel['erros'], [])
-            self.assertEqual(painel['projetos'], [dict(projeto='Meu projeto', **esperado)])
-            self.assertEqual(painel['provedores'], consulta['provedores'])
-            tarefa = next(t for t in painel['tarefas'] if t['id'] == 'leitura')
-            self.assertEqual(tarefa, dict(projeto='Meu projeto', id='leitura', estado='REVIEW_REQUIRED',
-                papel='leitor', capacidade='leitura_documental', prioridade='normal', tentativas=1,
-                motivo='aguarda', dependencias='', atualizado=2, chamadas=1, segundos=5,
-                limite_chamadas=4, limite_segundos=120, saldo_chamadas=3, saldo_segundos=115))
-            self.assertEqual(next(t for t in painel['tarefas'] if t['id'] == 'dependente')['estado'], 'BLOCKED')
             with consultas.banco_leitura(banco) as copia:
                 with self.assertRaises(sqlite3.OperationalError):
                     copia.execute('DELETE FROM tarefas')
@@ -227,11 +201,6 @@ class ConsultasModulos(unittest.TestCase):
             self.assertLess(len(json.dumps(consulta).encode()), 1024 * 1024)
             self.assertEqual(set(fila['tarefas'][0]), {'id', 'status', 'tentativas', 'motivo', 'atualizado', 'especificacao'})
             self.assertEqual(fila['tarefas'][0]['especificacao'], dict(papel='leitor', capacidade='leitura_documental'))
-            with patch.object(orquestracao, 'ler_precos', return_value=None):
-                painel = orquestracao.coletar(raiz, [atalho], lambda p: Path(p).name)
-            self.assertEqual(painel['erros'], [])
-            self.assertEqual(painel['projetos'][0]['projeto'], 'atalho')
-            self.assertEqual(len(painel['tarefas']), 400)
             self.assertEqual(retrato(raiz), antes)
             db.close()
 
@@ -256,19 +225,6 @@ class ConsultasModulos(unittest.TestCase):
             self.assertEqual(retrato(raiz), antes)
             for db in bancos:
                 db.close()
-
-    def test_consumidor_falhas_nao_viram_sucesso(self):
-        for resposta in (dict(versao=2), dict(versao=True), {},
-                         dict(versao=1, projetos=None, provedores=[], erros=[])):
-            with patch.object(orquestracao, 'consultar_filas', return_value=resposta):
-                resultado = orquestracao.coletar('/ausente', [], str)
-            self.assertTrue(resultado['erros'])
-        with patch.object(orquestracao, 'consultar_filas', side_effect=ValueError('quebrado')):
-            self.assertTrue(orquestracao.coletar('/ausente', [], str)['erros'])
-        with patch.object(orquestracao, 'consultar_filas', return_value=dict(
-                versao=1, projetos=[], provedores=[], erros=[])), \
-                patch.object(orquestracao, 'ler_precos', side_effect=ValueError('preço inválido')):
-            self.assertIn('preço inválido', orquestracao.coletar('/ausente', [], str)['erros'][0])
 
 
 if __name__ == '__main__':

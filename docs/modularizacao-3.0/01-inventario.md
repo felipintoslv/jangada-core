@@ -119,7 +119,7 @@ irmãs. As importações atuais dependem dessa vizinhança
 
 | Arquivo | Conteúdo | Destino |
 |---|---|---|
-| `shell/jangada.sh` | exporta `JANGADA_PATH` e `PATH`, ativa mise, zoxide e fzf; sem funções | fica onde está |
+| `shell/jangada.sh` | exporta `JANGADA_CORE_PATH` e `PATH`, ativa mise, zoxide e fzf; sem funções | fica onde está |
 | `shell/jangada-shell.sh` | funções `agente`, `agentes`, `status`, `fim`, `revisar`, `resumir`, `mapa`, `mudancas`, `concluir`, `desistir`, `reverter`, `repassar`, `trocar`, `ajuda` | fica onde está |
 
 Motivos para não mover: o bloco gravado em `~/.bashrc` e `~/.zshrc` aponta
@@ -135,7 +135,7 @@ Shell por inteiro.
 |---|---|
 | `bin/` (fachada) | está no `PATH`, em arquivos do usuário e em 517 referências dos testes |
 | `install/`, `install.sh` | uma instalação só; `install/lib.sh` é carregado pelas 24 migrações e por dois comandos |
-| `migrations/` | `jangada-migrar:16` percorre `$JANGADA_PATH/migrations/*.sh` |
+| `migrations/` | `jangada-migrar:16` percorre `$JANGADA_CORE_PATH/migrations/*.sh` |
 | `config/` | modelos do usuário; `config/hypr/hyprland.lua:8` carrega `default/hypr/bootstrap.lua` |
 | `testes/` | ver 1.6 |
 | `docs/`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `README.md`, `CHANGELOG.md`, `LICENSE` | |
@@ -217,7 +217,7 @@ Por isso os caminhos antigos seguem existindo como links (contrato K2).
 
 ## 1.8 Custo de mover, medido
 
-Ocorrências de `$JANGADA_PATH/<pasta>` por origem:
+Ocorrências de `$JANGADA_CORE_PATH/<pasta>` por origem:
 
 | De | `bin` | `default` | `shell` | `install` | `migrations` | `config` |
 |---|---|---|---|---|---|---|

@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / 'default/orquestracao'))
+sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from acompanhamento import acompanhar
 from deterministico import conferir
 from estado import Estado
@@ -206,8 +206,8 @@ class Conferencia(unittest.TestCase):
         (self.pasta / 'esquema.json').write_text('{"type":"object"}')
         plano = self.pasta / 'plano.json'
         ambiente = {**os.environ, 'JANGADA_ESTADO': str(self.pasta / 'cli-estado'),
-                    'JANGADA_PATH': str(RAIZ)}
-        comando = [sys.executable, str(RAIZ / 'default/orquestracao/cli.py'), 'fila', '--projeto', str(self.pasta),
+                    'JANGADA_CORE_PATH': str(RAIZ)}
+        comando = [sys.executable, str(RAIZ / 'orquestracao/cli.py'), 'fila', '--projeto', str(self.pasta),
                    '--json', '--importar', str(plano)]
         tarefa = {k: v for k, v in self.tarefa(fontes=['dados.json']).items() if k != 'hashes_fontes'}
         plano.write_text(json.dumps([{**tarefa, 'esquema': '../esquema.json'}]))

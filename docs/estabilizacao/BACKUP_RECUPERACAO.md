@@ -9,11 +9,11 @@ commit `7a9d1e5`, nos caminhos originais.
 
 | Conteúdo | Local usual | Necessário |
 |---|---|---|
-| Código instalado e commit | `~/.local/share/jangada`, ou `JANGADA_PATH` | Código e versão exata. |
+| Código instalado e commit | `~/.local/share/jangada-core`, ou `JANGADA_CORE_PATH` | Código e versão exata. |
 | Configuração, políticas, ganchos, cores e regras de assinatura | `~/.config/jangada`, ou XDG_CONFIG_HOME | Sim. |
 | Sessões, histórico, projetos, fila e artefatos | `~/.local/state/jangada`, ou XDG_STATE_HOME | Sim, incluindo `agentes/`, `revisoes/`, métricas e espelhos. |
 | Bancos | `agentes/projetos/HASH/tarefas.sqlite` dentro do estado | Sim. Incluir transações confirmadas do WAL. |
-| Dados auxiliares | `~/.local/share/jangada` e configurações dos provedores | Identificar na instalação; credenciais exigem guarda privada. |
+| Dados auxiliares | `~/.local/share/jangada-core` e configurações dos provedores | Identificar na instalação; credenciais exigem guarda privada. |
 | Worktrees | `~/.local/share/jangada-worktrees` | Sim, inclusive índice, pendências, arquivos novos e ignorados. |
 | Projetos externos | Caminhos cadastrados em JANGADA_PROJETOS | Sim, com `.git`, ramos, objetos, dados e arquivos ignorados. |
 | Cache | `~/.cache/jangada` | Dispensável para recuperação; guardar apenas se precisar investigar. |

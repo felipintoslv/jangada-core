@@ -6,10 +6,8 @@ fica somente leitura, e os segredos ficam ocultos. O objetivo é que nada do
 que o agente fizer rode depois fora do isolamento: um hook do git, um
 `settings.json` do Claude, um clone do AUR compilado com sudo.
 
-Desde a modularização 3.0, o `jangada-isolar` e o `jangada-agentes` moram em
-`core/bin/` e a skill em `core/agentes/claude/skills/jangada/`. Os caminhos
-de `bin/` e `default/` citados aqui são links de compatibilidade e continuam
-sendo a forma de uso. O mapa das pastas está na seção Estrutura do [README](../README.md).
+O `jangada-isolar` e o `jangada-agentes` moram em `bin/` e a skill em
+`agentes/claude/skills/jangada/`.
 
 No Codex, dados de execução próprios da sessão são montados sobre a pasta
 global do CLI, com configuração e login somente leitura. O servidor
@@ -22,7 +20,7 @@ documentos, e um texto preparado ali (injeção de prompt) faz um agente
 comum agir contra o usuário. Por isso a pergunta que decide cada caso é: o
 que o agente grava pode rodar depois fora do isolamento? Se pode, o jangada
 confere antes (o `restaurar` recompõe o comando, o `jangada-validar` lê as
-regras da base, o `jangada-update` mostra os commits) ou recusa (o
+regras da base, a atualização manual mostra os commits) ou recusa (o
 `install.sh` não instala da cópia de trabalho). O isolamento não protege
 contra falha do próprio bubblewrap nem do kernel.
 
@@ -305,7 +303,7 @@ mínima (`/var/tmp` é somente leitura). A conferência completa é num terminal
 comum.
 
 Veja também o [ciclo da tarefa](ciclo-da-tarefa.md) e a seção de isolamento
-da skill em `default/claude/skills/jangada/agentes.md`.
+da skill em `agentes/claude/skills/jangada/agentes.md`.
 
 ## Isolamento da implementação delimitada
 

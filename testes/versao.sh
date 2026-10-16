@@ -21,7 +21,7 @@ repo="$tmp/repo"
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1
 : >"$GIT_CONFIG_GLOBAL"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-export XDG_CONFIG_HOME="$tmp/config" JANGADA_PATH="$repo_jangada"
+export XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada"
 hoje="$(date +%F)"
 
 versao() { "$repo_jangada/bin/jangada-versao" "$@"; }
@@ -77,7 +77,7 @@ conferir "sem tag: sem versão (hash curto)" \
   [ "$(saida)" = "sem versão ($(git -C "$repo" rev-parse --short HEAD))" ]
 conferir "-h responde" bash -c '"$1" -h >/dev/null' _ "$repo_jangada/bin/jangada-versao"
 conferir "--ajuda responde fora de repositório" \
-  bash -c 'cd "$2" && JANGADA_PATH="$2" "$1" --ajuda | grep -q "^Uso:"' _ "$repo_jangada/bin/jangada-versao" "$tmp"
+  bash -c 'cd "$2" && JANGADA_CORE_PATH="$2" "$1" --ajuda | grep -q "^Uso:"' _ "$repo_jangada/bin/jangada-versao" "$tmp"
 conferir "-C PASTA -h responde" \
   bash -c '"$1" -C "$2" -h | grep -q "^Uso:"' _ "$repo_jangada/bin/jangada-versao" "$tmp"
 
@@ -184,9 +184,9 @@ conferir "lancar 0.2.0: itens da 0.1.0 continuam sob 0.1.0" \
   antes "$l_010" "$(linha "- validar: procura segredos" "$cl")"
 conferir "lancar 0.2.0: sem Não lançado" bash -c '! grep -qF "Não lançado" "$1"' _ "$cl"
 
-# Sem -C: o repositório da pasta atual, ou o JANGADA_PATH fora de um.
+# Sem -C: o repositório da pasta atual, ou o JANGADA_CORE_PATH fora de um.
 conferir "sem -C: usa o repositório da pasta atual" [ "$(cd "$repo" && versao)" = 0.2.0 ]
-conferir "sem -C: fora de um repositório usa o JANGADA_PATH" [ "$(cd "$tmp" && JANGADA_PATH="$repo" versao)" = 0.2.0 ]
+conferir "sem -C: fora de um repositório usa o JANGADA_CORE_PATH" [ "$(cd "$tmp" && JANGADA_CORE_PATH="$repo" versao)" = 0.2.0 ]
 
 if ((falhas)); then
   echo "$falhas falha(s); saídas em $tmp (mantido)"

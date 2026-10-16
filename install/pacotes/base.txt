@@ -3,8 +3,4 @@ git
 jq
 fzf
 libnotify          # notify-send
-pacman-contrib     # checkupdates
-fakeroot           # exigido pelo checkupdates
 inotify-tools
-lua                # checagem de sintaxe dos arquivos .lua
-less               # paginador do git, usado pelo mudancas do jangada shell

@@ -1,23 +1,19 @@
 #!/usr/bin/env bash
-# Carrega as preferências do jangada. Uso em outros scripts:
+# Configuração do jangada-core. Carrega as preferências do Core. Uso em outros scripts:
 #   source "$(dirname "$0")/jangada-config"
 # Executado diretamente, mostra os valores efetivos.
 
-JANGADA_PATH="${JANGADA_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+JANGADA_CORE_PATH="${JANGADA_CORE_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 JANGADA_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/jangada"
 JANGADA_ESTADO="${XDG_STATE_HOME:-$HOME/.local/state}/jangada"
 # Pasta dos arquivos de estado das sessões de agente. Sempre derivada do
-# JANGADA_ESTADO, para o Shell receber o caminho em vez de montá-lo.
+# JANGADA_ESTADO, para quem consome o estado receber o caminho em vez de montá-lo.
 JANGADA_SESSOES="$JANGADA_ESTADO/agentes"
 # Pasta de importação dos pacotes Python do Core. Sempre derivada do
-# JANGADA_PATH, para um valor herdado de outra cópia não trocar o código lido.
-JANGADA_CORE_PY="$JANGADA_PATH/core"
+# JANGADA_CORE_PATH, para um valor herdado de outra cópia não trocar o código lido.
+JANGADA_CORE_PY="$JANGADA_CORE_PATH"
 
 # Valores padrão, substituídos pelo arquivo do usuário se ele existir.
-JANGADA_INTERFACE=componentes
-JANGADA_VIDRO=1
-JANGADA_VIDRO_ALPHA=0.88
-JANGADA_TERMINAL=
 JANGADA_AGENTE=claude
 JANGADA_AGENTE_ARGS=
 JANGADA_VALIDAR_REVISOR="${JANGADA_VALIDAR_REVISOR:-}"
@@ -30,24 +26,9 @@ JANGADA_ISOLAR_ESCRITA="${JANGADA_ISOLAR_ESCRITA:-}"
 JANGADA_DELEGAR="${JANGADA_DELEGAR:-agy}"
 JANGADA_PROJETOS="$HOME/Projetos"
 JANGADA_WORKTREES="$HOME/.local/share/jangada-worktrees"
-JANGADA_PAPEL=
-# Como o papel de parede ocupa uma tela de proporção diferente da imagem:
-# espelho (completa as laterais com o reflexo da borda), desfoque (com a
-# própria imagem ampliada e desfocada), cor (com a cor de fundo do tema) ou
-# cobrir (amplia até cobrir a tela e corta o que sobra).
-JANGADA_PAPEL_AJUSTE=espelho
-# Esquema do matugen usado pelo jangada-tema. O fidelity mantém a cor da
-# imagem; o tonal-spot, padrão do matugen, satura as cores de imagens quase
-# monocromáticas até virarem outra cor.
-JANGADA_TEMA_ESQUEMA=scheme-fidelity
-# Borda em que a barra fica: topo, base, esquerda ou direita. Gravado pelo
-# jangada-barra --posicao.
-JANGADA_BARRA_POSICAO=topo
-# Dispositivo DRM que conduz a sessão. Vazio = detectar pela saída conectada.
-JANGADA_GPU=
-# Cópia de trabalho do jangada (onde se edita e faz commit), usada pelo
-# jangada-verificar --agente. Vazio = $JANGADA_PROJETOS/jangada, se existir,
-# ou o origin da cópia instalada, se for uma pasta local.
+# Cópia de trabalho do jangada-core (onde se edita e faz commit). Vazio =
+# $JANGADA_PROJETOS/jangada, se existir, ou o origin da cópia instalada, se for
+# uma pasta local.
 JANGADA_REPO=
 # Ramo que o jangada-update acompanha na cópia instalada: main (tudo o que
 # entrou) ou estavel (só o que foi marcado como testado).
@@ -55,8 +36,6 @@ JANGADA_CANAL=main
 # Chave SSH com que o jangada-assinar assina os commits (a pública ao lado,
 # com .pub).
 JANGADA_ASSINATURA_CHAVE="$HOME/.ssh/id_ed25519"
-# Porta local do painel de indicadores (jangada-painel), ouvida só em 127.0.0.1.
-JANGADA_PAINEL_PORTA="${JANGADA_PAINEL_PORTA:-8765}"
 # Executor econômico Codex, desabilitado sem modelo explicitamente escolhido.
 JANGADA_CODEX_ECONOMICO_MODELO="${JANGADA_CODEX_ECONOMICO_MODELO:-}"
 JANGADA_CODEX_PRINCIPAL_MODELO="${JANGADA_CODEX_PRINCIPAL_MODELO:-}"
@@ -83,97 +62,26 @@ if [[ -f "$JANGADA_CONFIG/jangada.conf" ]]; then
   done < <(sed -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]*$//' "$JANGADA_CONFIG/jangada.conf")
   unset _chave _valor
 fi
-# Contexto da Conversa de Pescador; sem valor próprio, segue o da delegação.
-# Fica depois do arquivo, de onde o JANGADA_LOCAL_CTX pode vir.
-JANGADA_CONVERSA_CTX="${JANGADA_CONVERSA_CTX:-$JANGADA_LOCAL_CTX}"
 if [[ -z "$JANGADA_REPO" && -d "$JANGADA_PROJETOS/jangada/.git" ]]; then
   JANGADA_REPO="$JANGADA_PROJETOS/jangada"
 fi
 # Máquina com os projetos em outra pasta: a cópia instalada foi clonada da de
 # trabalho, então o origin dela, quando é uma pasta local, é a cópia de trabalho.
-if [[ -z "$JANGADA_REPO" && -f "$JANGADA_PATH/.git/config" ]]; then
-  _origem="$(git config -f "$JANGADA_PATH/.git/config" remote.origin.url 2>/dev/null || true)"
+if [[ -z "$JANGADA_REPO" && -f "$JANGADA_CORE_PATH/.git/config" ]]; then
+  _origem="$(git config -f "$JANGADA_CORE_PATH/.git/config" remote.origin.url 2>/dev/null || true)"
   [[ "$_origem" == /* && -d "$_origem/.git" ]] && JANGADA_REPO="$_origem"
   unset _origem
 fi
 
-export JANGADA_VIDRO JANGADA_VIDRO_ALPHA
 export JANGADA_CODEX_ECONOMICO_MODELO JANGADA_CODEX_PRINCIPAL_MODELO JANGADA_CODEX_COTA_MIN JANGADA_DELEGAR_MODELOS
-export JANGADA_PATH JANGADA_CORE_PY JANGADA_CONFIG JANGADA_ESTADO JANGADA_SESSOES JANGADA_INTERFACE JANGADA_TERMINAL \
-  JANGADA_AGENTE JANGADA_AGENTE_ARGS JANGADA_VALIDAR_REVISOR JANGADA_PROJETOS JANGADA_WORKTREES JANGADA_PAPEL \
-  JANGADA_PAPEL_AJUSTE JANGADA_TEMA_ESQUEMA JANGADA_BARRA_POSICAO JANGADA_GPU \
-  JANGADA_REPO JANGADA_CANAL JANGADA_AGENTE_ISOLAR JANGADA_ISOLAR_ESCRITA JANGADA_DELEGAR JANGADA_PAINEL_PORTA \
+export JANGADA_CORE_PATH JANGADA_CORE_PY JANGADA_CONFIG JANGADA_ESTADO JANGADA_SESSOES \
+  JANGADA_AGENTE JANGADA_AGENTE_ARGS JANGADA_VALIDAR_REVISOR JANGADA_PROJETOS JANGADA_WORKTREES \
+  JANGADA_REPO JANGADA_CANAL JANGADA_AGENTE_ISOLAR JANGADA_ISOLAR_ESCRITA JANGADA_DELEGAR \
   JANGADA_ASSINATURA_CHAVE JANGADA_LOCAL_MODELO JANGADA_LOCAL_CTX JANGADA_LOCAL_VRAM_MIN \
-  JANGADA_LOCAL_KEEP_ALIVE JANGADA_LOCAL_ESPERA JANGADA_OLLAMA_URL JANGADA_LOCAL_FATIAS_MAX JANGADA_CONVERSA_CTX
+  JANGADA_LOCAL_KEEP_ALIVE JANGADA_LOCAL_ESPERA JANGADA_OLLAMA_URL JANGADA_LOCAL_FATIAS_MAX
 # Só quando definido: ausente e vazio têm sentidos diferentes no jangada-isolar.
 if [[ -n "${JANGADA_ISOLAR_OCULTAR+x}" ]]; then export JANGADA_ISOLAR_OCULTAR; fi
 if [[ -n "${JANGADA_ISOLAR_OCULTAR_EXTRA+x}" ]]; then export JANGADA_ISOLAR_OCULTAR_EXTRA; fi
-
-# Dispositivos DRM com saída de vídeo conectada, um por linha, em caminho
-# estável (/dev/dri/by-path, porque a numeração de /dev/dri/cardN muda entre
-# partidas). Numa máquina com duas GPUs, o aquamarine pode escolher a que não
-# tem monitor ligado; a sessão sobe sem imagem e sem terminal para consertar.
-gpu_das_saidas() {
-  local _st _card _pci _dev
-  local -a _achados=()
-  for _st in /sys/class/drm/card*-*/status; do
-    [[ -r "$_st" ]] || continue
-    [[ "$(<"$_st")" == connected ]] || continue
-    _card="${_st#/sys/class/drm/}"; _card="${_card%%-*}"
-    _pci="$(readlink -f "/sys/class/drm/$_card/device" 2>/dev/null)" || continue
-    _pci="${_pci##*/}"
-    _dev="/dev/dri/by-path/pci-$_pci-card"
-    [[ -e "$_dev" ]] || continue
-    [[ " ${_achados[*]:-} " == *" $_dev "* ]] || _achados+=("$_dev")
-  done
-  ((${#_achados[@]})) || return 1
-  printf '%s\n' "${_achados[@]}"
-}
-
-# Valor de AQ_DRM_DEVICES para os dispositivos recebidos. O aquamarine separa
-# essa lista por ":", e o nome em /dev/dri/by-path traz ":" no endereço PCI:
-# entregue como está, um caminho vira três caminhos inválidos, o aquamarine não
-# encontra GPU nenhuma e o Hyprland aborta antes de abrir a tela. Por isso cada
-# dispositivo é resolvido para o /dev/dri/cardN correspondente, que não tem ":".
-gpu_para_aquamarine() {
-  local _dev _real
-  local -a _reais=()
-  for _dev in "$@"; do
-    [[ -n "$_dev" ]] || continue
-    _real="$(readlink -f "$_dev" 2>/dev/null)" || continue
-    [[ -e "$_real" ]] || continue
-    [[ "$_real" == *:* ]] && continue
-    [[ " ${_reais[*]:-} " == *" $_real "* ]] || _reais+=("$_real")
-  done
-  ((${#_reais[@]})) || return 1
-  local IFS=:
-  printf '%s\n' "${_reais[*]}"
-}
-
-# Driver do kernel em uso por um dispositivo DRM, dado em /dev/dri/by-path ou
-# já resolvido em /dev/dri/cardN.
-driver_da_gpu() {
-  local _real _drv
-  _real="$(readlink -f "${1:-}" 2>/dev/null)" || return 1
-  [[ -e "$_real" ]] || return 1
-  _drv="$(readlink -f "/sys/class/drm/${_real##*/}/device/driver" 2>/dev/null)" || return 1
-  printf '%s\n' "${_drv##*/}"
-}
-
-# Abre o fuzzel no modo dmenu com o tema do jangada, repassando os argumentos
-# recebidos. O "--config" só entra quando o arquivo existe. Cobrir a ausência
-# dele com "fuzzel --config ... || fuzzel" reabre o menu quando o usuário
-# cancela, porque o fuzzel sai com 1 nos dois casos: erro de configuração e
-# nenhuma seleção. Quem chama continua distinguindo cancelamento pelo código
-# de saída 1.
-jangada_fuzzel() {
-  local _cfg="$JANGADA_CONFIG/fuzzel/fuzzel.ini"
-  if [[ -r "$_cfg" ]]; then
-    fuzzel --dmenu --config "$_cfg" "$@"
-  else
-    fuzzel --dmenu "$@"
-  fi
-}
 
 # Perfil de agente: ~/.config/jangada/agentes/NOME.conf, com linhas CHAVE=valor.
 # COMANDO e ARGS montam o comando; qualquer outra chave em maiúsculas vira
@@ -186,8 +94,8 @@ jangada_perfil() {
   PERFIL_COMANDO=""; PERFIL_ARGS=""; PERFIL_DESCRICAO=""; PERFIL_AMBIENTE=()
   [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
   # O perfil do usuário tem precedência; sem ele, vale o do repositório
-  # (default/agentes), como o agy.conf.
-  [[ -r "$_arq" ]] || _arq="$JANGADA_PATH/default/agentes/$1.conf"
+  # (agentes/perfis), como o agy.conf.
+  [[ -r "$_arq" ]] || _arq="$JANGADA_CORE_PATH/agentes/perfis/$1.conf"
   [[ -r "$_arq" && "$1" != exemplo ]] || return 1
   while IFS='=' read -r _chave _valor; do
     [[ "$_chave" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
@@ -217,7 +125,7 @@ jangada_modelos_tarefa() {
   done
   [[ -z "${3:-}" || -n "${4:-}" ]] || ae=""
   [[ -z "${5:-}" || -n "${6:-}" ]] || re=""
-  python3 "$JANGADA_PATH/default/delegacao/modelos.py" "$autor" "$revisor" "$am" "$ae" "$rm" "$re"
+  python3 "$JANGADA_CORE_PATH/delegacao/modelos.py" "$autor" "$revisor" "$am" "$ae" "$rm" "$re"
 }
 
 jangada_modelo_argumentos() {
@@ -259,7 +167,7 @@ jangada_delegacao() {
 
 jangada_candidatos() {
   local politica="$JANGADA_CONFIG/delegacao.json"
-  [[ -f "$politica" ]] || politica="$JANGADA_PATH/default/delegacao/roteamento.json"
+  [[ -f "$politica" ]] || politica="$JANGADA_CORE_PATH/delegacao/roteamento.json"
   jq -er --arg capacidade "$1" '
     if type == "object"
       and (keys - ["leitura_documental", "resumo_curto", "analise_documental"] | length == 0)
@@ -285,14 +193,14 @@ jangada_revisor() {
 
 jangada_perfis() {
   local _a
-  for _a in "$JANGADA_CONFIG"/agentes/*.conf "$JANGADA_PATH"/default/agentes/*.conf; do
+  for _a in "$JANGADA_CONFIG"/agentes/*.conf "$JANGADA_CORE_PATH"/agentes/perfis/*.conf; do
     [[ -e "$_a" ]] && basename "$_a" .conf
   done | grep -vx exemplo | sort -u
   return 0
 }
 
 # Registro de provedores: um arquivo CHAVE=valor por provedor, em
-# ~/.config/jangada/provedores (tem precedência) ou em default/provedores. O
+# ~/.config/jangada/provedores (tem precedência) ou em provedores. O
 # arquivo é lido, não executado, e nada dele vai para o ambiente do agente.
 # Preenche PROVEDOR_NOME, PROVEDOR_TIPO, PROVEDOR_COMANDO, PROVEDOR_FUNCOES,
 # PROVEDOR_PROTOCOLO_ARG, PROVEDOR_MODELO_REVISOR e PROVEDOR_RESERVA; falha se
@@ -304,7 +212,7 @@ jangada_provedor() {
   PROVEDOR_NOME=""; PROVEDOR_TIPO=""; PROVEDOR_COMANDO=""; PROVEDOR_FUNCOES=""
   PROVEDOR_PROTOCOLO_ARG=""; PROVEDOR_MODELO_REVISOR=""; PROVEDOR_RESERVA=""
   [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
-  [[ -r "$_arq" ]] || _arq="$JANGADA_PATH/default/provedores/$1.conf"
+  [[ -r "$_arq" ]] || _arq="$JANGADA_CORE_PATH/provedores/$1.conf"
   [[ -r "$_arq" ]] || return 1
   while IFS='=' read -r _chave _valor || [[ -n "$_chave" ]]; do
     case "$_chave" in
@@ -335,7 +243,7 @@ jangada_provedor() {
 # Nomes dos provedores válidos do registro; com FUNCAO, só os que a declaram.
 jangada_provedores() {
   local _a _n
-  for _a in "$JANGADA_CONFIG"/provedores/*.conf "$JANGADA_PATH"/default/provedores/*.conf; do
+  for _a in "$JANGADA_CONFIG"/provedores/*.conf "$JANGADA_CORE_PATH"/provedores/*.conf; do
     [[ -e "$_a" ]] && basename "$_a" .conf
   done | sort -u | while read -r _n; do
     jangada_provedor "$_n" || continue
@@ -361,7 +269,7 @@ jangada_data_iso() {
 }
 
 # Acrescenta uma linha ao histórico de estados dos agentes
-# ($JANGADA_ESTADO/eventos-agentes.jsonl), lido pelo jangada-painel.
+# ($JANGADA_ESTADO/eventos-agentes.jsonl), para consulta do histórico.
 # Uso: jangada_registrar_evento SESSAO PROJETO AGENTE ESTADO [EXTRA]. EXTRA é
 # um objeto JSON com campos a mais, acrescentados depois dos cinco de sempre.
 # Nunca falha: é chamado de dentro dos hooks. Uma linha curta com >> é gravada
@@ -623,7 +531,7 @@ jangada_agy_conferir_tarefa() {
   [[ -z "${JANGADA_ISOLADO:-}" ]] || return 0
   _jangada_agy_conferir() {
     if [[ -n "$worktree" ]]; then
-      "$JANGADA_PATH/bin/jangada-worktree-preparar" --so-confianca "$raiz" "$worktree" >/dev/null
+      "$JANGADA_CORE_PATH/bin/jangada-worktree-preparar" --so-confianca "$raiz" "$worktree" >/dev/null
     else
       jangada_agy_confia "$raiz" || return 2
     fi
@@ -699,13 +607,14 @@ jangada_alterar_estado() {
   return $rc
 }
 
-# Avisa a interface de que o estado do Core mudou (contrato K3). Só este corpo
-# conhece a Waybar: o sinal 10 atualiza o módulo dos agentes. Sem barra no ar,
-# não faz nada e devolve 0.
+# Avisa a interface de que o estado do Core mudou (contrato K3). O sinal 10
+# atualiza o módulo dos agentes da Waybar, se houver uma no ar. Sem Waybar (ou
+# sem o programa), não faz nada e devolve 0.
 # Uso: jangada_avisar_interface estado-sessao|fila|validacao
 jangada_avisar_interface() {
   case "${1:-}" in
-    estado-sessao | fila | validacao) pkill -RTMIN+10 -x waybar 2>/dev/null || true ;;
+    estado-sessao | fila | validacao)
+      if command -v waybar >/dev/null 2>&1; then pkill -RTMIN+10 -x waybar 2>/dev/null || true; fi ;;
     *) return 1 ;;
   esac
 }
@@ -725,58 +634,66 @@ jangada_notificar() {
   fi
 }
 
-# Foca a primeira janela da classe CLASSE e devolve 0; devolve 1 se não houver
-# nenhuma (ou se não houver Hyprland). Serve para "abrir ou focar".
-jangada_focar_classe() {
-  local _end
-  _end="$(hyprctl clients -j 2>/dev/null \
-    | jq -r --arg c "$1" 'first(.[] | select(.class == $c) | .address) // empty' 2>/dev/null)"
-  [[ -n "$_end" ]] || return 1
-  hyprctl dispatch "hl.dsp.focus({ window = \"address:$_end\" })" >/dev/null
-}
-
-# Abertura de interface e foco de janela (contrato K10). Só estes corpos
-# conhecem o jangada-terminal, o jangada-tarefas e o hyprctl do Core. Sem
-# sessão gráfica (sem WAYLAND_DISPLAY e sem HYPRLAND_INSTANCE_SIGNATURE),
+# Abertura de interface e foco de janela (contrato K10). O terminal, a Central
+# de Tarefas e o hyprctl são de outras aplicações (jangada-shell) e são
+# procurados no PATH; a ausência é tratada sem erro. Sem sessão gráfica (sem WAYLAND_DISPLAY e sem HYPRLAND_INSTANCE_SIGNATURE),
 # avisam na saída de erro e saem com 0.
 _jangada_sem_grafico() {
   [[ -z "${WAYLAND_DISPLAY:-}${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || return 1
   echo "aviso: sem sessão gráfica; $1" >&2
 }
 
-# Abre o terminal do jangada com a classe CLASSE rodando COMANDO. --exec
-# substitui o processo e, sem sessão gráfica, encerra o script com 0; --solto
-# deixa o terminal fora do processo, por setsid -f ou em segundo plano.
+# Abre o terminal com a classe CLASSE rodando COMANDO. Usa o jangada-terminal,
+# se estiver no PATH; senão o programa de $TERMINAL (sem a classe); senão avisa
+# na saída de erro e devolve 1. --exec substitui o processo e, sem sessão
+# gráfica, encerra o script com 0; --solto deixa o terminal fora do processo,
+# por setsid -f ou em segundo plano.
 # Uso: jangada_abrir_terminal --exec|--solto CLASSE COMANDO...
 jangada_abrir_terminal() {
-  local modo="$1" classe="$2"
+  local modo="$1" classe="$2" t
+  local -a term
   [[ "$modo" == --exec || "$modo" == --solto ]] || return 1
   shift 2
   if _jangada_sem_grafico "o terminal não foi aberto"; then
     [[ "$modo" == --solto ]] || exit 0
     return 0
   fi
-  if [[ "$modo" == --exec ]]; then
-    exec "$JANGADA_PATH/bin/jangada-terminal" --classe "$classe" -e "$@"
-  elif command -v setsid >/dev/null 2>&1; then
-    setsid -f "$JANGADA_PATH/bin/jangada-terminal" --classe "$classe" -e "$@" >/dev/null 2>&1
+  if command -v jangada-terminal >/dev/null 2>&1; then
+    term=(jangada-terminal --classe "$classe" -e)
+  elif [[ -n "${TERMINAL:-}" ]] && t="${TERMINAL%% *}" && command -v "$t" >/dev/null 2>&1; then
+    read -r -a term <<<"$TERMINAL"
+    term+=(-e)
   else
-    "$JANGADA_PATH/bin/jangada-terminal" --classe "$classe" -e "$@" >/dev/null 2>&1 &
+    echo "aviso: nenhum terminal encontrado (instale o jangada-shell ou defina TERMINAL)" >&2
+    return 1
+  fi
+  if [[ "$modo" == --exec ]]; then
+    exec "${term[@]}" "$@"
+  elif command -v setsid >/dev/null 2>&1; then
+    setsid -f "${term[@]}" "$@" >/dev/null 2>&1
+  else
+    "${term[@]}" "$@" >/dev/null 2>&1 &
   fi
 }
 
 # Abre a Central de Tarefas no lugar do processo; com --nova, no formulário
-# de tarefa nova. Sem sessão gráfica, encerra o script com 0.
+# de tarefa nova. Sem sessão gráfica, encerra o script com 0. Sem o
+# jangada-tarefas no PATH, avisa e devolve 1.
 # Uso: jangada_abrir_central [--nova]
 jangada_abrir_central() {
   _jangada_sem_grafico "a Central não foi aberta" && exit 0
-  exec "$JANGADA_PATH/bin/jangada-tarefas" "$@"
+  if ! command -v jangada-tarefas >/dev/null 2>&1; then
+    echo "aviso: Central de Tarefas não instalada (jangada-shell)" >&2
+    return 1
+  fi
+  exec jangada-tarefas "$@"
 }
 
 # Imprime o título da janela ativa; fora do Hyprland, nada.
 jangada_janela_ativa() {
   _jangada_sem_grafico "a janela ativa não foi lida" && return 0
   [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || return 0
+  command -v hyprctl >/dev/null 2>&1 || return 0
   hyprctl activewindow -j 2>/dev/null | jq -r '.title // empty' 2>/dev/null || true
 }
 
@@ -786,7 +703,7 @@ jangada_janela_ativa() {
 jangada_focar_janela() {
   local endereco=""
   _jangada_sem_grafico "a janela $1 não foi focada" && return 0
-  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && command -v hyprctl >/dev/null 2>&1; then
     endereco="$(hyprctl clients -j 2>/dev/null | jq -r --arg s "$1" '(map(select(.title == $s)) + map(select(.title | startswith($s)))) | .[0].address // empty' 2>/dev/null || true)"
   fi
   [[ -n "$endereco" ]] || return 1
@@ -795,22 +712,16 @@ jangada_focar_janela() {
 
 # Socket próprio do tmux para as sessões de agentes, separado do tmux pessoal.
 # shellcheck disable=SC2034  # usado pelos scripts que carregam este arquivo
-JANGADA_TMUX=(tmux -L jangada -f "$JANGADA_PATH/default/tmux/agentes.conf")
+JANGADA_TMUX=(tmux -L jangada -f "$JANGADA_CORE_PATH/agentes/tmux/agentes.conf")
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   if [[ "${1:-}" == --publico-json ]]; then
-    for _v in JANGADA_INTERFACE JANGADA_AGENTE JANGADA_DELEGAR JANGADA_VALIDAR_REVISOR \
-      JANGADA_TEMA_ESQUEMA JANGADA_PAINEL_PORTA; do
+    for _v in JANGADA_AGENTE JANGADA_DELEGAR JANGADA_VALIDAR_REVISOR; do
       _valor="${!_v}"; _valido=0
       case "$_v:$_valor" in
-        JANGADA_INTERFACE:componentes|JANGADA_INTERFACE:noctalia) _valido=1 ;;
         JANGADA_DELEGAR:agy|JANGADA_DELEGAR:local|JANGADA_DELEGAR:claude|JANGADA_DELEGAR:nativo) _valido=1 ;;
         JANGADA_VALIDAR_REVISOR:mesmo|JANGADA_VALIDAR_REVISOR:oposto|JANGADA_VALIDAR_REVISOR:) _valido=1 ;;
         JANGADA_AGENTE:*|JANGADA_VALIDAR_REVISOR:*) jangada_provedor "$_valor" && _valido=1 ;;
-        JANGADA_TEMA_ESQUEMA:*)
-          [[ "$_valor" =~ ^scheme-(content|expressive|fidelity|fruit-salad|monochrome|neutral|rainbow|tonal-spot|vibrant|smart)$ ]] && _valido=1 ;;
-        JANGADA_PAINEL_PORTA:*)
-          [[ "$_valor" =~ ^[0-9]{1,5}$ ]] && ((10#$_valor >= 1 && 10#$_valor <= 65535)) && _valido=1 ;;
       esac
       if ((_valido)); then
         jq -nc --arg chave "$_v" --arg valor "${!_v}" '{chave:$chave, valor:$valor}'
@@ -832,10 +743,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     done < <(jangada_provedores "") | jq -s .
     exit 0
   fi
-  for _v in JANGADA_PATH JANGADA_CONFIG JANGADA_ESTADO JANGADA_INTERFACE JANGADA_TERMINAL \
-    JANGADA_AGENTE JANGADA_AGENTE_ARGS JANGADA_VALIDAR_REVISOR JANGADA_PROJETOS JANGADA_WORKTREES JANGADA_PAPEL \
-    JANGADA_PAPEL_AJUSTE JANGADA_TEMA_ESQUEMA JANGADA_BARRA_POSICAO JANGADA_GPU \
-    JANGADA_REPO JANGADA_CANAL JANGADA_AGENTE_ISOLAR JANGADA_ISOLAR_ESCRITA JANGADA_DELEGAR JANGADA_PAINEL_PORTA \
+  for _v in JANGADA_CORE_PATH JANGADA_CONFIG JANGADA_ESTADO \
+    JANGADA_AGENTE JANGADA_AGENTE_ARGS JANGADA_VALIDAR_REVISOR JANGADA_PROJETOS JANGADA_WORKTREES \
+    JANGADA_REPO JANGADA_CANAL JANGADA_AGENTE_ISOLAR JANGADA_ISOLAR_ESCRITA JANGADA_DELEGAR \
     JANGADA_ASSINATURA_CHAVE; do
     printf '%s=%s\n' "$_v" "${!_v}"
   done

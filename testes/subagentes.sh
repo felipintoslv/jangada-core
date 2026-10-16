@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Testa os papéis de subagente (default/claude/agents e default/agy/agents) e
+# Testa os papéis de subagente (agentes/claude/agents e agentes/agy/agents) e
 # a instalação deles num HOME temporário.
 #
 # Uso: testes/subagentes.sh
@@ -24,14 +24,14 @@ corpo() { awk 'f; /^---$/ && ++n == 2 { f = 1 }' "$1"; }
 campo() { cabeca "$1" | sed -n "s/^$2: //p"; }
 
 # O catálogo instalado só lê; a escrita existe apenas no papel privado do controlador.
-impl=default/agy/agents/implementador/agent.md
+impl=agentes/agy/agents/implementador/agent.md
 conferir "implementador global: subagente leitor Flash sem MCP" \
   [ "$(campo "$impl" subagent),$(campo "$impl" model),$(campo "$impl" inheritMcp)" = true,flash,false ]
 conferir "implementador global: somente ferramenta de leitura" \
   [ "$(cabeca "$impl" | sed -n 's/^  - //p' | paste -sd,)" = view_file ]
 PYTHONDONTWRITEBYTECODE=1 python3 - "$repo_jangada" >"$tmp/implementador.md" <<'PY'
 import sys
-sys.path.insert(0, sys.argv[1] + '/core/delegacao')
+sys.path.insert(0, sys.argv[1] + '/delegacao')
 from implementacao import PAPEL_PRIVADO
 print(PAPEL_PRIVADO)
 PY
@@ -43,8 +43,8 @@ conferir "implementador privado: somente ferramentas de arquivo, sem comandos ou
 # Papéis: mesmos nomes e mesmo texto nos dois agentes; só o frontmatter muda.
 declare -A modelo_claude=([explorador]=haiku [leitor]=haiku [pesquisador]=haiku [verificador]=sonnet [auditor]=sonnet [arquiteto]=sonnet [otimizador]=sonnet [redator]=haiku [supervisor]=haiku)
 for p in "${papeis[@]}"; do
-  c="default/claude/agents/$p.md"
-  a="default/agy/agents/$p/agent.md"
+  c="agentes/claude/agents/$p.md"
+  a="agentes/agy/agents/$p/agent.md"
   conferir "$p: existe nos dois agentes" test -r "$c" -a -r "$a"
   conferir "$p: mesmo nome nos dois" [ "$(campo "$c" name) $(campo "$a" name)" = "$p $p" ]
   conferir "$p: mesmo texto nos dois" [ "$(corpo "$c")" = "$(corpo "$a")" ]
@@ -62,12 +62,12 @@ for p in "${papeis[@]}"; do
   conferir "$p: não edita" grep -q 'Não crie, edite, mova nem apague arquivos' "$c"
 done
 conferir "só o pesquisador busca na web (Claude)" \
-  [ "$(grep -l '^tools:.*WebSearch' default/claude/agents/*.md | xargs -n1 basename)" = pesquisador.md ]
+  [ "$(grep -l '^tools:.*WebSearch' agentes/claude/agents/*.md | xargs -n1 basename)" = pesquisador.md ]
 # O agy roda comandos com run_command quando o Claude do mesmo papel tem Bash.
 for p in "${papeis[@]}"; do
   bash_claude=0; cmd_agy=0
-  grep -qE '^tools:.*\bBash\b' "default/claude/agents/$p.md" && bash_claude=1
-  grep -qx '  - run_command' "default/agy/agents/$p/agent.md" && cmd_agy=1
+  grep -qE '^tools:.*\bBash\b' "agentes/claude/agents/$p.md" && bash_claude=1
+  grep -qx '  - run_command' "agentes/agy/agents/$p/agent.md" && cmd_agy=1
   conferir "$p: run_command no agy se e só se Bash no Claude" [ "$bash_claude" = "$cmd_agy" ]
 done
 
@@ -75,9 +75,9 @@ done
 # que só deixa comandos de leitura. O verificador roda os testes do projeto e
 # fica com o Bash livre.
 conferir "leitor: hook PreToolUse no Bash" \
-  bash -c 'sed -n "/^hooks:/,/^---$/p" "$1" | grep -qx "          command: jangada-hook-leitor || exit 2"' _ default/claude/agents/leitor.md
+  bash -c 'sed -n "/^hooks:/,/^---$/p" "$1" | grep -qx "          command: jangada-hook-leitor || exit 2"' _ agentes/claude/agents/leitor.md
 conferir "papel com Bash sem hook: só o verificador" [ "$(for p in "${papeis[@]}"; do
-    f="default/claude/agents/$p.md"
+    f="agentes/claude/agents/$p.md"
     grep -qE '^tools:.*\bBash\b' "$f" && ! grep -q 'jangada-hook-leitor' "$f" && echo "$p"
   done)" = verificador ]
 hook_leitor() { jq -cn --arg c "$1" '{tool_name: "Bash", tool_input: {command: $c}}' | bin/jangada-hook-leitor 2>/dev/null; }
@@ -137,18 +137,18 @@ chmod +x "$tmp/pyquebrado/python3"
 conferir "hook do agy: falha do Python recusa" \
   [ "$(decisao x "head a" PATH="$tmp/pyquebrado:$PATH")" = deny ]
 conferir "hook do agy: PreToolUse do run_command no hooks.json do jangada" \
-  jqok -e '.jangada.PreToolUse | any(.matcher == "run_command" and any(.hooks[]; .command == "@JANGADA_PATH@/bin/jangada-hook-leitor --agy"))' default/agy/hooks.json
+  jqok -e '.jangada.PreToolUse | any(.matcher == "run_command" and any(.hooks[]; .command == "@JANGADA_CORE_PATH@/bin/jangada-hook-leitor --agy"))' agentes/agy/hooks.json
 
 # O revisor do jangada-validar lê a entrega, conteúdo não confiável: no agy
 # roda só com ferramentas de leitura e não aparece como subagente.
-rev=default/agy/agents/revisor/agent.md
+rev=agentes/agy/agents/revisor/agent.md
 conferir "revisor do agy existe" test -r "$rev"
 conferir "revisor do agy não é subagente" [ "$(campo "$rev" subagent)" = false ]
 conferir "revisor do agy só lê" [ "$(sed -n '/^tools:/,/^[a-z]/p' "$rev" | grep '^  - ' | sort | tr -d ' -' | paste -sd,)" = find_by_name,grep_search,list_dir,view_file ]
 
 # Instalação num HOME temporário.
 instalar() {
-  env HOME="$tmp/home" JANGADA_PATH="$repo_jangada" JANGADA_SIMULAR="${SIMULAR:-0}" \
+  env HOME="$tmp/home" JANGADA_CORE_PATH="$repo_jangada" JANGADA_SIMULAR="${SIMULAR:-0}" \
     bash -c 'source install/lib.sh; ligar_agentes_claude; mesclar_agentes_agy' >"$tmp/saida.log" 2>&1
 }
 mkdir -p "$tmp/home"
@@ -156,18 +156,18 @@ SIMULAR=1 instalar
 conferir "simulação não cria nada" [ -z "$(find "$tmp/home" -mindepth 1 -print -quit)" ]
 
 mkdir -p "$tmp/home/.gemini/config" "$tmp/home/.claude/agents"
-echo '{"entries":[{"path":"/outro/agents"},{"path":"/velho/jangada/default/agy/agents"}],"inherits":[]}' \
+echo '{"entries":[{"path":"/outro/agents"},{"path":"/velho/jangada/agentes/agy/agents"}],"inherits":[]}' \
   >"$tmp/home/.gemini/config/agents.json"
 echo "alheio" >"$tmp/home/.claude/agents/leitor.md"
 instalar
 agentes_json="$tmp/home/.gemini/config/agents.json"
 conferir "agents.json aponta para a pasta do jangada" \
-  jqok -e --arg p "$repo_jangada/default/agy/agents" '[.entries[].path] == ["/outro/agents", $p]' "$agentes_json"
+  jqok -e --arg p "$repo_jangada/agentes/agy/agents" '[.entries[].path] == ["/outro/agents", $p]' "$agentes_json"
 conferir "agents.json mantém as outras chaves" jqok -e 'has("inherits")' "$agentes_json"
 conferir "agents.json ganhou cópia de segurança" \
   bash -c 'ls "$1"/agents.json.jangada-*.bak >/dev/null 2>&1' _ "$tmp/home/.gemini/config"
 conferir "subagente do Claude ligado ao repositório" \
-  [ "$(readlink "$tmp/home/.claude/agents/explorador.md")" = "$repo_jangada/default/claude/agents/explorador.md" ]
+  [ "$(readlink "$tmp/home/.claude/agents/explorador.md")" = "$repo_jangada/agentes/claude/agents/explorador.md" ]
 conferir "arquivo alheio com o mesmo nome fica" [ "$(cat "$tmp/home/.claude/agents/leitor.md")" = alheio ]
 antes="$(cat "$agentes_json")"
 n_bak="$(find "$tmp/home/.gemini/config" -name '*.bak' | wc -l)"
@@ -175,182 +175,6 @@ instalar
 conferir "rodar de novo não muda nada" \
   bash -c '[ "$1" = "$(cat "$2")" ] && [ "$3" = "$(find "$4" -name "*.bak" | wc -l)" ] && grep -q "já registrados" "$5"' \
   _ "$antes" "$agentes_json" "$n_bak" "$tmp/home/.gemini/config" "$tmp/saida.log"
-
-rm "$tmp/home/.claude/agents/supervisor.md"
-env HOME="$tmp/home" JANGADA_PATH="$repo_jangada" JANGADA_SIMULAR=0 \
-  bash migrations/202610030100-supervisor-intermediario.sh >"$tmp/migracao.log"
-conferir "migração liga supervisor sem reinstalar" \
-  [ "$(readlink "$tmp/home/.claude/agents/supervisor.md")" = "$repo_jangada/default/claude/agents/supervisor.md" ]
-env HOME="$tmp/home" JANGADA_PATH="$repo_jangada" JANGADA_SIMULAR=0 \
-  bash migrations/202610030100-supervisor-intermediario.sh >"$tmp/migracao.log"
-conferir "migração repetida preserva configuração do agy" [ "$(cat "$agentes_json")" = "$antes" ]
-
-# Registros de subagentes e delegações, com as amostras de
-# testes/amostras-subagentes.py.
-amostra="$tmp/amostra"
-mkdir -p "$amostra/projeto"
-python3 testes/amostras-subagentes.py "$amostra" "$amostra/projeto"
-subagentes() {
-  env -u JANGADA_ESTADO JANGADA_CLAUDE_PROJETOS="$amostra/claude/projects" JANGADA_AGY_DIR="$amostra/agy" \
-    XDG_STATE_HOME="$amostra/state" JANGADA_PATH="${RAIZ_SUBAGENTES:-$repo_jangada}" \
-    "${RAIZ_SUBAGENTES:-$repo_jangada}/bin/jangada-subagentes" "$@"
-}
-subagentes --registros >"$tmp/registros.jsonl"
-reg() { jq -e --arg id "$1" "select(.id == \$id) | $2" "$tmp/registros.jsonl" >/dev/null; }
-conferir "registros: primeiro plano com totais e retorno da conversa mãe" \
-  reg a1 '.papel == "explorador" and .forma == "foreground" and .tokens == 20000 and .retorno_tokens == 104
-          and .casamento and .edicoes == 0 and (.autorrevisao | not) and .sem_fonte == 0'
-conferir "registros: segundo plano com totais do aviso e retorno do handback" \
-  reg a2 '.estado == "completed" and .tokens == 50000 and .ferramentas == 7 and .retorno_tokens > 100
-          and .edicoes == 1 and .autorrevisao and .generico and .sem_fonte == 20'
-conferir "registros: sem totais na mãe, usa o contexto do último turno" \
-  reg a3 '.tokens == 500 and .retorno_tokens == null and .casamento == null'
-conferir "registros: subagente do agy com passos e escrita" \
-  reg s1 '.origem == "agy" and .passos == 5 and .edicoes == 1 and .autorrevisao and .generico'
-subagentes --entrega "$amostra/projeto" >"$tmp/entrega.json"
-conferir "entrega: soma subagentes e delegações da pasta" jqok -e '.n == 5 and .claude == {n: 3, tokens: 70500, principal: 1000, principal_cache_lido: 7000}
-  and .delegadas_agy == 1
-  and .agy == {n: 2, passos: 17} and .papeis == {explorador: 2} and .edicoes == 2 and .autorrevisao == 2
-  and .recusas == 1' "$tmp/entrega.json"
-subagentes --entrega "$amostra/projeto" --desde 2026-09-27T10:05:30Z >"$tmp/entrega.json"
-conferir "entrega: --desde deixa só o que veio depois" jqok -e '.n == 0 and .recusas == 1' "$tmp/entrega.json"
-subagentes --entrega "$tmp" >"$tmp/entrega.json"
-conferir "entrega: outra pasta não conta nada" jqok -e '.n == 0 and .recusas == 0' "$tmp/entrega.json"
-
-# Saída exata do --entrega em três recortes, gravada antes de a montagem do
-# resumo passar para default/delegacao/entrega.py (M3-08): o campo subagentes
-# do validar.jsonl não muda de bytes sem mudar esta referência.
-# Em arquivo e com cmp: a substituição de comando cortaria a quebra de linha final.
-entrega_exata() {
-  printf '%s\n' "$1" >"$tmp/entrega-ref.json"
-  subagentes --entrega "$amostra/projeto" "${@:2}" >"$tmp/entrega-exata.json"
-  cmp -s "$tmp/entrega-ref.json" "$tmp/entrega-exata.json"
-}
-conferir "entrega: saída exata, tudo" entrega_exata '{"n": 5, "claude": {"n": 3, "tokens": 70500, "principal": 1000, "principal_cache_lido": 7000}, "delegadas_agy": 1, "codex_economico": {"n": 0}, "agy": {"n": 2, "passos": 17}, "local": {"n": 0, "atendidas": 0, "recusas": 0, "tokens_entrada": null, "tokens_saida": null, "medidas_entrada": 0, "medidas_saida": 0, "ferramentas_disponiveis": false}, "papeis": {"explorador": 2}, "retorno_tokens": 339, "edicoes": 2, "autorrevisao": 2, "recusas": 1}'
-conferir "entrega: saída exata, --desde" entrega_exata '{"n": 0, "claude": {"n": 0, "tokens": 0, "principal": 0, "principal_cache_lido": 0}, "delegadas_agy": 0, "codex_economico": {"n": 0}, "agy": {"n": 0, "passos": 0}, "local": {"n": 0, "atendidas": 0, "recusas": 0, "tokens_entrada": null, "tokens_saida": null, "medidas_entrada": 0, "medidas_saida": 0, "ferramentas_disponiveis": false}, "papeis": {}, "retorno_tokens": 0, "edicoes": 0, "autorrevisao": 0, "recusas": 1}' --desde 2026-09-27T10:05:30Z
-conferir "entrega: saída exata, --desde e --ate" entrega_exata '{"n": 5, "claude": {"n": 3, "tokens": 70500, "principal": 0, "principal_cache_lido": 0}, "delegadas_agy": 1, "codex_economico": {"n": 0}, "agy": {"n": 2, "passos": 17}, "local": {"n": 0, "atendidas": 0, "recusas": 0, "tokens_entrada": null, "tokens_saida": null, "medidas_entrada": 0, "medidas_saida": 0, "ferramentas_disponiveis": false}, "papeis": {"explorador": 2}, "retorno_tokens": 339, "edicoes": 2, "autorrevisao": 2, "recusas": 0}' \
-  --desde 2026-09-27T10:00:30Z --ate 2026-09-27T10:05:30Z
-
-# Contrato K6: o comando roda pela fachada quando bin/ só tem um link relativo
-# para monitor/bin, com o JANGADA_PATH e sem ele, e o resumo é o mesmo.
-subagentes --entrega "$amostra/projeto" >"$tmp/entrega.json"
-mkdir -p "$tmp/arvore/bin" "$tmp/arvore/monitor/bin"
-cp -a "$repo_jangada"/{default,core,monitor} "$tmp/arvore/"
-cp -aL "$repo_jangada/bin/jangada-subagentes" "$tmp/arvore/monitor/bin/"
-ln -s ../monitor/bin/jangada-subagentes "$tmp/arvore/bin/jangada-subagentes"
-RAIZ_SUBAGENTES="$tmp/arvore" subagentes --entrega "$amostra/projeto" >"$tmp/entrega-link.json"
-conferir "entrega: mesmo resumo pelo link relativo para monitor/bin" cmp -s "$tmp/entrega.json" "$tmp/entrega-link.json"
-(cd / && env -u JANGADA_PATH -u JANGADA_ESTADO JANGADA_CORE_PY=/nao-existe JANGADA_CLAUDE_PROJETOS="$amostra/claude/projects" \
-  JANGADA_AGY_DIR="$amostra/agy" XDG_STATE_HOME="$amostra/state" \
-  "$tmp/arvore/bin/jangada-subagentes" --entrega "$amostra/projeto") >"$tmp/entrega-link.json"
-conferir "entrega: sem JANGADA_PATH, a raiz é a pasta acima do link" cmp -s "$tmp/entrega.json" "$tmp/entrega-link.json"
-
-# Os oito indicadores sobre as amostras, com duas entregas aprovadas: uma
-# com delegação ao agy e verificador, outra sem.
-{
-  jq -cn '{data: "2026-09-27T08:00:00-03:00", projeto: "proj", rotulo: "s", rodada: 1, resultado: "aprovado",
-           mais: 10, menos: 0, subagentes: {n: 2, claude: {n: 1, tokens: 1000, principal: 5000},
-           delegadas_agy: 1, papeis: {verificador: 1}}}'
-  jq -cn '{data: "2026-09-27T09:00:00-03:00", projeto: "proj", rotulo: "s", rodada: 2, resultado: "aprovado",
-           mais: 90, menos: 10, subagentes: {n: 0, claude: {n: 0, tokens: 0, principal: 20000},
-           delegadas_agy: 0, papeis: {}}}'
-  jq -cn '{data: "2026-09-27T09:30:00-03:00", projeto: "proj", rotulo: "s", rodada: 1, resultado: "aprovado"}'
-} >"$amostra/state/jangada/validar.jsonl"
-subagentes --json >"$tmp/ind.json"
-conferir "indicadores: só entregas com resumo" jqok -e '.entregas_com_resumo == 2' "$tmp/ind.json"
-conferir "indicadores 1: tokens do Claude com e sem agy" jqok -e '.tokens_por_entrega[-1]
-  | .faixa == "todas" and .com.mediana_tokens == 6000 and .sem.mediana_tokens == 20000 and .com.pouco_dado' "$tmp/ind.json"
-conferir "indicadores 2: fração ao agy e recusa com motivo" jqok -e '.fracao_agy
-  | .delegadas_agy == 1 and .fracao_agy_pct == 20 and .taxa_recusa_pct == 50
-    and (.motivos | keys == ["cota de N horas do Gemini em N, abaixo de N"])' "$tmp/ind.json"
-conferir "indicadores 3: compressão em séries separadas" jqok -e '.compressao
-  | .claude.n == 2 and .agy.n == 1 and .agy.mediana_passos_por_mil_tokens == 120' "$tmp/ind.json"
-conferir "indicadores 4: cota por delegação e por semana" jqok -e '.cota_agy
-  | .n == 1 and .media_pp == 0.4 and .delegacoes_por_bloco == 250 and (.por_semana_pp | length) == 1' "$tmp/ind.json"
-conferir "indicadores 5: aprovação com e sem verificador" jqok -e '.validacao.verificador[-1]
-  | .com.primeira_pct == 100 and .sem.primeira_pct == 0 and .sem.rodadas_media == 2' "$tmp/ind.json"
-conferir "indicadores 6: afirmações sem fonte" jqok -e '.qualidade.claude.total == 20 and .qualidade.desmentidos == null' "$tmp/ind.json"
-conferir "indicadores 7: desvios" jqok -e '.desvios | (.edicoes | length) == 2 and (.autorrevisao | length) == 2
-  and (.generico | length) == 3 and ([.claude_sem_recusa[].id] == ["a1"])' "$tmp/ind.json"
-conferir "indicadores 8: árvore por pasta e conversa" jqok -e '[.arvore[] | .conversa] | sort
-  == ["agy:c1", "claude:sess1", "delegar:s"]' "$tmp/ind.json"
-conferir "indicadores 8: origem e destino dos filhos chegam ao JSON" jqok -e '
-  [.arvore[] | .filhos[]] as $filhos
-  | ([$filhos[] | select(.origem == "claude")] | length) == 3
-    and ([$filhos[] | select(.origem == "delegacao") | .destino] == ["agy", "agy"])
-    and ([$filhos[] | select(.recusa) | {origem, destino, papel}]
-      == [{origem: "delegacao", destino: "agy", papel: "leitor"}])' "$tmp/ind.json"
-conferir "indicadores 9: a tarefa tem coordenador, autor e revisor com o último parecer do revisor" jqok -e '
-  [.tarefas[] | {sessao, coordenador, autor, revisor}]
-  == [{sessao: "s", coordenador: "claude", autor: "claude", revisor: {agente: "agy", rodada: 2, resultado: "aprovado"}}]
-  ' "$tmp/ind.json"
-conferir "indicadores 9: só a conversa do registro e as delegações são da tarefa; a delegação leva resultado, tempo e motivo" jqok -e '
-  ([.arvore[] | {conversa, sessao}] | sort_by(.conversa)
-    == [{conversa: "agy:c1", sessao: null}, {conversa: "claude:sess1", sessao: "s"}, {conversa: "delegar:s", sessao: "s"}])
-  and ([.arvore[] | select(.conversa == "delegar:s") | .filhos[] | {papel, destino, resultado, segundos, tokens, motivo}]
-    == [{papel: "explorador", destino: "agy", resultado: "concluida", segundos: 40, tokens: 9000, motivo: ""},
-        {papel: "leitor", destino: "agy", resultado: "recusada", segundos: 40, tokens: null,
-         motivo: "cota de 5 horas do Gemini em 15%, abaixo de 20%"}])' "$tmp/ind.json"
-if command -v Rscript >/dev/null 2>&1 \
-  && Rscript -e 'for (p in c("jsonlite", "htmltools")) if (!requireNamespace(p, quietly = TRUE)) quit(status = 1)' 2>/dev/null; then
-  conferir "grafo: coordenador, autor, revisor e delegações, com o agy em duas funções" \
-    Rscript -e '
-      source("monitor/painel/indicadores.R")
-      ind <- jsonlite::fromJSON(commandArgs(TRUE)[1], simplifyVector = FALSE)
-      a <- arvore_rede(ind$arvore, ind$tarefas)
-      no <- function(rotulo) a$nos[a$nos$label == rotulo, ]
-      liga <- function(de, para) any(a$arestas$from == de & a$arestas$to == para)
-      revisor <- no("revisor - agy\nr2: aprovado"); explorador <- no("explorador - agy"); leitor <- no("leitor - agy")
-      stopifnot(
-        nrow(no("coordenador - claude")) == 1, nrow(no("autor - claude")) == 1, nrow(revisor) == 1,
-        nrow(explorador) == 1, nrow(leitor) == 1, revisor$id != explorador$id,
-        revisor$group == "revisor", explorador$group == "delegacao", leitor$group == "recusa",
-        liga("t:s:coordenador", "t:s:autor"), liga("t:s:autor", "t:s:revisor"),
-        liga("t:s:autor", explorador$id), liga("t:s:autor", leitor$id),
-        sum(a$nos$group == "pasta") == 1, sum(a$nos$group == "conversa") == 1, !anyDuplicated(a$nos$id),
-        liga("r:agy:c1", no("self - agy")$id),
-        nrow(a$nos) == 3 + 5 + 3, nrow(a$arestas) == 2 + 5 + 2,
-        grepl("resultado: concluida, 40 s", explorador$title, fixed = TRUE),
-        grepl("tokens 9000", explorador$title, fixed = TRUE),
-        grepl("resultado: recusada, 40 s<br>motivo: cota de 5 horas do Gemini em 15%, abaixo de 20%",
-              leitor$title, fixed = TRUE))
-    ' "$tmp/ind.json"
-else
-  echo "R, jsonlite ou htmltools ausentes; teste do grafo ignorado"
-fi
-subagentes >"$tmp/ind.txt"
-conferir "indicadores: texto para o terminal" grep -q "^7. Desvios do protocolo" "$tmp/ind.txt"
-
-# Com memo (o do coletor do painel), o subagente cujos arquivos não mudaram
-# sai do memo: sem permissão de leitura, o resultado é o mesmo. O que muda é
-# relido, e o que some sai do memo.
-memo() {
-  env -u JANGADA_ESTADO JANGADA_CLAUDE_PROJETOS="$amostra/claude/projects" JANGADA_AGY_DIR="$amostra/agy" \
-    XDG_STATE_HOME="$amostra/state" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$repo_jangada/default/painel" python3 -c '
-import json, sys, subagentes
-m = json.load(open(sys.argv[1])) if sys.argv[2] == "de-novo" else {}
-r = subagentes.indicadores(memo=m)
-json.dump(m, open(sys.argv[1], "w"))
-r.pop("data", None)
-print(json.dumps(r, sort_keys=True))' "$tmp/memo.json" "$1"
-}
-jq -S 'del(.data)' "$tmp/ind.json" | jq -c . >"$tmp/ind-sem-memo.json"
-memo inicio | jq -Sc . >"$tmp/ind-memo1.json"
-conferir "memo: mesmo resultado que sem memo" cmp -s "$tmp/ind-sem-memo.json" "$tmp/ind-memo1.json"
-conferir "memo: um registro por subagente" jqok -e '(.claude | length) == 3 and (.agy | length) == 1' "$tmp/memo.json"
-mapfile -t lidos < <(find "$amostra/claude/projects" "$amostra/agy" -type f \( -name '*.json' -o -name '*.jsonl' -o -name '*.db' \))
-chmod a-r "${lidos[@]}"
-memo de-novo | jq -Sc . >"$tmp/ind-memo2.json"
-chmod u+r "${lidos[@]}"
-conferir "memo: a segunda leitura não abre arquivo sem mudança" cmp -s "$tmp/ind-memo1.json" "$tmp/ind-memo2.json"
-a1="$(find "$amostra/claude/projects" -name 'agent-a1.jsonl')"
-jq -c '.' "$a1" | tail -n 1 | jq -c '.message.content = [{type: "tool_use", name: "Edit", id: "novo"}]' >>"$a1"
-memo de-novo >/dev/null
-conferir "memo: arquivo alterado é relido" \
-  jqok -e '[.claude[] | .registro | select(.id == "a1")][0].edicoes == 1' "$tmp/memo.json"
-rm "$(find "$amostra/claude/projects" -name 'agent-a3.meta.json')"
-memo de-novo >/dev/null
-conferir "memo: subagente apagado sai do memo" jqok -e '(.claude | length) == 2' "$tmp/memo.json"
 
 echo
 if ((falhas)); then

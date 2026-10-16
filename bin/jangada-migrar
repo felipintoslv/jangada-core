@@ -13,7 +13,7 @@ if command -v flock >/dev/null 2>&1; then
   flock -w 60 9 || { echo "outra migração em andamento" >&2; exit 1; }
 fi
 n=0
-for m in "$JANGADA_PATH"/migrations/*.sh; do
+for m in "$JANGADA_CORE_PATH"/migrations/*.sh; do
   [[ -e "$m" ]] || continue
   nome="$(basename "$m")"
   [[ -e "$feitas/$nome" ]] && continue

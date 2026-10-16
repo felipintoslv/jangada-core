@@ -35,7 +35,7 @@ Não altera permissões, ignora limites, acessa conversa alheia ou envia fontes 
 Não aprova a própria entrega quando independência é exigida, integra sem gesto autorizado nem substitui decisão de outro coordenador.
 Uma saída convincente do modelo não comprova autorização.
 
-A skill atual descreve a coordenação numa sessão externa ao executor, em `core/agentes/claude/skills/coordenador/SKILL.md:11`.
+A skill atual descreve a coordenação numa sessão externa ao executor, em `agentes/claude/skills/coordenador/SKILL.md:11`.
 Preservar essa interação não concede ao modelo autorização permanente para ações no host.
 Ações continuam sujeitas à aprovação técnica exigida pelo ambiente e à decisão do dono sobre seu objeto.
 O controlador deve executar código confiável, independente da árvore gravável do executor.
@@ -117,7 +117,7 @@ Uma pergunta de exploração não é pedido de aprovação de comando; autoriza�
 ### Proposta textual para a skill atual
 
 Texto sugerido para uma seção anterior a “Pedido de cada tarefa” em
-`core/agentes/claude/skills/coordenador/SKILL.md`, sem editar esse arquivo nesta tarefa:
+`agentes/claude/skills/coordenador/SKILL.md`, sem editar esse arquivo nesta tarefa:
 
 > Antes de abrir tarefas, ajude o dono a construir o resultado desejado.
 > Entenda o problema, examine o contexto permitido e identifique premissas que precisam ser conferidas.

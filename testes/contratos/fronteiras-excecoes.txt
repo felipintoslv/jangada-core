@@ -1,23 +1,25 @@
 # Contrato K9: exceções do teste de fronteira (testes/fronteiras.sh).
 # Formato: CONTRATO ARQUIVO TRECHO. TRECHO é a linha do código sem os espaços
-# das pontas; a linha citada no comentário de cada grupo é a de quando a lista
-# foi criada (M3-03), salvo indicação. A lista só diminui: quem retira um
-# acoplamento retira a exceção no mesmo commit, e o teto de cada contrato fica
-# em testes/fronteiras.sh.
-
-# K6 (resumo de entrega opcional, M3-08): o Core chama comandos do Monitor.
-# bin/jangada-agentes:635
-K6 bin/jangada-agentes consumo="$("$JANGADA_PATH/bin/jangada-consumo" --curto 2>/dev/null || true)"
-# bin/jangada-validar:159
-K6 bin/jangada-validar resumo="$(timeout 30 "$JANGADA_PATH/bin/jangada-subagentes" --entrega "$origem_dir" ${desde:+--desde "$desde"} 2>/dev/null)" || rc=$?
-
-# Exceções permanentes (decisão D8, docs/modularizacao-3.0/03-contratos.md),
-# cada uma com o motivo. A linha citada é a de quando a marca foi trocada
-# (M3-10c).
-# bin/jangada-agente:365, --snapshot. O Core chama comando do Shell: chamada
-# opcional e tolerante à ausência, na forma do K6; testes/snapshot.sh mostra
-# que a sessão abre sem o comando.
-permanente bin/jangada-agente ((snapshot)) && "$JANGADA_PATH/bin/jangada-snapshot" --agente "antes do agente $sessao" || true
-# bin/jangada-verificar:76, --agente. O Monitor chama comando que altera
-# estado: ação pedida pelo usuário por opção explícita, pela fachada K1.
-permanente bin/jangada-verificar exec "$JANGADA_PATH/bin/jangada-agente" "${janela[@]}" --projeto "$JANGADA_REPO" \
+# das pontas. A lista só diminui: quem retira um acoplamento retira a exceção
+# no mesmo commit, e o teto de cada contrato fica em testes/fronteiras.sh.
+#
+# K3: programas do sistema (hyprctl, waybar, notify-send) usados só quando
+# existem (command -v), sem erro na ausência.
+# K6: comandos do jangada-shell e do jangada-monitor procurados no PATH, com
+# command -v, e tratados sem erro na ausência. Nenhum é chamado por
+# $JANGADA_CORE_PATH.
+K3 bin/jangada-config if command -v waybar >/dev/null 2>&1; then pkill -RTMIN+10 -x waybar 2>/dev/null || true; fi ;;
+K3 bin/jangada-config if command -v notify-send >/dev/null 2>&1; then
+K3 bin/jangada-config notify-send -a "$app" "${opcoes[@]}" "$1" "$2" 2>/dev/null || true
+K3 bin/jangada-config command -v hyprctl >/dev/null 2>&1 || return 0
+K3 bin/jangada-config hyprctl activewindow -j 2>/dev/null | jq -r '.title // empty' 2>/dev/null || true
+K3 bin/jangada-config if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && command -v hyprctl >/dev/null 2>&1; then
+K3 bin/jangada-config endereco="$(hyprctl clients -j 2>/dev/null | jq -r --arg s "$1" '(map(select(.title == $s)) + map(select(.title | startswith($s)))) | .[0].address // empty' 2>/dev/null || true)"
+K3 bin/jangada-config hyprctl dispatch "hl.dsp.focus({ window = \"address:$endereco\" })" >/dev/null || return 2
+K6 bin/jangada-agente if ((snapshot)) && command -v jangada-snapshot >/dev/null 2>&1; then
+K6 bin/jangada-agente jangada-snapshot --agente "antes do agente $sessao" || true
+K6 bin/jangada-config if command -v jangada-terminal >/dev/null 2>&1; then
+K6 bin/jangada-config if ! command -v jangada-tarefas >/dev/null 2>&1; then
+K6 bin/jangada-config exec jangada-tarefas "$@"
+K6 bin/jangada-validar if ! command -v jangada-subagentes >/dev/null 2>&1; then
+K6 bin/jangada-validar resumo="$(timeout 30 jangada-subagentes --entrega "$origem_dir" ${desde:+--desde "$desde"} 2>/dev/null)" || rc=$?

@@ -1,16 +1,16 @@
 # Independência do padrão R da validação
 
-O percurso R de `jangada-validar` usa `core/validacao/lintr`, sem depender da integração R do Shell.
+O percurso R de `jangada-validar` usa `validacao/lintr`, sem depender da integração R do Shell.
 Este recorte resolve A2 do diagnóstico, primeiro acoplamento de M1.1. Base examinada: `ef707fa464123ffc603dd4c5bc436d324ce29ee9`.
 
 ## Contrato e compatibilidade
 
-`core/validacao/lintr` é a única fonte das regras padrão, com conteúdo idêntico ao arquivo anterior.
-`shell/integracoes/r/lintr` é um link versionado relativo para `../../../core/validacao/lintr`.
-`default/r` continua no Shell; portanto, `default/r/lintr` preserva o acesso na instalação completa.
+`validacao/lintr` é a única fonte das regras padrão, com conteúdo idêntico ao arquivo anterior.
+`validacao/lintr` é um link versionado relativo para `../../../validacao/lintr`.
+`default/r` continua no Shell; portanto, `validacao/lintr` preserva o acesso na instalação completa.
 A integração R restante não mudou. Os links funcionam após cópia da árvore, sem caminhos absolutos da máquina.
 
-A seleção em `core/bin/jangada-validar:800` mantém prioridade do `.lintr` da base.
+A seleção em `bin/jangada-validar:800` mantém prioridade do `.lintr` da base.
 Sem essa regra, os achados do padrão Jangada são avisos; com ela, violações novas reprovam antes do revisor.
 O `.lintr` novo e o `.Rprofile` gravável do worktree continuam sem execução.
 Ausência do padrão, R ou lintr e falha de execução continuam explícitas e impedem aprovação.

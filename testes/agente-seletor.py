@@ -34,7 +34,7 @@ class Seletor(unittest.TestCase):
         self.ambiente.update(PATH=str(self.bin), HOME=str(self.pasta),
                              XDG_CONFIG_HOME=str(self.pasta / 'config'),
                              XDG_STATE_HOME=str(self.pasta / 'estado'),
-                             JANGADA_PATH=str(RAIZ), TESTE_PASTA=str(self.pasta))
+                             JANGADA_CORE_PATH=str(RAIZ), TESTE_PASTA=str(self.pasta))
 
     def script(self, nome, corpo):
         arquivo = self.bin / nome

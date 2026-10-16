@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 RAIZ = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("modelos", RAIZ / "core/delegacao/modelos.py")
+spec = importlib.util.spec_from_file_location("modelos", RAIZ / "delegacao/modelos.py")
 modelos = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(modelos)
 
@@ -48,7 +48,7 @@ printf '%s\\n' "$selecao"
 jangada_modelo_argumentos "$selecao" codex
 '''
         p = subprocess.run(["bash", "-c", script], cwd=RAIZ, capture_output=True, text=True,
-                           env={**os.environ, "JANGADA_PATH": str(RAIZ)})
+                           env={**os.environ, "JANGADA_CORE_PATH": str(RAIZ)})
         self.assertEqual(p.returncode, 0, p.stderr)
         linhas = p.stdout.splitlines()
         selecao = json.loads(linhas[0])
@@ -63,7 +63,7 @@ PERFIL_AMBIENTE=(JANGADA_AUTOR_MODELO=gpt-6.1-sol JANGADA_AUTOR_ESFORCO=high
 jangada_modelos_tarefa codex claude gpt-6-luna '' opus ''
 '''
         p = subprocess.run(["bash", "-c", script], cwd=RAIZ, capture_output=True, text=True,
-                           env={**os.environ, "JANGADA_PATH": str(RAIZ)})
+                           env={**os.environ, "JANGADA_CORE_PATH": str(RAIZ)})
         self.assertEqual(p.returncode, 0, p.stderr)
         selecao = json.loads(p.stdout)
         self.assertEqual(selecao["autor"]["esforco"], "medium")
@@ -72,7 +72,7 @@ jangada_modelos_tarefa codex claude gpt-6-luna '' opus ''
     def test_perfis_legados_aceitam_revisor_e_argumentos_extras(self):
         env = {k: v for k, v in os.environ.items() if not k.startswith("JANGADA_")}
         with tempfile.TemporaryDirectory() as tmp:
-            env.update(JANGADA_PATH=str(RAIZ), XDG_CONFIG_HOME=tmp)
+            env.update(JANGADA_CORE_PATH=str(RAIZ), XDG_CONFIG_HOME=tmp)
             for extras in (("--revisor", "agy"), ("--revisor", "mesmo"), ("--", "--version")):
                 p = subprocess.run([str(RAIZ / "bin/jangada-agente"), "--perfil", "codex-claude",
                                     "--projeto", str(Path(tmp) / "ausente"), *extras],
@@ -87,7 +87,7 @@ jangada_modelos_tarefa codex claude gpt-6-luna '' opus ''
             pasta = Path(tmp) / "jangada/agentes"
             pasta.mkdir(parents=True)
             (pasta / "invalido.conf").write_text("COMANDO=codex\nJANGADA_AUTOR_MODELO=inexistente\n")
-            env.update(JANGADA_PATH=str(RAIZ), XDG_CONFIG_HOME=tmp)
+            env.update(JANGADA_CORE_PATH=str(RAIZ), XDG_CONFIG_HOME=tmp)
             p = subprocess.run([str(RAIZ / "bin/jangada-agente"), "--perfis", "--json"],
                                env=env, capture_output=True, text=True)
             self.assertEqual(p.returncode, 0, p.stderr)
@@ -106,7 +106,7 @@ jangada_modelos_tarefa codex claude gpt-6-luna '' opus ''
     def test_abertura_recusa_opcoes_incompletas_args_e_selecao_isolada(self):
         env = {k: v for k, v in os.environ.items() if not k.startswith("JANGADA_")}
         with tempfile.TemporaryDirectory() as tmp:
-            env.update(JANGADA_PATH=str(RAIZ), XDG_CONFIG_HOME=tmp)
+            env.update(JANGADA_CORE_PATH=str(RAIZ), XDG_CONFIG_HOME=tmp)
             comando = [str(RAIZ / "bin/jangada-agente"), "--perfil", "codex-claude",
                        "--projeto", str(Path(tmp) / "ausente")]
             for opcoes, mensagem in ((["--revisor-modelo", "opus"], "exigem modelo do autor"),
@@ -129,7 +129,7 @@ jangada_modelos_tarefa codex claude gpt-6-luna '' opus ''
             cfg = Path(tmp) / "jangada"
             (cfg / "agentes").mkdir(parents=True)
             (cfg / "jangada.conf").write_text("JANGADA_AGENTE_ARGS=--version\n")
-            env.update(JANGADA_PATH=str(RAIZ), XDG_CONFIG_HOME=tmp)
+            env.update(JANGADA_CORE_PATH=str(RAIZ), XDG_CONFIG_HOME=tmp)
             comum = [str(RAIZ / "bin/jangada-agente"), "--projeto", str(Path(tmp) / "ausente"),
                      "--autor-modelo", "gpt-6-luna", "--revisor", "claude"]
             p = subprocess.run([*comum, "--perfil", "codex-claude"], env=env, capture_output=True, text=True)
@@ -142,7 +142,7 @@ jangada_modelos_tarefa codex claude gpt-6-luna '' opus ''
             self.assertIn("argumentos do autor vazios", p.stderr)
 
     def test_restauracao_usa_selecao_protegida_e_ignora_comando(self):
-        codigo = (RAIZ / "core/bin/jangada-agentes").read_text()
+        codigo = (RAIZ / "bin/jangada-agentes").read_text()
         inicio = codigo.index("restaurar() {")
         fim = codigo.index("\n# Histórico de foco", inicio)
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,7 +168,7 @@ python3() { [[ "$1" == */confianca.py ]] || command python3 "$@"; }
 tmux_falso() { printf '%s\\n' "$@" >>"$TESTE_LOG"; [[ "$1" != has-session ]]; }
 JANGADA_TMUX=(tmux_falso)
 ''' + codigo[inicio:fim] + "\nrestaurar s\n"
-            env = {**os.environ, "JANGADA_PATH": str(RAIZ), "XDG_STATE_HOME": str(pasta / "estado"),
+            env = {**os.environ, "JANGADA_CORE_PATH": str(RAIZ), "XDG_STATE_HOME": str(pasta / "estado"),
                    "XDG_CONFIG_HOME": str(pasta / "config"), "TESTE_LOG": str(pasta / "log")}
             env.pop("JANGADA_ISOLADO", None)
             p = subprocess.run(["bash", "-c", script], cwd=RAIZ, env=env, capture_output=True, text=True)

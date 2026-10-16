@@ -1,1 +1,6 @@
-../core/bin/jangada-provedor
+#!/usr/bin/env bash
+# Controla disponibilidade. Uso: jangada-provedor pausar|ativar ID
+set -euo pipefail
+# shellcheck source=bin/jangada-config
+source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
+exec python3 "$JANGADA_CORE_PATH/orquestracao/cli.py" provedor "$@"

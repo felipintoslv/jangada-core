@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('worker_codex', RAIZ / 'default/delegacao/codex.py')
+spec = importlib.util.spec_from_file_location('worker_codex', RAIZ / 'delegacao/codex.py')
 WORKER = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(WORKER)
 
@@ -29,17 +29,17 @@ class Economico(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.pasta = pathlib.Path(self.tmp.name)
         self.raiz = self.pasta / 'jangada'
-        shutil.copytree(RAIZ / 'default/nucleo', self.raiz / 'default/nucleo')
-        for nome in ('bin', 'default/delegacao', 'default/orquestracao'):
+        shutil.copytree(RAIZ / 'nucleo', self.raiz / 'nucleo')
+        for nome in ('bin', 'delegacao', 'orquestracao'):
             (self.raiz / nome).mkdir(parents=True)
-        for nome in ('bin/jangada-config', 'bin/jangada-delegar', 'default/delegacao/validar.py',
-                     'bin/jangada-retomar', 'bin/jangada-router', 'bin/jangada-isolar', 'default/delegacao/codex.py',
-                     'default/orquestracao/cota_codex.py', 'default/orquestracao/cli.py',
-                     'default/orquestracao/estado.py', 'default/orquestracao/executor.py',
-                     'default/orquestracao/saude.py', 'default/orquestracao/acompanhamento.py',
-                     'default/orquestracao/deterministico.py', 'default/orquestracao/metricas_projeto.py',
-                     'default/orquestracao/supervisao.py', 'default/orquestracao/principal.py',
-                     'default/orquestracao/projetos.py', 'default/orquestracao/confianca.py'):
+        for nome in ('bin/jangada-config', 'bin/jangada-delegar', 'delegacao/validar.py',
+                     'bin/jangada-retomar', 'bin/jangada-router', 'bin/jangada-isolar', 'delegacao/codex.py',
+                     'orquestracao/cota_codex.py', 'orquestracao/cli.py',
+                     'orquestracao/estado.py', 'orquestracao/executor.py',
+                     'orquestracao/saude.py', 'orquestracao/acompanhamento.py',
+                     'orquestracao/deterministico.py', 'orquestracao/metricas_projeto.py',
+                     'orquestracao/supervisao.py', 'orquestracao/principal.py',
+                     'orquestracao/projetos.py', 'orquestracao/confianca.py'):
             shutil.copy2(RAIZ / nome, self.raiz / nome)
         self.audit = self.pasta / 'execucao.json'
         self.fonte = self.pasta / 'fonte.md'
@@ -55,7 +55,7 @@ class Economico(unittest.TestCase):
         self.config = self.pasta / 'config/jangada'
         self.config.mkdir(parents=True)
         (self.config / 'delegacao.json').write_text(json.dumps({'analise_documental': ['agy', 'codex-economico']}))
-        self.ambiente = patch.dict(os.environ, JANGADA_PATH=str(self.raiz), JANGADA_DELEGAR='agy',
+        self.ambiente = patch.dict(os.environ, JANGADA_CORE_PATH=str(self.raiz), JANGADA_DELEGAR='agy',
                                    JANGADA_CODEX_ECONOMICO_MODELO='modelo-economico-teste',
                                    JANGADA_CODEX_COTA_MIN='25', CODEX_HOME=str(self.casa),
                                    XDG_STATE_HOME=str(self.pasta / 'state'), XDG_CONFIG_HOME=str(self.pasta / 'config'),
@@ -365,7 +365,7 @@ if modo == 'duplicado':
         estado, _ = self.preparar_principal()
         plano=self.pasta / 'plano-principal.json'
         plano.write_text(json.dumps([estado.listar()[0]['especificacao']]))
-        comando=[sys.executable,str(self.raiz / 'default/orquestracao/cli.py')]
+        comando=[sys.executable,str(self.raiz / 'orquestracao/cli.py')]
         importar=subprocess.run(comando+['fila','--projeto',str(self.pasta),'--importar',str(plano)],
                                 capture_output=True,text=True,timeout=10)
         self.assertEqual(importar.returncode,0,importar.stderr)

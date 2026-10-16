@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
-SPEC = importlib.util.spec_from_file_location("validar", RAIZ / "default/delegacao/validar.py")
+SPEC = importlib.util.spec_from_file_location("validar", RAIZ / "delegacao/validar.py")
 VALIDAR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VALIDAR)
 
@@ -111,8 +111,9 @@ class PadraoAgy(unittest.TestCase):
         self.fonte = self.projeto / 'fonte.txt'
         self.fonte.write_text('Conteúdo autorizado.\n')
         shutil.copyfile(RAIZ / 'bin/jangada-config', self.bin / 'jangada-config')
-        shutil.copyfile(RAIZ / 'core/bin/jangada-delegar', self.bin / 'jangada-delegar')
-        (self.pasta / 'default').symlink_to(RAIZ / 'default')
+        shutil.copyfile(RAIZ / 'bin/jangada-delegar', self.bin / 'jangada-delegar')
+        for pasta in ('agentes', 'nucleo', 'orquestracao', 'delegacao', 'provedores', 'validacao'):
+            (self.pasta / pasta).symlink_to(RAIZ / pasta)
         # Este transporte só executa o provedor falso da própria fixture.
         self.script('jangada-isolar', '[[ "$1" == -- ]] && shift\nexec "$@"\n')
         self.script('agy', """if [[ "$1" == agents ]]; then echo leitor; echo redator; exit 0; fi
@@ -137,7 +138,7 @@ jq -n --arg r 'Informação conferida em fonte.txt:1' '{status:"SUCCESS",respons
         self.env.update(HOME=str(self.home), PATH=str(self.bin) + ':/usr/bin:/bin',
                         XDG_CONFIG_HOME=str(self.pasta / 'config'),
                         XDG_STATE_HOME=str(self.pasta / 'estado'),
-                        XDG_CACHE_HOME=str(self.pasta / 'cache'), JANGADA_PATH=str(self.pasta),
+                        XDG_CACHE_HOME=str(self.pasta / 'cache'), JANGADA_CORE_PATH=str(self.pasta),
                         LOG_FALSO=str(self.pasta / 'agy.log'), LOG_LOCAL=str(self.pasta / 'local.log'))
 
     def script(self, nome, corpo):

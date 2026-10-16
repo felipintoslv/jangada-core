@@ -1,1 +1,6 @@
-../core/bin/jangada-fila
+#!/usr/bin/env bash
+# Inspeciona a fila persistente. Uso: jangada-fila [--importar PLANO.json] [--json]
+set -euo pipefail
+# shellcheck source=bin/jangada-config
+source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
+exec python3 "$JANGADA_CORE_PATH/orquestracao/cli.py" fila "$@"

@@ -4,10 +4,7 @@ fd
 bat
 eza
 zoxide
-lazygit
 git-delta
-btop
-fastfetch
 tmux
 mise
 shellcheck

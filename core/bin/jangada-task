@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# Gerencia tarefas. Uso: jangada-task ID pausar|retomar|cancelar|repetir|revisar|assumir|entregar [OPÇÕES]
-set -euo pipefail
-# shellcheck source=bin/jangada-config
-source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
-exec python3 "$JANGADA_PATH/default/orquestracao/cli.py" task "$@"

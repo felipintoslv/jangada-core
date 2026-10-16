@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# Testa o contrato K9 (docs/modularizacao-3.0/03-contratos.md): nenhum arquivo
-# atravessa a fronteira do seu módulo fora das exceções registradas.
-#   1. Core não cita shell/, monitor/, default/painel, default/tarefas,
-#      default/hypr, default/waybar, hyprctl, waybar nem notify-send, e não
-#      chama comando do Shell nem do Monitor.
-#   2. Monitor não chama comando que altera estado (jangada-task,
-#      jangada-executar, jangada-agente, jangada-agente-fim, jangada-provedor,
-#      jangada-fila --importar) nem importa classe que grava (Estado e Saude).
-#   3. Shell não monta caminho para o estado do Core (agentes/, revisoes/,
-#      registros .jsonl, SESSAO.json, tarefas.sqlite).
-# O módulo de cada arquivo vem de testes/contratos/modulos.txt.
+# Testa o contrato K9 (docs/modularizacao-3.0/03-contratos.md): o Core não
+# cita pastas nem comandos de outras aplicações fora das exceções registradas.
+#   Os arquivos de bin/, agentes/, nucleo/, orquestracao/, delegacao/,
+#   provedores/, validacao/ e install/ não citam shell/, monitor/,
+#   default/painel, default/tarefas, default/hypr, default/waybar, hyprctl,
+#   waybar nem notify-send, e não chamam comando do jangada-shell nem do
+#   jangada-monitor (lista em testes/contratos/modulos.txt).
+# Comando de outra aplicação só é procurado no PATH, com command -v, e a
+# ausência é tratada sem erro; essas chamadas ficam na lista de exceções.
 #
 # Não contam: comentário, corpo de "cat <<" (texto de ajuda; sem aspas no
 # delimitador, o que vem a partir de $( ou ` conta), docstring do
@@ -47,7 +45,7 @@ ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
 conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
 
-declare -A teto=([K3]=10 [K4]=0 [K5]=3 [K6]=2 [sem-contrato]=0 [permanente]=6)
+declare -A teto=([K3]=8 [K6]=7 [permanente]=0)
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -132,9 +130,10 @@ varrer() {
     }' "$@"
 }
 
-# Arquivos de texto do MÓDULO, sem .md, a partir da classificação em $classes.
-arquivos_de() {
-  awk -F'\t' -v m="$1" '$1 == m && $2 !~ /\.md$/ { print $2 }' <<<"$classes" | xargs -r -d '\n' grep -Il ''
+# Arquivos de texto do Core, sem .md.
+arquivos_core() {
+  find bin agentes nucleo orquestracao delegacao provedores validacao install install.sh \
+    -type f ! -path '*/__pycache__/*' ! -name '*.md' | sort | xargs -r -d '\n' grep -Il ''
 }
 
 # Um problema por linha; sem saída, a árvore de RAIZ cumpre o contrato.
@@ -143,40 +142,13 @@ problemas() {
   (
     cd "$raiz" || exit 1
     local modulos=testes/contratos/modulos.txt excecoes=testes/contratos/fronteiras-excecoes.txt
-    local cmd_sm estado_cmds achados lista c n
-    # -L: arquivo movido para core/, shell/ ou monitor/ é lido pelo link de
-    # bin/ ou default/, com o nome que modulos.txt conhece. Arquivo alcançado
-    # por dois caminhos conta uma vez, pelo primeiro em ordem alfabética.
-    classes="$(find -L bin default shell -type f ! -path '*/__pycache__/*' -printf '%i\t%p\n' | sort -t$'\t' -k2 |
-      awk -F'\t' '!visto[$1]++ { print $2 }' | awk '
-      NR == FNR { if ($0 !~ /^#/ && NF) { mod[++n] = $1; cam[n] = $2 }; next }
-      {
-        c = 0
-        exato = 0
-        for (i = 1; i <= n; i++) if ($0 == cam[i]) exato = 1
-        for (i = 1; i <= n; i++)
-          if ($0 == cam[i] || (!exato && cam[i] ~ /\/$/ && index($0, cam[i]) == 1)) { c++; m = mod[i]; usado[i] = 1 }
-        if (c == 0) print "!sem módulo: " $0
-        else if (c > 1) print "!mais de um módulo: " $0
-        else print m "\t" $0
-      }
-      END { for (i = 1; i <= n; i++) if (!usado[i]) print "!linha de modulos.txt sem arquivo: " cam[i] }
-    ' "$modulos" -)"
-    grep '^!' <<<"$classes" | cut -c2-
+    local cmd_sm achados lista c n
 
-    cmd_sm="$(awk '($1 == "shell" || $1 == "monitor") && $2 ~ /^bin\/jangada-/ { sub(/^bin\//, "", $2); print $2 }' "$modulos" | paste -sd'|')"
-    estado_cmds='jangada-(task|executar|agente|agente-fim|provedor)'
+    cmd_sm="$(awk '!/^#/ && NF { print $2 }' "$modulos" | paste -sd'|')"
     achados="$(
-      mapfile -t lista < <(arquivos_de core)
+      mapfile -t lista < <(arquivos_core)
       FRONTEIRA_PADRAO="(^|[^[:alnum:]_.-])(shell|monitor)/|default/(painel|tarefas|hypr|waybar)$fim_nome|(^|[^[:alnum:]_-])(hyprctl|waybar|notify-send)$fim_nome|$(chamada "$cmd_sm")" \
         FRONTEIRA_PADRAO_SH="$(chamada_sh "$cmd_sm")" FRONTEIRA_PADRAO_PY="$(chamada_py "$cmd_sm")" varrer "${lista[@]}"
-      mapfile -t lista < <(arquivos_de monitor)
-      FRONTEIRA_PADRAO="$(chamada "$estado_cmds")|(/jangada-fila|${aspas}jangada-fila$aspas).*--importar|^[[:space:]]*(from[[:space:]]+(estado|saude)[[:space:]]+import|import[[:space:]]+(estado|saude)$fim_nome)|^[[:space:]]*class[[:space:]].*[(,][[:space:]]*(Estado|Saude)[[:space:]]*[),]" \
-        FRONTEIRA_PADRAO_SH="$(chamada_sh "$estado_cmds")|$(chamada_sh 'jangada-fila').*--importar" \
-        FRONTEIRA_PADRAO_PY="$(chamada_py "$estado_cmds")|$(chamada_py 'jangada-fila').*--importar" varrer "${lista[@]}"
-      mapfile -t lista < <(arquivos_de shell)
-      FRONTEIRA_PADRAO="(JANGADA_ESTADO|jangada)\}?/(agentes|revisoes)$fim_nome|/[[:space:]]*$aspas(agentes|revisoes)$aspas|(eventos-agentes|delegacoes|validar)\.jsonl|SESSAO\.json|tarefas\.sqlite" \
-        FRONTEIRA_PADRAO_SH='' FRONTEIRA_PADRAO_PY='' varrer "${lista[@]}"
     )"
 
     awk '!/^#/ && NF && NF < 3 { print "exceção incompleta na linha " FNR ": " $0 }' "$excecoes"
@@ -195,7 +167,7 @@ problemas() {
   )
 }
 
-conferir "teto de cada contrato definido" [ "${#teto[@]}" -eq 6 ]
+conferir "teto de cada contrato definido" [ "${#teto[@]}" -eq 3 ]
 achados="$(problemas "$repo_jangada")"
 conferir "nenhum acoplamento entre módulos fora da lista de exceções" [ -z "$achados" ]
 [[ -n "$achados" ]] && printf '      %s\n' "$achados"
@@ -204,7 +176,7 @@ conferir "nenhum acoplamento entre módulos fora da lista de exceções" [ -z "$
 copia() {
   rm -rf "$tmp/copia"
   mkdir -p "$tmp/copia/testes"
-  cp -a "$repo_jangada"/{bin,default,core,shell,monitor} "$tmp/copia/"
+  cp -a "$repo_jangada"/{bin,agentes,nucleo,orquestracao,delegacao,provedores,validacao,install,install.sh} "$tmp/copia/"
   cp -a "$repo_jangada/testes/contratos" "$tmp/copia/testes/"
 }
 acrescentar() { printf '%s\n' "$2" >>"$tmp/copia/$1"; }
@@ -226,15 +198,15 @@ copia
 acrescentar bin/jangada-fila '# hyprctl e waybar citados em comentário
 x=1 # notify-send no fim da linha
 cat <<EOF
-uso: rode hyprctl reload e "$JANGADA_PATH/bin/jangada-tarefas"
+uso: rode hyprctl reload e "$JANGADA_CORE_PATH/bin/jangada-tarefas"
 EOF
 echo "abra o jangada-painel para ver"'
-acrescentar default/nucleo/acoes.py '
+acrescentar nucleo/acoes.py '
 
 def _exemplo():
     """Avisa a waybar.
 
-    Chama hyprctl, notify-send e "$JANGADA_PATH/bin/jangada-tarefas".
+    Chama hyprctl, notify-send e "$JANGADA_CORE_PATH/bin/jangada-tarefas".
     """'
 conferir "comentário, texto de ajuda e docstring do Core não são apontados" [ -z "$(problemas "$tmp/copia")" ]
 
@@ -256,22 +228,6 @@ conferir "acoplamento retirado com a exceção ainda na lista é apontado" \
   apontado "exceção sem acoplamento: bin/jangada-fila: pkill -RTMIN+10 -x waybar 2>/dev/null || true"
 sed -i '\|^K3 bin/jangada-fila |d' "$tmp/copia/testes/contratos/fronteiras-excecoes.txt"
 conferir "lista menor que o teto passa" [ -z "$(problemas "$tmp/copia")" ]
-
-copia
-acrescentar default/nucleo/monitoramento.py 'from estado import Estado'
-conferir "diagnóstico legado pertence ao Monitor e recusa classe de escrita" \
-  apontado "fora da lista: default/nucleo/monitoramento.py:$(wc -l <"$tmp/copia/default/nucleo/monitoramento.py"): from estado import Estado"
-
-copia
-acrescentar bin/jangada-painel '"$JANGADA_PATH/bin/jangada-task" cancelar x'
-conferir "Monitor que chama comando que altera estado é apontado" \
-  apontado "fora da lista: bin/jangada-painel:$(wc -l <"$tmp/copia/bin/jangada-painel"): \"\$JANGADA_PATH/bin/jangada-task\" cancelar x"
-acrescentar bin/jangada-menu 'cat "$JANGADA_ESTADO/agentes/x.json"'
-conferir "Shell que lê o estado do Core direto é apontado" \
-  apontado "fora da lista: bin/jangada-menu:$(wc -l <"$tmp/copia/bin/jangada-menu"): cat \"\$JANGADA_ESTADO/agentes/x.json\""
-mkdir "$tmp/copia/default/novo"
-acrescentar default/novo/x.py 'x = 1'
-conferir "arquivo sem módulo é apontado" apontado "sem módulo: default/novo/x.py"
 
 ((falhas == 0)) && echo "tudo certo" || echo "$falhas falha(s)"
 exit $((falhas > 0))

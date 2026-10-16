@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 # Testa, em repositórios temporários, o que chega à cópia instalada: o
 # jangada-update só aplica commits novos da origem com confirmação e, com
-# allowed_signers, só os assinados, que o jangada-assinar assina; o
-# jangada-agente-fim --integrar avança a base com parecer de fora do
-# isolamento, mantém ramo e worktree, não assina, não envia ao remoto, não
-# atualiza a cópia instalada nem roda o git com fsmonitor ou ganchos do
-# repositório do agente; o install.sh recusa a
-# cópia de trabalho e os worktrees. pacman, checkupdates,
-# sudo, paru e tmux são substituídos por scripts falsos.
+# allowed_signers, só os assinados; depois do avanço roda o jangada-migrar, e
+# o jangada-sistema-update (do jangada-shell) só entra quando existe no PATH e
+# sem --so-core. Sem rede: a origem é uma pasta local. tmux e o
+# jangada-sistema-update são substituídos por scripts falsos.
 #
 # Uso: testes/update.sh
 set -uo pipefail
@@ -27,43 +24,25 @@ export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1
 : >"$GIT_CONFIG_GLOBAL"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" XDG_STATE_HOME="$tmp/home/.local/state"
-mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"
-unset HYPRLAND_INSTANCE_SIGNATURE JANGADA_SESSAO JANGADA_REPO JANGADA_SIMULAR
+mkdir -p "$HOME" "$XDG_CONFIG_HOME/jangada" "$XDG_STATE_HOME"
+unset HYPRLAND_INSTANCE_SIGNATURE JANGADA_SESSAO JANGADA_REPO JANGADA_SIMULAR JANGADA_ISOLADO
 
-# Comandos do sistema falsos: registram a chamada e não alteram nada.
+# tmux falso sem sessões e, à parte, um jangada-sistema-update falso que
+# registra a chamada e devolve o código de FALSO_SISTEMA_RC.
 falsos="$tmp/falsos"; mkdir -p "$falsos"
+sistema="$tmp/sistema-falso"; mkdir -p "$sistema"
 registro="$tmp/chamadas"
-cat >"$falsos/pacman" <<EOF
-#!/bin/sh
-echo "pacman \$*" >>"$registro"
-case "\$1" in -Q*) exit 1 ;; esac
-exit 0
-EOF
-cat >"$falsos/sudo" <<EOF
-#!/bin/sh
-echo "sudo \$*" >>"$registro"
-exec "\$@"
-EOF
-cat >"$falsos/checkupdates" <<'EOF'
-#!/bin/sh
-exit 2
-EOF
-cat >"$falsos/paru" <<EOF
-#!/bin/sh
-echo "paru \$*" >>"$registro"
-exit 0
-EOF
-cat >"$falsos/yay" <<EOF
-#!/bin/sh
-echo "yay \$*" >>"$registro"
-exit 0
-EOF
 cat >"$falsos/tmux" <<'EOF'
 #!/bin/sh
-for a in "$@"; do [ "$a" = has-session ] && exit 1; done
+for a in "$@"; do [ "$a" = list-sessions ] && echo "no server running on /tmp/x" >&2 && exit 1; done
 exit 0
 EOF
-chmod +x "$falsos"/*
+cat >"$sistema/jangada-sistema-update" <<EOF
+#!/bin/sh
+echo "sistema \$*" >>"$registro"
+exit "\${FALSO_SISTEMA_RC:-0}"
+EOF
+chmod +x "$falsos/tmux" "$sistema/jangada-sistema-update"
 export PATH="$falsos:$PATH"
 
 # Origem (a cópia de trabalho) com o bin/ atual e sem migrações; a cópia
@@ -71,12 +50,13 @@ export PATH="$falsos:$PATH"
 origem="$tmp/origem"; instalado="$tmp/instalado"
 mkdir -p "$origem/migrations"
 cp -r "$repo_jangada/bin" "$origem/"
+cp -r "$repo_jangada/agentes" "$origem/"
 echo "migrações" >"$origem/migrations/README.md"
 git -C "$origem" init --quiet -b main
 git -C "$origem" add -A
 git -C "$origem" commit --quiet -m "feat(base): início"
 git clone --quiet "$origem" "$instalado"
-export JANGADA_PATH="$instalado"
+export JANGADA_CORE_PATH="$instalado"
 
 marca="$HOME/migracao-nova"
 cat >"$origem/migrations/900-teste.sh" <<'EOF'
@@ -87,393 +67,200 @@ git -C "$origem" commit --quiet -m $'feat(teste): migração \e[2Jnova'
 novo="$(git -C "$origem" rev-parse HEAD)"
 antes="$(git -C "$instalado" rev-parse HEAD)"
 
-atualizar() { (cd "$tmp" && "$instalado/bin/jangada-update") >"$tmp/saida" 2>&1; rc=$?; }
+atualizar() { (cd "$tmp" && "$instalado/bin/jangada-update" "$@") >"$tmp/saida" 2>&1; rc=$?; }
 head_instalado() { git -C "$instalado" rev-parse HEAD; }
 
 echo "== jangada-update"
 
 atualizar <<<n
-conferir "resposta n: termina sem erro ($rc)" test "$rc" -eq 0
+conferir "resposta n: termina com erro ($rc)" test "$rc" -ne 0
 conferir "resposta n: cópia instalada não avança" test "$(head_instalado)" = "$antes"
 conferir "resposta n: migração nova não roda" test ! -e "$marca"
-conferir "resposta n: pacman -Syu roda mesmo assim" grep -q 'sudo pacman -Syu' "$registro"
 conferir "mostra o commit novo" grep -q 'migração \[2Jnova' "$tmp/saida"
 conferir "assunto sem o caractere ESC" bash -c '! grep -q $'"'"'\e'"'"' "$1"' _ "$tmp/saida"
 conferir "destaca a mudança em migrations/" grep -q '^   migrations/900-teste.sh' "$tmp/saida"
+conferir "avisa do código que roda fora do isolamento" grep -q 'mudam código que roda fora' "$tmp/saida"
 conferir "avisa que não aplicou" grep -q 'não aplicadas' "$tmp/saida"
-conferir "checkupdates sem atualização não é falha" bash -c '! grep -q "checkupdates falhou" "$1"' _ "$tmp/saida"
 
 atualizar </dev/null
-conferir "sem terminal: termina sem erro ($rc)" test "$rc" -eq 0
+conferir "sem terminal: termina com erro ($rc)" test "$rc" -ne 0
 conferir "sem terminal: cópia instalada não avança" test "$(head_instalado)" = "$antes"
 conferir "sem terminal: migração nova não roda" test ! -e "$marca"
 
-atualizar <<<s
+atualizar --so-core <<<s
 conferir "resposta s: termina sem erro ($rc)" test "$rc" -eq 0
 conferir "resposta s: cópia instalada avança" test "$(head_instalado)" = "$novo"
 conferir "resposta s: migração nova roda" test -e "$marca"
+conferir "resposta s: a marca da migração fica no estado" test -e "$XDG_STATE_HOME/jangada/migracoes/900-teste.sh"
+conferir "resposta s: mostra as novidades" grep -q 'jangada agora em' "$tmp/saida"
 
-# A origem reescrita (não avança em linha reta) é recusada como antes.
+atualizar --so-core <<<s
+conferir "sem novidade: já atualizado" grep -q 'jangada já atualizado' "$tmp/saida"
+
+# Fast-forward: a origem reescrita (não avança em linha reta) é recusada.
 git -C "$origem" commit --quiet --amend -m "fix(teste): reescrito"
-atualizar <<<s
-conferir "origem reescrita: termina sem erro ($rc)" test "$rc" -eq 0
+atualizar --so-core <<<s
+conferir "origem reescrita: termina com erro ($rc)" test "$rc" -ne 0
 conferir "origem reescrita: cópia instalada não muda" test "$(head_instalado)" = "$novo"
 conferir "origem reescrita: explica a recusa" grep -q 'não avança em linha reta' "$tmp/saida"
-
-echo "== jangada-agente-fim --integrar"
-
-# Sessão de agente num worktree da origem, com um commit a integrar.
 git -C "$origem" reset --quiet --hard "$novo"
-# O caminho é o que o jangada-agente cria: $JANGADA_WORKTREES/REPO/NOME.
-wt="$HOME/.local/share/jangada-worktrees/origem/x"
-git -C "$origem" worktree add --quiet -b agente/x "$wt" main
-echo "tarefa" >"$wt/tarefa.txt"
-# Suíte do projeto: o --integrar a roda antes de avançar a base.
-mkdir -p "$wt/testes"
-printf '#!/bin/sh\ntouch "$HOME/suite-rodou"\n' >"$wt/testes/verificar.sh"
-chmod +x "$wt/testes/verificar.sh"
-git -C "$wt" add tarefa.txt testes/verificar.sh
-git -C "$wt" commit --quiet -m "feat(teste): tarefa"
-revisoes="$XDG_STATE_HOME/jangada/revisoes"
-mkdir -p "$XDG_STATE_HOME/jangada/agentes" "$revisoes"
-# Estado da sessão, cópia protegida dele e parecer do jangada-validar.
-sessao() { # sessão, worktree
-  jq -n --arg w "$2" --arg r "$origem" --arg s "$1" \
-    '{worktree: $w, ramo: ("agente/" + $s), base: "main", raiz: $r, estado: "concluido"}' \
-    >"$XDG_STATE_HOME/jangada/agentes/$1.json"
-  cp "$XDG_STATE_HOME/jangada/agentes/$1.json" "$revisoes/$1.json"
-}
-parecer() { # sessão
-  local c
-  c="$(git -C "$origem" rev-parse "agente/$1")"
-  jq -n --arg c "$c" --arg t "$(git -C "$origem" rev-parse "$c^{tree}")" --arg b "$(git -C "$origem" rev-parse main)" \
-    '{cabeca: $c, num: 1, limpo: true, base: "main", base_sha: $b, candidate_sha: $c, candidate_tree: $t,
-      reviewer: "agy", author: "claude", local_verified: true, independent: true}' >"$revisoes/validacao-$1.aprovado"
-}
-sessao x "$wt"
-parecer x
-c_x="$(git -C "$origem" rev-parse agente/x)"
-git -C "$instalado" fetch --quiet origin
-antes_fim="$(head_instalado)"
-chamadas_antes="$(wc -l <"$registro")"
 
-# O que o agente poderia gravar no .git comum: fsmonitor e ganchos.
-alerta="$tmp/executou-codigo-do-agente"
-printf '#!/bin/sh\ntouch "%s"\n' "$alerta" >"$tmp/fsmonitor.sh"
-mkdir -p "$tmp/ganchos"
-for h in pre-merge-commit post-merge post-checkout reference-transaction; do
-  cp "$tmp/fsmonitor.sh" "$tmp/ganchos/$h"
-done
-chmod +x "$tmp/fsmonitor.sh" "$tmp/ganchos"/*
-git -C "$origem" config core.fsmonitor "$tmp/fsmonitor.sh"
-git -C "$origem" config core.hooksPath "$tmp/ganchos"
+echo "== opções"
 
-printf 's\n' | (cd "$tmp" && "$repo_jangada/bin/jangada-agente-fim" --integrar x) >"$tmp/saida" 2>&1
-rc=$?
-git -C "$origem" config --unset core.fsmonitor
-git -C "$origem" config --unset core.hooksPath
-conferir "integra por avanço rápido ($rc)" test "$rc" -eq 0
-conferir "a base está no commit aprovado, sem commit de merge" test "$(git -C "$origem" rev-parse main)" = "$c_x"
-conferir "a suíte do projeto rodou" test -e "$HOME/suite-rodou"
-conferir "sessão mantida" test -f "$XDG_STATE_HOME/jangada/agentes/x.json"
-conferir "ramo mantido" test -n "$(git -C "$origem" branch --list agente/x)"
-conferir "worktree mantido" test -d "$wt"
-conferir "cópia instalada não é atualizada" test "$(head_instalado)" = "$antes_fim"
-conferir "jangada-update e pacman não são chamados" \
-  bash -c '[ "$(wc -l <"$1")" -eq "$2" ]' _ "$registro" "$chamadas_antes"
-conferir "avisa que a cópia instalada ficou para trás" grep -q 'jangada-update' "$tmp/saida"
-conferir "fsmonitor e ganchos do repositório não rodam" test ! -e "$alerta"
+atualizar --ajuda
+conferir "--ajuda sai com 0" test "$rc" -eq 0
+conferir "opção desconhecida é recusada" bash -c '! "$1" --nada >/dev/null 2>&1' _ "$instalado/bin/jangada-update"
+(cd "$tmp" && JANGADA_SIMULAR=1 "$instalado/bin/jangada-update") >"$tmp/saida" 2>&1; rc=$?
+conferir "simulação é recusada" bash -c '[ "$1" -ne 0 ] && grep -q "não oferece simulação" "$2"' _ "$rc" "$tmp/saida"
+
+echo "== jangada-sistema-update"
+
+echo s1 >"$origem/s1.txt"
+git -C "$origem" add s1.txt
+git -C "$origem" commit --quiet -m "feat(teste): s1"
+: >"$registro"
+atualizar --so-core <<<s
+conferir "--so-core: não chama o jangada-sistema-update" bash -c 'PATH="$1:$PATH" true; ! test -s "$2"' _ "$sistema" "$registro"
+
+echo s2 >"$origem/s2.txt"
+git -C "$origem" add s2.txt
+git -C "$origem" commit --quiet -m "feat(teste): s2"
+: >"$registro"
+(cd "$tmp" && PATH="$sistema:$PATH" "$instalado/bin/jangada-update" --so-core <<<s) >"$tmp/saida" 2>&1; rc=$?
+conferir "--so-core com o comando no PATH: não chama ($rc)" bash -c '[ "$1" -eq 0 ] && ! test -s "$2"' _ "$rc" "$registro"
+
+echo s3 >"$origem/s3.txt"
+git -C "$origem" add s3.txt
+git -C "$origem" commit --quiet -m "feat(teste): s3"
+: >"$registro"
+(cd "$tmp" && PATH="$sistema:$PATH" "$instalado/bin/jangada-update" <<<s) >"$tmp/saida" 2>&1; rc=$?
+conferir "sem --so-core, com o comando: chama sem argumentos ($rc)" bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2")" = "sistema " ]' _ "$rc" "$registro"
+conferir "sem --so-core: o código novo vem antes" test "$(head_instalado)" = "$(git -C "$origem" rev-parse HEAD)"
+
+: >"$registro"
+(cd "$tmp" && PATH="$sistema:$PATH" FALSO_SISTEMA_RC=7 "$instalado/bin/jangada-update" <<<s) >"$tmp/saida" 2>&1; rc=$?
+conferir "repassa o código de saída do sistema ($rc)" test "$rc" -eq 7
+
+atualizar </dev/null
+conferir "sem o comando no PATH: termina com 0 ($rc)" test "$rc" -eq 0
+
+# Código recusado: o sistema ainda roda, e o erro do código vale no fim.
+echo s4 >"$origem/s4.txt"
+git -C "$origem" add s4.txt
+git -C "$origem" commit --quiet -m "feat(teste): s4"
+: >"$registro"
+(cd "$tmp" && PATH="$sistema:$PATH" "$instalado/bin/jangada-update" <<<n) >"$tmp/saida" 2>&1; rc=$?
+conferir "código recusado: o sistema roda e o código de saída é de erro ($rc)" \
+  bash -c '[ "$1" -ne 0 ] && [ -s "$2" ]' _ "$rc" "$registro"
+atualizar --so-core <<<s
+
+echo "== migrações"
+
+migracoes="$tmp/migracoes-vazias"; mkdir -p "$migracoes/bin" "$migracoes/migrations"
+cp "$repo_jangada"/bin/jangada-config "$repo_jangada"/bin/jangada-migrar "$migracoes/bin/"
+cp -r "$repo_jangada/agentes" "$migracoes/"
+(cd "$tmp" && JANGADA_CORE_PATH="$migracoes" "$migracoes/bin/jangada-migrar") >"$tmp/saida" 2>&1; rc=$?
+conferir "pasta sem scripts: sai com 0 ($rc)" test "$rc" -eq 0
+conferir "pasta sem scripts: nenhuma aplicada" grep -q 'migrações aplicadas: 0' "$tmp/saida"
+echo 'touch "$HOME/simulada"' >"$migracoes/migrations/100-a.sh"
+(cd "$tmp" && JANGADA_SIMULAR=1 JANGADA_CORE_PATH="$migracoes" "$migracoes/bin/jangada-migrar") >"$tmp/saida" 2>&1; rc=$?
+conferir "simulação não grava a marca" test ! -e "$XDG_STATE_HOME/jangada/migracoes/100-a.sh"
+(cd "$tmp" && JANGADA_CORE_PATH="$migracoes" "$migracoes/bin/jangada-migrar") >"$tmp/saida" 2>&1
+conferir "execução grava a marca" test -e "$XDG_STATE_HOME/jangada/migracoes/100-a.sh"
+rm -f "$HOME/simulada"
+(cd "$tmp" && JANGADA_CORE_PATH="$migracoes" "$migracoes/bin/jangada-migrar") >"$tmp/saida" 2>&1
+conferir "com a marca, não reaplica" test ! -e "$HOME/simulada"
+echo 'exit 3' >"$migracoes/migrations/200-b.sh"
+echo 'touch "$HOME/depois"' >"$migracoes/migrations/300-c.sh"
+(cd "$tmp" && JANGADA_CORE_PATH="$migracoes" "$migracoes/bin/jangada-migrar") >"$tmp/saida" 2>&1; rc=$?
+conferir "migração que falha para a sequência ($rc)" bash -c '[ "$1" -ne 0 ] && [ ! -e "$2" ]' _ "$rc" "$HOME/depois"
 
 echo "== assinaturas"
 
-# A cópia instalada alcança a origem antes de as assinaturas valerem; o que
-# já foi enviado a um remoto (o GitHub, na máquina) não é reescrito.
-atualizar <<<s
-remoto="$tmp/remoto.git"
-git init --quiet --bare "$remoto"
-git -C "$origem" remote add github "$remoto"
-git -C "$origem" push --quiet -u github main 2>/dev/null
-mkdir -p "$HOME/.ssh" "$XDG_CONFIG_HOME/jangada"
+mkdir -p "$HOME/.ssh"
 ssh-keygen -q -t ed25519 -N '' -C t -f "$HOME/.ssh/id_ed25519"
 ssh-keygen -q -t ed25519 -N '' -C outra -f "$tmp/outra"
 printf 't@t namespaces="git" %s\n' "$(cat "$HOME/.ssh/id_ed25519.pub")" >"$XDG_CONFIG_HOME/jangada/allowed_signers"
-assinar() { (cd "$tmp" && "$repo_jangada/bin/jangada-assinar" "$origem") >"$tmp/saida" 2>&1; rc=$?; }
 assinatura() { git -C "$origem" -c gpg.ssh.allowedSignersFile="$XDG_CONFIG_HOME/jangada/allowed_signers" log -1 --format=%G? "$1"; }
+commitar() { # arquivo, chave (vazio = sem assinar)
+  echo "$1" >"$origem/$1.txt"
+  git -C "$origem" add "$1.txt"
+  if [[ -n "${2:-}" ]]; then
+    git -C "$origem" -c gpg.format=ssh -c user.signingkey="$2" commit --quiet -S -m "feat(teste): $1"
+  else
+    git -C "$origem" commit --quiet -m "feat(teste): $1"
+  fi
+}
 
-echo c1 >"$origem/c1.txt"
-git -C "$origem" add c1.txt
-git -C "$origem" commit --quiet -m "feat(teste): sem assinatura"
+commitar c1
 antes_ass="$(head_instalado)"
-atualizar <<<s
+atualizar --so-core <<<s
 conferir "sem assinatura: a cópia instalada não avança" test "$(head_instalado)" = "$antes_ass"
 conferir "sem assinatura: diz o commit e o jangada-assinar" \
-  bash -c 'grep -q "sem assinatura válida" "$1" && grep -q "feat(teste): sem assinatura" "$1"' _ "$tmp/saida"
+  bash -c 'grep -q "sem assinatura válida" "$1" && grep -q "feat(teste): c1" "$1" && grep -q jangada-assinar "$1"' _ "$tmp/saida"
+conferir "sem assinatura: termina com erro ($rc)" test "$rc" -ne 0
 
-assinar </dev/null
-conferir "assinar sem terminal: não assina ($rc)" [ "$rc" -ne 0 ]
-conferir "assinar sem terminal: o commit segue sem assinatura" [ "$(assinatura HEAD)" != G ]
-assinar <<<s
-conferir "assinar: termina sem erro ($rc)" [ "$rc" -eq 0 ]
-conferir "assinar: mostra o commit" grep -q "feat(teste): sem assinatura" "$tmp/saida"
-conferir "assinar: o commit tem assinatura válida" [ "$(assinatura HEAD)" = G ]
-conferir "assinar: sem commit enviado por assinar, não avisa" bash -c '! grep -q "já enviados" "$1"' _ "$tmp/saida"
-conferir "assinar: o já enviado não muda" [ "$(git -C "$origem" rev-parse "main@{upstream}")" = "$(git -C "$remoto" rev-parse main)" ]
-c1="$(git -C "$origem" rev-parse HEAD)"
-assinar <<<s
-conferir "assinar de novo: nada a assinar" grep -q "nada a assinar" "$tmp/saida"
-atualizar <<<s
-conferir "assinado: a cópia instalada avança" test "$(head_instalado)" = "$c1"
+git -C "$origem" reset --quiet --hard HEAD^
+commitar c2 "$HOME/.ssh/id_ed25519"
+conferir "commit assinado pela chave do arquivo é válido" test "$(assinatura HEAD)" = G
+atualizar --so-core <<<s
+conferir "assinado: a cópia instalada avança ($rc)" bash -c '[ "$1" -eq 0 ] && [ "$2" = "$3" ]' _ "$rc" "$(head_instalado)" "$(git -C "$origem" rev-parse HEAD)"
 
-# Assinado por uma chave fora do allowed_signers vale como sem assinatura, e
-# o jangada-assinar só reescreve dali em diante.
-echo c2 >"$origem/c2.txt"
-git -C "$origem" add c2.txt
-git -C "$origem" -c gpg.format=ssh -c user.signingkey="$tmp/outra" commit --quiet -S -m "feat(teste): outra chave"
-atualizar <<<s
-conferir "outra chave: a cópia instalada não avança" test "$(head_instalado)" = "$c1"
-assinar <<<s
-conferir "outra chave: assinar só reescreve o commit dela" \
-  bash -c '[ "$(git -C "$1" rev-parse HEAD^)" = "$2" ] && ! grep -q "feat(teste): sem assinatura" "$3"' _ "$origem" "$c1" "$tmp/saida"
-atualizar <<<s
-conferir "outra chave, depois de assinar: a cópia instalada avança" \
-  test "$(head_instalado)" = "$(git -C "$origem" rev-parse HEAD)"
+# Assinado por uma chave fora do allowed_signers vale como sem assinatura.
+commitar c3 "$tmp/outra"
+antes_ass="$(head_instalado)"
+atualizar --so-core <<<s
+conferir "outra chave: a cópia instalada não avança" test "$(head_instalado)" = "$antes_ass"
 
-# Commit enviado sem assinatura: o assinar não o reescreve e o update não
-# passa dele; o aviso diz o commit e o comando que avança a cópia instalada.
-# Dois ramos sem assinatura unidos por um merge assinado: o destino do
-# comando é a origem, que descende dos dois.
-git -C "$origem" branch enviado
-echo e1 >"$origem/e1.txt"
-git -C "$origem" add e1.txt
-git -C "$origem" commit --quiet -m "feat(teste): enviado sem assinatura"
-git -C "$origem" switch --quiet enviado
-echo e2 >"$origem/e2.txt"
-git -C "$origem" add e2.txt
-git -C "$origem" commit --quiet -m "feat(teste): enviado no outro ramo"
-git -C "$origem" switch --quiet main
-git -C "$origem" -c gpg.format=ssh -c user.signingkey="$HOME/.ssh/id_ed25519" \
-  merge --quiet --no-ff -S -m "Integra enviado" enviado
-git -C "$origem" branch --quiet -D enviado
-git -C "$origem" push --quiet github main 2>/dev/null
-e1="$(git -C "$origem" rev-parse HEAD)"
-assinar <<<s
-conferir "enviado sem assinatura: avisa e diz o commit" \
-  bash -c 'grep -q "já enviados sem assinatura" "$1" && grep -q "feat(teste): enviado sem assinatura" "$1" &&
-    grep -q "feat(teste): enviado no outro ramo" "$1" && ! grep -q "Integra enviado" "$1"' _ "$tmp/saida"
-conferir "enviado sem assinatura: não reescreve" [ "$(git -C "$origem" rev-parse HEAD)" = "$e1" ]
-# Caminho da cópia instalada com espaço e caracteres do shell: o comando do
-# aviso sai com escape e só avança essa cópia.
-especial="$tmp/inst alada;\$(touch alerta-escape)"
-git clone --quiet "$origem" "$especial"
-git -C "$especial" reset --quiet --hard "$(head_instalado)"
-(cd "$tmp" && JANGADA_PATH="$especial" "$repo_jangada/bin/jangada-assinar" "$origem") >"$tmp/saida-especial" 2>&1 <<<s
-conferir "enviado sem assinatura, caminho com espaço e \$(): o comando do aviso avança só essa cópia" \
-  bash -c 'cd "$5" && eval "$(grep -o "git -C .* merge --ff-only [0-9a-f]*" "$1")" >/dev/null 2>&1
-    [ "$(git -C "$2" rev-parse HEAD)" = "$3" ] && [ "$(git -C "$4" rev-parse HEAD)" != "$3" ] && [ ! -e alerta-escape ]' \
-  _ "$tmp/saida-especial" "$especial" "$e1" "$instalado" "$tmp"
-avanco="$(grep -o 'git -C .* merge --ff-only [0-9a-f]*' "$tmp/saida")"
-conferir "enviado sem assinatura: o comando do aviso avança a cópia instalada" \
-  bash -c 'eval "$1" >/dev/null 2>&1 && [ "$(git -C "$2" rev-parse HEAD)" = "$3" ]' _ "$avanco" "$instalado" "$e1"
-assinar <<<s
-conferir "enviado sem assinatura, cópia instalada avançada: não avisa mais" \
-  bash -c '! grep -q "já enviados" "$1"' _ "$tmp/saida"
+# Um commit sem assinatura no meio da série basta para recusar tudo.
+git -C "$origem" reset --quiet --hard HEAD^
+commitar c4 ""
+commitar c5 "$HOME/.ssh/id_ed25519"
+atualizar --so-core <<<s
+conferir "um sem assinatura no meio: nada é aplicado" test "$(head_instalado)" = "$antes_ass"
 
-# Vários commits sem assinatura: o primeiro é achado sem cortar a saída do
-# git log, que morreria por SIGPIPE e encerraria o script sem mensagem.
-for i in $(seq 20); do
-  echo "$i" >"$origem/lote.txt"
-  git -C "$origem" add lote.txt
-  git -C "$origem" commit --quiet -m "feat(teste): lote $i"
-done
-assinar <<<s
-conferir "vários sem assinatura: assina todos ($rc)" \
-  bash -c '[ "$1" -eq 0 ] && grep -q "^assinados" "$2"' _ "$rc" "$tmp/saida"
-conferir "vários sem assinatura: o mais antigo tem assinatura válida" [ "$(assinatura HEAD~19)" = G ]
-atualizar <<<s
-
-# Merge feito à mão com --no-ff: o ramo saiu de antes de um commit
-# já assinado, que fica como está; o commit do ramo e o merge são assinados.
-git -C "$origem" branch agente/m
-echo m1 >"$origem/m1.txt"
-git -C "$origem" add m1.txt
-git -C "$origem" commit --quiet -m "feat(teste): antes do merge"
-assinar <<<s
-m1="$(git -C "$origem" rev-parse HEAD)"
-git -C "$origem" checkout --quiet agente/m
-echo m2 >"$origem/m2.txt"
-git -C "$origem" add m2.txt
-git -C "$origem" commit --quiet -m "feat(teste): no ramo"
-git -C "$origem" checkout --quiet main
-git -C "$origem" merge --quiet --no-ff -m "Integra agente/m" agente/m
-arvore_m="$(git -C "$origem" rev-parse 'HEAD^{tree}')"
-assinar <<<s
-conferir "merge: assina sem erro ($rc)" [ "$rc" -eq 0 ]
-conferir "merge: continua merge, com a mesma árvore" \
-  bash -c '[ "$(git -C "$1" rev-list --parents -1 HEAD | wc -w)" -eq 3 ] && [ "$(git -C "$1" rev-parse "HEAD^{tree}")" = "$2" ]' _ "$origem" "$arvore_m"
-conferir "merge: o merge e o commit do ramo têm assinatura válida" [ "$(assinatura HEAD)$(assinatura HEAD^2)" = GG ]
-conferir "merge: o já assinado antes do ramo não muda" [ "$(git -C "$origem" rev-parse HEAD^)" = "$m1" ]
-git -C "$origem" branch --quiet -D agente/m
-m_assinado="$(git -C "$origem" rev-parse HEAD)"
-atualizar <<<s
-conferir "merge assinado: a cópia instalada avança" test "$(head_instalado)" = "$m_assinado"
-
-# Assinaturas não substituem o parecer, e o --integrar não assina nem envia
-# ao remoto.
-wt_y="$HOME/.local/share/jangada-worktrees/origem/y"
-git -C "$origem" worktree add --quiet -b agente/y "$wt_y" main
-echo y >"$wt_y/y.txt"
-git -C "$wt_y" add y.txt
-git -C "$wt_y" commit --quiet -m "feat(teste): tarefa y"
-sessao y "$wt_y"
-antes_y="$(git -C "$origem" rev-parse HEAD)"
-c_y="$(git -C "$origem" rev-parse agente/y)"
-remoto_y="$(git -C "$remoto" rev-parse main)"
-instalado_y="$(head_instalado)"
-printf 's\ns\n' | "$repo_jangada/bin/jangada-agente-fim" --integrar y >"$tmp/saida" 2>&1
-rc=$?
-conferir "allowed_signers: sem parecer, recusa" \
-  bash -c '[ "$1" -ne 0 ] && grep -q "falta parecer APROVADO" "$2"' _ "$rc" "$tmp/saida"
-conferir "allowed_signers: HEAD preservado" test "$(git -C "$origem" rev-parse HEAD)" = "$antes_y"
-parecer y
-printf 's\ns\n' | "$repo_jangada/bin/jangada-agente-fim" --integrar y >"$tmp/saida" 2>&1
-rc=$?
-conferir "allowed_signers: com parecer, integra ($rc)" \
-  bash -c '[ "$1" -eq 0 ] && [ "$(git -C "$2" rev-parse main)" = "$3" ]' _ "$rc" "$origem" "$c_y"
-conferir "allowed_signers: o commit não é assinado nem reescrito" [ "$(assinatura HEAD)" != G ]
-conferir "allowed_signers: nada é enviado ao remoto" test "$(git -C "$remoto" rev-parse main)" = "$remoto_y"
-conferir "allowed_signers: cópia instalada não é atualizada" test "$(head_instalado)" = "$instalado_y"
-conferir "allowed_signers: sessão mantida" test -f "$XDG_STATE_HOME/jangada/agentes/y.json"
-conferir "allowed_signers: ramo e worktree mantidos" \
-  bash -c 'test -n "$(git -C "$1" branch --list agente/y)" && test -d "$2"' _ "$origem" "$wt_y"
-
-# Merge com alteração feita à mão: refazê-lo perderia a alteração, então nada
-# é assinado e o ramo volta ao que era.
-git -C "$origem" branch agente/n
-echo n1 >"$origem/n1.txt"
-git -C "$origem" add n1.txt
-git -C "$origem" commit --quiet -m "feat(teste): base do merge alterado"
-git -C "$origem" checkout --quiet agente/n
-echo n2 >"$origem/n2.txt"
-git -C "$origem" add n2.txt
-git -C "$origem" commit --quiet -m "feat(teste): ramo do merge alterado"
-git -C "$origem" checkout --quiet main
-git -C "$origem" merge --quiet --no-ff --no-commit agente/n >/dev/null 2>&1
-echo extra >"$origem/n3.txt"
-git -C "$origem" add n3.txt
-git -C "$origem" commit --quiet -m "Integra agente/n"
-antes_n="$(git -C "$origem" rev-parse HEAD)"
-assinar <<<s
-conferir "merge alterado à mão: recusa ($rc)" \
-  bash -c '[ "$1" -ne 0 ] && grep -q "mudou o conteúdo" "$2"' _ "$rc" "$tmp/saida"
-conferir "merge alterado à mão: o ramo volta ao que era" [ "$(git -C "$origem" rev-parse HEAD)" = "$antes_n" ]
-# Um commit posterior desfaz a alteração: a árvore final seria a mesma, mas o
-# merge refeito não. O commit traz outro arquivo para não ficar vazio no
-# rebase, que pararia nele.
-git -C "$origem" rm --quiet n3.txt
-echo n4 >"$origem/n4.txt"
-git -C "$origem" add n4.txt
-git -C "$origem" commit --quiet -m "feat(teste): desfaz a alteração do merge"
-antes_n="$(git -C "$origem" rev-parse HEAD)"
-assinar <<<s
-conferir "merge alterado à mão e desfeito depois: recusa ($rc)" \
-  bash -c '[ "$1" -ne 0 ] && grep -q "mudou o conteúdo" "$2"' _ "$rc" "$tmp/saida"
-conferir "merge alterado à mão e desfeito depois: o ramo volta ao que era" [ "$(git -C "$origem" rev-parse HEAD)" = "$antes_n" ]
-git -C "$origem" reset --quiet --hard "$m_assinado"
-git -C "$origem" branch --quiet -D agente/n
-# Dois merges que trocariam de árvore ao serem refeitos: o primeiro
-# acrescenta x.txt à mão, o segundo traz o mesmo x.txt do ramo e o tira à mão.
-# O conjunto das árvores fica igual; a de cada commit, não.
-git -C "$origem" branch agente/p
-git -C "$origem" branch agente/q
-git -C "$origem" checkout --quiet agente/p
-echo p >"$origem/p.txt"
-git -C "$origem" add p.txt
-git -C "$origem" commit --quiet -m "feat(teste): ramo p"
-git -C "$origem" checkout --quiet agente/q
-echo x >"$origem/x.txt"
-git -C "$origem" add x.txt
-git -C "$origem" commit --quiet -m "feat(teste): ramo q"
-git -C "$origem" checkout --quiet main
-git -C "$origem" merge --quiet --no-ff --no-commit agente/p >/dev/null 2>&1
-echo x >"$origem/x.txt"
-git -C "$origem" add x.txt
-git -C "$origem" commit --quiet -m "Integra agente/p"
-git -C "$origem" merge --quiet --no-ff --no-commit agente/q >/dev/null 2>&1
-git -C "$origem" rm --quiet -f x.txt
-git -C "$origem" commit --quiet -m "Integra agente/q"
-antes_pq="$(git -C "$origem" rev-parse HEAD)"
-assinar <<<s
-conferir "merges que trocariam de árvore: recusa ($rc)" \
-  bash -c '[ "$1" -ne 0 ] && grep -q "mudou o conteúdo" "$2"' _ "$rc" "$tmp/saida"
-conferir "merges que trocariam de árvore: o ramo volta ao que era" [ "$(git -C "$origem" rev-parse HEAD)" = "$antes_pq" ]
-git -C "$origem" reset --quiet --hard "$m_assinado"
-git -C "$origem" branch --quiet -D agente/p agente/q
-
-# O gpg.ssh.program do repositório não roda na assinatura nem na conferência.
+# O gpg.ssh.program do repositório não roda na conferência.
+alerta="$tmp/executou-codigo-do-agente"
 printf '#!/bin/sh\ntouch "%s"\nexit 1\n' "$alerta" >"$tmp/programa.sh"
 chmod +x "$tmp/programa.sh"
-git -C "$origem" config gpg.ssh.program "$tmp/programa.sh"
 git -C "$instalado" config gpg.ssh.program "$tmp/programa.sh"
-echo c3 >"$origem/c3.txt"
-git -C "$origem" add c3.txt
-git -C "$origem" commit --quiet -m "feat(teste): terceiro"
-assinar <<<s
-atualizar <<<s
-conferir "gpg.ssh.program do repositório: assina e aplica" test "$(head_instalado)" = "$(git -C "$origem" rev-parse HEAD)"
+git -C "$origem" reset --quiet --hard "$antes_ass"
+commitar c6 "$HOME/.ssh/id_ed25519"
+atualizar --so-core <<<s
+conferir "gpg.ssh.program do repositório: aplica" test "$(head_instalado)" = "$(git -C "$origem" rev-parse HEAD)"
 conferir "gpg.ssh.program do repositório: não roda" test ! -e "$alerta"
-git -C "$origem" config --unset gpg.ssh.program
 git -C "$instalado" config --unset gpg.ssh.program
 
-# Sem a chave (como no isolamento, com o ~/.ssh oculto), recusa com o motivo.
-mv "$HOME/.ssh" "$HOME/.ssh-fora"
-echo c4 >"$origem/c4.txt"
-git -C "$origem" add c4.txt
-git -C "$origem" commit --quiet -m "feat(teste): sem chave"
-assinar <<<s
-conferir "sem a chave: recusa ($rc)" [ "$rc" -ne 0 ]
-conferir "sem a chave: indica o terminal comum" grep -q "terminal comum" "$tmp/saida"
-mv "$HOME/.ssh-fora" "$HOME/.ssh"
-git -C "$origem" reset --quiet --hard HEAD^
+# fsmonitor e ganchos da configuração da cópia instalada não rodam.
+printf '#!/bin/sh\ntouch "%s"\n' "$alerta" >"$tmp/fsmonitor.sh"
+mkdir -p "$tmp/ganchos"
+for h in pre-merge-commit post-merge post-checkout reference-transaction; do cp "$tmp/fsmonitor.sh" "$tmp/ganchos/$h"; done
+chmod +x "$tmp/fsmonitor.sh" "$tmp/ganchos"/*
+git -C "$instalado" config core.fsmonitor "$tmp/fsmonitor.sh"
+git -C "$instalado" config core.hooksPath "$tmp/ganchos"
+commitar c7 "$HOME/.ssh/id_ed25519"
+atualizar --so-core <<<s
+conferir "fsmonitor e ganchos da cópia instalada: aplica" test "$(head_instalado)" = "$(git -C "$origem" rev-parse HEAD)"
+conferir "fsmonitor e ganchos da cópia instalada: não rodam" test ! -e "$alerta"
+git -C "$instalado" config --unset core.fsmonitor
+git -C "$instalado" config --unset core.hooksPath
 rm -f "$XDG_CONFIG_HOME/jangada/allowed_signers"
 
-echo "== install.sh só da cópia instalada"
+echo "== canal"
 
-# Cópia só com o install.sh, a lib, a configuração e uma etapa que só marca
-# que rodou.
-inst="$tmp/inst"; mkdir -p "$inst/install" "$inst/bin"
-cp "$repo_jangada/install.sh" "$inst/"
-echo 'touch "$HOME/etapa-rodou"' >"$inst/install/00-teste.sh"
-cp "$repo_jangada/install/lib.sh" "$inst/install/"
-cp "$repo_jangada/bin/jangada-config" "$inst/bin/"
-git -C "$inst" init --quiet -b main
-git -C "$inst" add -A
-git -C "$inst" commit --quiet -m "feat(base): instalação"
-instalar() { env -u JANGADA_PATH "$@" >"$tmp/saida" 2>&1; }
-mkdir -p "$XDG_CONFIG_HOME/jangada"
-
-instalar "$inst/install.sh"; rc=$?
-conferir "instala de um clone comum ($rc)" test "$rc" -eq 0
-conferir "a etapa rodou" test -e "$HOME/etapa-rodou"
-rm -f "$HOME/etapa-rodou"
-
-printf 'JANGADA_REPO=%s\n' "$inst" >"$XDG_CONFIG_HOME/jangada/jangada.conf"
-instalar "$inst/install.sh"; rc=$?
-conferir "recusa a cópia de trabalho ($rc)" test "$rc" -ne 0
-conferir "diz por que recusou" grep -q 'cópia de trabalho (JANGADA_REPO)' "$tmp/saida"
-conferir "nenhuma etapa rodou" test ! -e "$HOME/etapa-rodou"
-instalar env JANGADA_SIMULAR=1 "$inst/install.sh"; rc=$?
-conferir "simula na cópia de trabalho ($rc)" test "$rc" -eq 0
-conferir "a simulação avisa" grep -q 'só a simulação roda daqui' "$tmp/saida"
+git -C "$origem" switch --quiet -c estavel
+commitar e1 ""
+git -C "$origem" switch --quiet main
+echo 'JANGADA_CANAL=estavel' >"$XDG_CONFIG_HOME/jangada/jangada.conf"
+atualizar --so-core <<<s
+conferir "canal estavel: a cópia instalada muda de ramo ($rc)" \
+  bash -c '[ "$1" = estavel ] && [ "$(git -C "$2" rev-parse HEAD)" = "$(git -C "$3" rev-parse estavel)" ]' \
+  _ "$(git -C "$instalado" rev-parse --abbrev-ref HEAD)" "$instalado" "$origem"
+echo 'JANGADA_CANAL=inexistente' >"$XDG_CONFIG_HOME/jangada/jangada.conf"
+atualizar --so-core <<<s
+conferir "canal que não existe: avisa e segue no ramo atual" \
+  bash -c 'grep -q "não existe na origem" "$1"' _ "$tmp/saida"
 rm -f "$XDG_CONFIG_HOME/jangada/jangada.conf"
-
-git -C "$inst" worktree add --quiet -b agente/inst "$tmp/inst-wt" main
-instalar "$tmp/inst-wt/install.sh"; rc=$?
-conferir "recusa um worktree ($rc)" test "$rc" -ne 0
-
-mkdir -p "$HOME/.local/share/jangada-worktrees"
-git clone --quiet "$inst" "$HOME/.local/share/jangada-worktrees/copia"
-instalar "$HOME/.local/share/jangada-worktrees/copia/install.sh"; rc=$?
-conferir "recusa um clone em JANGADA_WORKTREES ($rc)" test "$rc" -ne 0
 
 if ((falhas)); then
   echo "--- última saída"; cat "$tmp/saida"

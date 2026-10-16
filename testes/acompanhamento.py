@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / 'default/orquestracao'))
+sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from acompanhamento import acompanhar, exclusividade
 from estado import Estado
 from saude import Saude
@@ -178,8 +178,8 @@ class Acompanhamento(unittest.TestCase):
 
     def test_cli_sem_tarefas_e_opcoes_incompativeis(self):
         ambiente = {**os.environ, 'JANGADA_ESTADO': str(self.pasta / 'estado'),
-                    'JANGADA_CONFIG': str(self.config), 'JANGADA_PATH': str(RAIZ)}
-        comando = [sys.executable, str(RAIZ / 'default/orquestracao/cli.py'), 'executar',
+                    'JANGADA_CONFIG': str(self.config), 'JANGADA_CORE_PATH': str(RAIZ)}
+        comando = [sys.executable, str(RAIZ / 'orquestracao/cli.py'), 'executar',
                    '--projeto', str(self.pasta)]
         recusa = subprocess.run([*comando, '--intervalo', '1'], env=ambiente, capture_output=True, text=True)
         self.assertEqual(recusa.returncode, 2)

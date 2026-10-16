@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Testa o contrato K10 (docs/modularizacao-3.0/03-contratos.md): o Core abre
 # terminal e Central e foca janela só pelas funções de bin/jangada-config.
-# Com hyprctl, setsid, tmux, jangada-terminal e jangada-tarefas falsos,
+# Com hyprctl, setsid, tmux, jangada-terminal e jangada-tarefas falsos no PATH,
 # confere os argumentos de cada chamada, o exec onde há exec e o terminal
 # solto em focar. Sem sessão gráfica, confere aviso e saída 0.
 #
@@ -23,14 +23,15 @@ trap 'rm -rf "$tmp"' EXIT
 jangada="$tmp/jangada"
 log="$tmp/log"
 mkdir -p "$tmp/bin" "$tmp/setsid" "$tmp/sessoes" "$tmp/casa" "$tmp/state/jangada/agentes" "$tmp/config/jangada" "$jangada/bin"
-ln -s "$repo_jangada/default" "$jangada/default"
-ln -s "$repo_jangada/core" "$jangada/core"
+for d in nucleo orquestracao delegacao provedores validacao agentes; do
+  ln -s "$repo_jangada/$d" "$jangada/$d"
+done
 
 # Cada falso grava uma linha "NOME PID [ARG]..." no registro. O jangada-terminal
 # espera FALSO_ESPERA segundos depois de gravar, para o teste ver se ele ficou
 # solto do processo que o abriu.
 for f in jangada-terminal jangada-tarefas; do
-  cat >"$jangada/bin/$f" <<EOF
+  cat >"$tmp/bin/$f" <<EOF
 #!/usr/bin/env bash
 { printf '%s %s' $f "\$\$"; ((\$#)) && printf ' [%s]' "\$@"; echo; } >>"\$FALSO_LOG"
 sleep "\${FALSO_ESPERA:-0}"
@@ -65,7 +66,7 @@ cat >"$tmp/com-pid" <<EOF
 echo \$\$ >"$tmp/pid"
 exec "\$@"
 EOF
-chmod +x "$tmp/bin/"* "$tmp/setsid/setsid" "$jangada/bin/"* "$tmp/com-pid"
+chmod +x "$tmp/bin/"* "$tmp/setsid/setsid" "$tmp/com-pid"
 
 # PATH sem setsid, para o caminho em segundo plano de focar. O setsid falso
 # fica numa pasta à parte.
@@ -78,7 +79,7 @@ base() {
   env -u TMUX -u DISPLAY -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_HOOK_DESLIGADO \
     -u FALSO_CLIENTES -u FALSO_ATIVA -u FALSO_FOCO_RC -u FALSO_ESPERA \
     PATH="$tmp/bin:$tmp/setsid:$PATH" HOME="$tmp/casa" XDG_STATE_HOME="$tmp/state" XDG_CONFIG_HOME="$tmp/config" \
-    XDG_RUNTIME_DIR="$tmp/runtime" JANGADA_PATH="$jangada" FALSO_LOG="$log" "$@"
+    XDG_RUNTIME_DIR="$tmp/runtime" JANGADA_CORE_PATH="$jangada" FALSO_LOG="$log" "$@"
 }
 grafico() { : >"$log"; base WAYLAND_DISPLAY=wayland-teste HYPRLAND_INSTANCE_SIGNATURE=teste "$@"; }
 sem_grafico() { : >"$log"; base env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE "$@"; }
@@ -89,7 +90,7 @@ linhas() { [ "$(sed -n "$1p" "$log")" = "$2" ]; }
 terminal_na_linha() { [[ "$(sed -n "$1p" "$log")" == "jangada-terminal "*" [--classe] [org.jangada.agente] [-e] $tmux_args" ]]; }
 nada_fora() { ! grep -qv "^$1" "$log"; }
 pid() { cat "$tmp/pid"; }
-tmux_args="[tmux] [-L] [jangada] [-f] [$jangada/default/tmux/agentes.conf] [attach] [-t] [=s1]"
+tmux_args="[tmux] [-L] [jangada] [-f] [$jangada/agentes/tmux/agentes.conf] [attach] [-t] [=s1]"
 clientes='[{"title": "outra", "address": "0x1"}, {"title": "s1: claude", "address": "0x2"}, {"title": "s2", "address": "0x3"}]'
 
 echo "== jangada-agente"
@@ -116,7 +117,7 @@ hyprctl [dispatch] [hl.dsp.focus({ window = \"address:0x2\" })]"
 grafico "$repo_jangada/bin/jangada-agentes" --focar s1
 conferir "--focar sem janela: terminal solto por setsid -f" \
   linhas 1,2 "hyprctl [clients] [-j]
-setsid [-f] [$jangada/bin/jangada-terminal] [--classe] [org.jangada.agente] [-e] $tmux_args"
+setsid [-f] [jangada-terminal] [--classe] [org.jangada.agente] [-e] $tmux_args"
 conferir "--focar sem janela: o terminal recebe o attach da sessão" terminal_na_linha 3
 inicio=$SECONDS
 grafico PATH="$tmp/bin:$tmp/sem-setsid" FALSO_ESPERA=5 timeout 4 "$repo_jangada/bin/jangada-agentes" --focar s1
@@ -164,6 +165,22 @@ conferir "jangada_abrir_terminal --exec substitui o processo" \
 grafico bash -c "$(config 'jangada_abrir_terminal --outro classe-x cmd')"
 conferir "jangada_abrir_terminal com modo desconhecido devolve 1" [ "$?" = 1 ]
 conferir "jangada_abrir_terminal com modo desconhecido não abre terminal" [ ! -s "$log" ]
+
+echo "== sem as aplicações do Shell no PATH"
+# PATH só com o que o teste precisa, sem jangada-terminal nem jangada-tarefas.
+mkdir -p "$tmp/pouco"
+for c in bash env dirname basename sed jq cat sleep; do ln -sf "$(command -v "$c")" "$tmp/pouco/$c"; done
+sem_shell() { : >"$log"; env -i HOME="$tmp/casa" PATH="$tmp/pouco" WAYLAND_DISPLAY=wayland-teste FALSO_LOG="$log" "$@"; }
+sem_shell "$tmp/pouco/bash" -c "$(config 'jangada_abrir_terminal --solto classe-x cmd')" 2>"$tmp/erro"
+conferir "sem jangada-terminal e sem TERMINAL: devolve 1" [ "$?" = 1 ]
+conferir "sem jangada-terminal e sem TERMINAL: avisa" grep -q '^aviso: nenhum terminal encontrado' "$tmp/erro"
+printf '#!/usr/bin/env bash\necho "terminal-alheio $*" >>"$FALSO_LOG"\n' >"$tmp/pouco/terminal-alheio"; chmod +x "$tmp/pouco/terminal-alheio"
+sem_shell TERMINAL=terminal-alheio "$tmp/pouco/bash" -c "$(config 'jangada_abrir_terminal --solto classe-x cmd')"
+for ((i = 0; i < 30; i++)); do [[ -s "$log" ]] && break; sleep 0.1; done
+conferir "sem jangada-terminal, com TERMINAL: usa o terminal definido" registro "terminal-alheio -e cmd"
+sem_shell "$tmp/pouco/bash" -c "$(config 'jangada_abrir_central --nova')" 2>"$tmp/erro"
+conferir "sem jangada-tarefas: devolve 1" [ "$?" = 1 ]
+conferir "sem jangada-tarefas: avisa" grep -q 'Central de Tarefas não instalada (jangada-shell)' "$tmp/erro"
 
 echo "== sem sessão gráfica"
 for f in 'jangada_abrir_terminal --exec classe-x cmd' 'jangada_abrir_terminal --solto classe-x cmd' \

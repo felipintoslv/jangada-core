@@ -12,7 +12,7 @@
 3. Mover não é editar. Cada tarefa da Onda C mostra só renomeações em
    `git diff -M -B --stat`. Correção de conteúdo é outra tarefa.
 4. O jangada instalado segue na versão anterior enquanto o usuário quiser.
-   O desenvolvimento usa `JANGADA_PATH=$PWD` na worktree. A cópia instalada
+   O desenvolvimento usa `JANGADA_CORE_PATH=$PWD` na worktree. A cópia instalada
    só avança por `jangada-update`, confirmado no terminal.
 5. Nenhuma migração de `migrations/` é necessária enquanto os links
    existirem. Migração que reescreva caminhos do usuário só entra se D7
@@ -71,7 +71,7 @@ temporário) precisa estar cumprido antes dela. O usuário não decidiu se o
 momento 2 muda.
 
 Na M3-10a, a conferência de processos do `jangada-update` passa a procurar
-`core/`, `shell/` e `monitor/` sob `JANGADA_PATH`, além de `default/` e
+`core/`, `shell/` e `monitor/` sob `JANGADA_CORE_PATH`, além de `default/` e
 `bin/jangada-*`. A aceitação usa processos em uma instalação falsa e
 confere a recusa antes de atualizar.
 
@@ -87,7 +87,7 @@ Antes de cada um: cópia de segurança conforme
 | Linha de base | `testes/verificar.sh` com saída 0, como em `ad30fdd` | toda tarefa |
 | Contratos | `testes/contratos-*` (K1, K2, K3, K4, K7) e `testes/fronteiras.sh` (K9) | toda tarefa a partir de M3-01 e M3-03 |
 | Módulo | testes do módulo, conforme inventário 1.6 | tarefa do módulo |
-| Integração | ciclo `jangada-agente`, `jangada-validar`, `jangada-agente-fim` em repositório de teste com `JANGADA_PATH` da worktree e estado em pasta temporária | M3-04, M3-08, M3-16, M3-18 |
+| Integração | ciclo `jangada-agente`, `jangada-validar`, `jangada-agente-fim` em repositório de teste com `JANGADA_CORE_PATH` da worktree e estado em pasta temporária | M3-04, M3-08, M3-16, M3-18 |
 | Sessão gráfica | Hyprland aninhado (guia `hyprland.md` da skill), sem sair da sessão em uso | M3-12 a M3-15 |
 | Isolamento | trabalho `sandbox-e2e` da integração contínua | M3-16, M3-18, M3-20 |
 | Instalação | `install.sh` com `JANGADA_SIMULAR=1` em `HOME` vazio | M3-11 em diante |

@@ -7,7 +7,7 @@ do repositório em 26/09/2026. Os exemplos são reais, resumidos, com textos
 trocados por `...`.
 
 Desde a modularização 3.0, os comandos citados como `bin/jangada-*` são
-links de compatibilidade: o arquivo mora em `core/bin/`, `shell/bin/` ou
+links de compatibilidade: o arquivo mora em `bin/`, `shell/bin/` ou
 `monitor/bin/`, e `default/painel/` mora em `monitor/painel/`. Só o
 `jangada-config` e outros seis comandos compartilhados continuam em `bin/`.
 O mapa das pastas está na seção Estrutura do [README](../README.md).
@@ -82,7 +82,7 @@ substituem a marca protegida que autoriza integração.
     `erro`, que não têm parecer.
   - `segundos`: `$SECONDS` do script, do início ao registro.
   - `subagentes` (opcional, a partir de 27/09/2026): resumo dos subagentes
-    e delegações da entrega, dado por `jangada-subagentes --entrega`. Conta
+    e delegações da entrega, dado por `jangada-subagentes --entrega`, comando opcional, fora do Core por ora. Conta
     o que rodou na pasta desde a última aprovação (mtime do
     `validacao-*.aprovado`), desde a criação da sessão (`.desde` do
     arquivo da sessão) ou desde a data do commit base. Campos: `n`
@@ -96,7 +96,7 @@ substituem a marca protegida que autoriza integração.
     `retorno_tokens`, `edicoes`, `autorrevisao` e `recusas`. Falta nas
     linhas antigas, sem python3 e quando a leitura falha.
   - `subagentes_erro` (opcional, a partir de 27/09/2026): motivo de o
-    resumo não ter sido gravado (código de saída do `jangada-subagentes`,
+    resumo não ter sido gravado (código de saída do `jangada-subagentes`, comando opcional fora do Core por ora,
     tempo esgotado ou saída que não é um objeto JSON). O `jangada-validar`
     também o mostra no stderr.
 - **Desde:** 26/09/2026 21:29 (primeira linha). Em 26/09/2026 havia 11
@@ -280,7 +280,7 @@ conteúdo (texto, raciocínio, cada `tool_use`). Foram 14.592 linhas para
 respostas aparecem em mais de um arquivo (conversa retomada ou continuada),
 então a chave vale para o conjunto todo, não por arquivo. Em 10 respostas o
 `usage` difere entre as linhas: a primeira traz `output_tokens` parcial
-(por exemplo 16) e a última o valor final (250). O `bin/jangada-consumo`
+(por exemplo 16) e a última o valor final (250). O `jangada-consumo`, do Core,
 guarda a primeira linha vista e conta a menos nesses casos. O coletor deve
 ficar com a linha de maior `output_tokens` de cada chave.
 
@@ -340,7 +340,7 @@ resultado.
   "background", "requestNonInteractive": true}`. O `toolUseId` liga ao
   `tool_use` do `Agent` na conversa mãe.
 - 11 subagentes em 26/09/2026. O `find -name '*.jsonl'` do
-  `jangada-consumo` já entra nessas pastas.
+  `jangada-consumo` (Core) já entra nessas pastas.
 - **Totais na conversa mãe.** No primeiro plano, o `tool_result` do `Agent`
   traz `toolUseResult.totalTokens`, `totalDurationMs`, `totalToolUseCount`
   e o texto devolvido. No segundo plano, o `tool_result` só diz
@@ -352,7 +352,7 @@ resultado.
   session sent a message:" com `<agent-message from="ID">`.
 - **`totalTokens` é o contexto do último turno** (entrada, cache criado,
   cache lido e saída), não a soma dos turnos. Sem linha na mãe (conversa
-  antiga ou subagente morto), o `jangada-subagentes` usa a mesma conta no
+  antiga ou subagente morto), o `jangada-subagentes` (comando opcional, fora do Core por ora) usa a mesma conta no
   último turno do `agent-ID.jsonl`.
 
 ### Outras linhas úteis
@@ -500,13 +500,12 @@ subagente tem `.db` próprio.
 
 ## 7. Outros registros
 
-- `~/.cache/jangada/consumo.json`: cache do `bin/jangada-consumo`,
+- `~/.cache/jangada/consumo.json`: cache do `jangada-consumo` (Core),
   sobrescrito a cada 60 segundos. Campos `ativo`, `inicio`, `fim`,
   `mensagens`, `entrada`, `saida`, `cache_criado`, `cache_lido`, `total`.
   Só o bloco de 5 horas atual; sem histórico.
-- `$JANGADA_ESTADO/migracoes/`: um arquivo vazio por migração aplicada,
-  criado por `bin/jangada-migrar:20`. O mtime é a data de aplicação. 9
-  arquivos, de 20/09 a 26/09/2026. Acumulado.
+- `$JANGADA_ESTADO/migracoes/`: marcas de migrações aplicadas, gravadas
+  pelo repositório jangada-shell. Fora do Core.
 - `$JANGADA_ESTADO/tarefas/*.md`: especificações de tarefa escritas à mão.
 - `~/.claude/history.jsonl`: um pedido digitado por linha, `display`,
   `pastedContents`, `timestamp` (ms), `project` (cwd), `sessionId`. 2.617
@@ -562,7 +561,7 @@ subagente tem `.db` próprio.
     trabalhando;
   - no Claude, o aviso `idle_prompt` vira `concluido`, e o `SessionEnd`
     do `/clear` não gera linha;
-  - os hooks rodam da cópia instalada em `~/.local/share/jangada/bin`
+  - os hooks rodam da cópia instalada em `~/.local/share/jangada-core/bin`
     (`~/.claude/settings.json`, `~/.gemini/config/hooks.json`). O registro
     só começa depois de instalar a versão nova.
 
@@ -689,7 +688,7 @@ bordas para conferir assinaturas não entra nessas contagens.
 | A | Itens por REVISAR, tempo de revisão | 1 (`itens`, `segundos`); 2 só para itens | |
 | A | Diff das aprovadas de primeira e das reprovadas | 1 (`arquivos`, `mais`, `menos`) | sem equivalente nos pareceres |
 | B | Tokens por dia e projeto, por tipo | 3 (`usage`, `cwd`) | raciocínio dentro da saída; dias antes de 28/08 só no `stats-cache.json`, sem tipo |
-| B | Blocos de 5 horas por semana | 3 | regra do `jangada-consumo`; `quotaLimits` marca os que bateram no limite |
+| B | Blocos de 5 horas por semana | 3 | regra do `jangada-consumo` (Core); `quotaLimits` marca os que bateram no limite |
 | B | Tokens por entrega aprovada | 3 com 1, ligados por 4 (`conversa`) ou por pasta e horário | o 4 some no fim da sessão |
 | B | Uso por modelo | 3 (`message.model`) | agy fora |
 | C | Tempo em "aguardando" por dia | 8 | só a partir da instalação do registro novo |

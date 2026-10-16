@@ -8,7 +8,7 @@ import unittest
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / "default/delegacao"))
+sys.path.insert(0, str(RAIZ / "delegacao"))
 import extracao
 
 

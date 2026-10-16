@@ -23,7 +23,7 @@ export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1
 : >"$GIT_CONFIG_GLOBAL"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" XDG_STATE_HOME="$tmp/home/.local/state"
-export JANGADA_PATH="$repo_jangada"
+export JANGADA_CORE_PATH="$repo_jangada"
 unset HYPRLAND_INSTANCE_SIGNATURE JANGADA_SESSAO JANGADA_REPO JANGADA_SIMULAR JANGADA_WORKTREES JANGADA_ISOLADO
 unset JANGADA_VALIDAR_REVISOR JANGADA_VALIDAR_MODELO
 export JANGADA_VALIDAR_SEM_GITLEAKS=1
@@ -366,7 +366,7 @@ if command -v bwrap >/dev/null 2>&1 && bwrap --ro-bind / / --dev /dev --proc /pr
   mkdir -p "$tmp/concorrente"
   # shellcheck disable=SC2016  # avaliado pela suíte falsa, na cópia
   FALSO_COMANDO='{ test -L atalho && cat atalho/dentro.txt; } >"$FALSO_DIR/lk-visto" 2>&1
-    (cd "$FALSO_DIR/concorrente" && "$JANGADA_PATH/bin/jangada-isolar" -- true) </dev/null >"$FALSO_DIR/lk-concorrente.log" 2>&1
+    (cd "$FALSO_DIR/concorrente" && "$JANGADA_CORE_PATH/bin/jangada-isolar" -- true) </dev/null >"$FALSO_DIR/lk-concorrente.log" 2>&1
     echo "$?" >"$FALSO_DIR/lk-concorrente"' integrar_teste lk s
   conferir "link de pasta: lançamento concorrente não é recusado durante a suíte" \
     bash -c '[ "$(cat "$1/lk-concorrente" 2>/dev/null)" = 0 ] && ! grep -q AUTORIZACAO_RECUSADA "$1/lk-concorrente.log"' _ "$tmp"

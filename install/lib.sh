@@ -2,12 +2,12 @@
 # Funções compartilhadas pelas etapas de instalação e pelos comandos jangada-*.
 # Este arquivo é carregado com `source`; não executa nada sozinho.
 
-JANGADA_PATH="${JANGADA_PATH:-$HOME/.local/share/jangada}"
+JANGADA_CORE_PATH="${JANGADA_CORE_PATH:-$HOME/.local/share/jangada-core}"
 JANGADA_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/jangada"
 JANGADA_ESTADO="${XDG_STATE_HOME:-$HOME/.local/state}/jangada"
 JANGADA_SIMULAR="${JANGADA_SIMULAR:-0}"
 
-export JANGADA_PATH JANGADA_CONFIG JANGADA_ESTADO
+export JANGADA_CORE_PATH JANGADA_CONFIG JANGADA_ESTADO
 
 if [[ -t 1 ]]; then
   _cor_info=$'\e[36m'; _cor_ok=$'\e[32m'; _cor_aviso=$'\e[33m'; _cor_erro=$'\e[31m'; _cor_fim=$'\e[0m'
@@ -170,16 +170,16 @@ carregador_boot() {
   fi
 }
 
-# Liga cada skill de default/claude/skills (jangada, relatorio-tecnico,
+# Liga cada skill de agentes/claude/skills (jangada, relatorio-tecnico,
 # relatorio-academico) em <pasta>/<nome>, apontando para o repositório
-# instalado: o jangada-update as atualiza junto com o resto. Um link antigo do
-# jangada (outro JANGADA_PATH) é trocado; uma pasta ou link alheio com o mesmo
+# instalado: uma atualização do repositório as atualiza junto com o resto. Um link antigo do
+# jangada (outro JANGADA_CORE_PATH) é trocado; uma pasta ou link alheio com o mesmo
 # nome fica como está, com aviso. O filtro so:<nome> liga só essa skill e
 # menos:<nome> liga todas as outras.
 # Uso: ligar_skills <pasta> <agente> [filtro].
 ligar_skills() {
   local pasta="$1" agente="$2" filtro="${3:-}" origem nome destino atual
-  for origem in "$JANGADA_PATH"/default/claude/skills/*/; do
+  for origem in "$JANGADA_CORE_PATH"/agentes/claude/skills/*/; do
     origem="${origem%/}"
     [[ -f "$origem/SKILL.md" ]] || continue
     nome="${origem##*/}"
@@ -194,7 +194,7 @@ ligar_skills() {
         ok "skill $nome do $agente já ligada: $destino"
         continue
       fi
-      if [[ "$atual" != */default/claude/skills/"$nome" ]]; then
+      if [[ "$atual" != */agentes/claude/skills/"$nome" ]]; then
         aviso "$destino aponta para $atual, que não é do jangada; mantido"
         continue
       fi
@@ -222,12 +222,12 @@ ligar_skill_agy() { ligar_skills "$HOME/.gemini/config/skills" "agy" menos:coord
 # com name e description no frontmatter. As demais skills não são ligadas.
 ligar_skill_codex() { ligar_skills "${CODEX_HOME:-$HOME/.codex}/skills" "Codex" so:coordenador; }
 
-# Liga os papéis de subagente do Claude Code (default/claude/agents/*.md) em
+# Liga os papéis de subagente do Claude Code (agentes/claude/agents/*.md) em
 # ~/.claude/agents/<papel>.md, com as mesmas regras de ligar_skills: link
 # antigo do jangada é trocado, arquivo alheio com o mesmo nome fica.
 ligar_agentes_claude() {
   local pasta="$HOME/.claude/agents" origem nome destino atual
-  for origem in "$JANGADA_PATH"/default/claude/agents/*.md; do
+  for origem in "$JANGADA_CORE_PATH"/agentes/claude/agents/*.md; do
     [[ -f "$origem" ]] || continue
     nome="${origem##*/}"
     destino="$pasta/$nome"
@@ -237,7 +237,7 @@ ligar_agentes_claude() {
         ok "subagente ${nome%.md} do Claude Code já ligado: $destino"
         continue
       fi
-      if [[ "$atual" != */default/claude/agents/"$nome" ]]; then
+      if [[ "$atual" != */agentes/claude/agents/"$nome" ]]; then
         aviso "$destino aponta para $atual, que não é do jangada; mantido"
         continue
       fi
@@ -251,13 +251,13 @@ ligar_agentes_claude() {
   done
 }
 
-# Registra os papéis de subagente do agy (default/agy/agents/<papel>/agent.md)
+# Registra os papéis de subagente do agy (agentes/agy/agents/<papel>/agent.md)
 # em ~/.gemini/config/agents.json, como uma entrada de pasta: o agy lê os
 # agentes direto do repositório instalado, sem nada em .agents/ dos projetos.
-# Uma entrada antiga do jangada (outro JANGADA_PATH) é trocada; as demais
+# Uma entrada antiga do jangada (outro JANGADA_CORE_PATH) é trocada; as demais
 # ficam como estão.
 mesclar_agentes_agy() {
-  local cfg="$HOME/.gemini/config/agents.json" pasta="$JANGADA_PATH/default/agy/agents" tmp existia=0
+  local cfg="$HOME/.gemini/config/agents.json" pasta="$JANGADA_CORE_PATH/agentes/agy/agents" tmp existia=0
   if simulando; then
     info "[simulação] registraria os subagentes do jangada em $cfg"
     return 0
@@ -266,7 +266,7 @@ mesclar_agentes_agy() {
   if [[ -f "$cfg" ]]; then existia=1; else echo '{}' >"$cfg"; fi
   tmp="$(mktemp)"
   if ! jq --arg p "$pasta" '
-      .entries = ([(.entries // [])[] | select((.path // "") | endswith("/default/agy/agents") | not)]
+      .entries = ([(.entries // [])[] | select((.path // "") | endswith("/agentes/agy/agents") | not)]
                   + [{path: $p}])' "$cfg" >"$tmp"; then
     rm -f "$tmp"
     aviso "não consegui ler $cfg; subagentes do agy não registrados"
@@ -282,7 +282,7 @@ mesclar_agentes_agy() {
   ok "subagentes do agy registrados em $cfg"
 }
 
-# Instala os hooks do jangada para o Antigravity (default/agy/hooks.json) em
+# Instala os hooks do jangada para o Antigravity (agentes/agy/hooks.json) em
 # ~/.gemini/config/hooks.json, a pasta global que o agy lê em toda conversa. O
 # arquivo é um objeto de hooks com nome; o do jangada fica na chave "jangada",
 # substituída inteira, e os demais ficam como estão. Arquivo vazio conta como
@@ -290,7 +290,7 @@ mesclar_agentes_agy() {
 # por instalados sem gravar nada).
 mesclar_hooks_agy() {
   local cfg="$HOME/.gemini/config/hooks.json" novos tmp existia=0
-  novos="$(sed "s|@JANGADA_PATH@|$JANGADA_PATH|g" "$JANGADA_PATH/default/agy/hooks.json")"
+  novos="$(sed "s|@JANGADA_CORE_PATH@|$JANGADA_CORE_PATH|g" "$JANGADA_CORE_PATH/agentes/agy/hooks.json")"
   if simulando; then
     info "[simulação] instalaria os hooks do jangada em $cfg"
     return 0
@@ -314,7 +314,7 @@ mesclar_hooks_agy() {
   ok "hooks do agy instalados em $cfg"
 }
 
-# Mescla os hooks do jangada (default/claude/hooks.json) em
+# Mescla os hooks do jangada (agentes/claude/hooks.json) em
 # ~/.claude/settings.json, evento por evento. Um hook já presente, reconhecido
 # pelo comando sem o caminho (a cópia instalada pode ter mudado de lugar), não
 # é duplicado; hooks alheios ficam como estão. Rodar de novo não muda nada, e
@@ -324,13 +324,13 @@ mesclar_hooks_claude() {
   local cfg="$HOME/.claude/settings.json" novos tmp
   executar mkdir -p "$HOME/.claude"
   [[ -f "$cfg" ]] || { simulando || echo '{}' >"$cfg"; }
-  novos="$(sed "s|@JANGADA_PATH@|$JANGADA_PATH|g" "$JANGADA_PATH/default/claude/hooks.json")"
+  novos="$(sed "s|@JANGADA_CORE_PATH@|$JANGADA_CORE_PATH|g" "$JANGADA_CORE_PATH/agentes/claude/hooks.json")"
   if simulando; then
     info "[simulação] mesclaria os hooks do jangada em $cfg"
     return 0
   fi
   tmp="$(mktemp)"
-  if ! jq -n --argjson novos "$novos" --arg path "$JANGADA_PATH" '
+  if ! jq -n --argjson novos "$novos" --arg path "$JANGADA_CORE_PATH" '
       def chave: (.command // "") | sub("^.*/bin/"; "");
       def comandos: [.[]?.hooks[]? | chave];
       (first(inputs) // {})

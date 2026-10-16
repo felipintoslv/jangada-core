@@ -15,7 +15,10 @@ if (($# == 0)) || [[ "$1" == "-h" || "$1" == "ajuda" ]]; then
   exit 0
 fi
 
+[[ "$1" != */* ]] || { echo "comando desconhecido: $1" >&2; exit 1; }
+# Fora do Core (por exemplo, comandos do Shell), procura pelo PATH.
 alvo="$dir/jangada-$1"
-[[ -x "$alvo" ]] || { echo "comando desconhecido: $1" >&2; exit 1; }
+[[ -x "$alvo" ]] || alvo="$(command -v -- "jangada-$1" 2>/dev/null)" \
+  || { echo "comando desconhecido: $1" >&2; exit 1; }
 shift
 exec "$alvo" "$@"

@@ -1,122 +1,34 @@
-# Contrato K9: módulo de cada arquivo de bin/, default/ e shell/, conforme
-# docs/modularizacao-3.0/01-inventario.md (seções 1.1, 1.2 e 1.3).
-# Formato: MÓDULO CAMINHO. Caminho terminado em / vale para a pasta inteira.
-# Módulos: core, shell, monitor e compartilhado (este não é conferido).
-# Todo arquivo dessas pastas precisa cair em exatamente uma linha.
-
-# Core: comandos (1.1)
-# Os comandos do Core em bin/ são links para core/bin e mantêm a linha: o
-# teste de fronteira alcança cada arquivo antes por bin/, que vem antes de
-# core/ na ordem alfabética.
-core bin/jangada-agente
-core bin/jangada-agente-fim
-core bin/jangada-agentes
-core bin/jangada-isolar
-core bin/jangada-validar
-core bin/jangada-delegar
-core bin/jangada-worktree-preparar
-core bin/jangada-hook-claude
-core bin/jangada-hook-agy
-core bin/jangada-hook-codex
-core bin/jangada-hook-leitor
-core bin/jangada-codex
-core bin/jangada-codex-hooks
-core bin/jangada-projeto
-core bin/jangada-fila
-core bin/jangada-task
-core bin/jangada-executar
-core bin/jangada-retomar
-core bin/jangada-provedor
-core bin/jangada-router
-core bin/jangada-avaliar-ollama
-core bin/jangada-mapa
-core bin/jangada-filtrar
-
-# Core: pastas de default/ (1.2)
-# default/nucleo, default/orquestracao, default/delegacao e default/provedores
-# são links para as pastas de mesmo nome em core/; default/agentes,
-# default/claude, default/agy e default/tmux, para core/agentes/perfis,
-# core/agentes/claude, core/agentes/agy e core/agentes/tmux.
-core default/agentes/
-core default/claude/
-core default/agy/
-core default/tmux/
-core default/provedores/
-core default/nucleo/
-monitor default/nucleo/monitoramento.py
-core default/orquestracao/
-core default/delegacao/
-
-# Shell: comandos (1.1)
-# Os comandos do Shell em bin/ são links para shell/bin e mantêm a linha: o
-# teste de fronteira alcança cada arquivo antes por bin/, que vem antes de
-# shell/ na ordem alfabética.
-shell bin/jangada-atalhos
-shell bin/jangada-atualizacoes
-shell bin/jangada-audio
-shell bin/jangada-barra
-shell bin/jangada-bloquear
-shell bin/jangada-bluetooth
-shell bin/jangada-calendario
-shell bin/jangada-captura
-shell bin/jangada-conversa
-shell bin/jangada-energia
-shell bin/jangada-importar
-shell bin/jangada-interface-processos
-shell bin/jangada-logo
-shell bin/jangada-mapear
-shell bin/jangada-menu
-shell bin/jangada-monitor
-shell bin/jangada-recarregar
-shell bin/jangada-rede
-shell bin/jangada-sddm
-shell bin/jangada-sessao
-shell bin/jangada-shell
-shell bin/jangada-snapshot
-shell bin/jangada-tarefas
-shell bin/jangada-tema
-shell bin/jangada-terminal
-shell bin/jangada-vidro
-
-# Shell: pastas de default/ (1.2) e a pasta shell/ que já existe (1.3)
-# default/hypr, default/hypridle e default/waybar são links para shell/hyprland,
-# shell/hyprland/hypridle e shell/waybar. default/hypridle/ não tem linha: o
-# arquivo dela é alcançado antes por default/hypr/hypridle/.
-# default/matugen, default/sddm, default/logo, default/fastfetch, default/snapper
-# e default/r são links para shell/temas e shell/integracoes e mantêm a linha:
-# o teste de fronteira alcança cada arquivo antes por default/, que vem antes
-# de shell/ na ordem alfabética.
-# default/tarefas e default/conversa são links para shell/menus/tarefas e
-# shell/menus/conversa e mantêm a linha pelo mesmo motivo.
-shell default/hypr/
-shell default/waybar/
-shell default/matugen/
-shell default/sddm/
-shell default/logo/
-shell default/fastfetch/
-shell default/tarefas/
-shell default/conversa/
-shell default/snapper/
-shell default/r/
-shell shell/
-
-# Monitor: comandos (1.1) e painel (1.2)
-# Os quatro comandos são links para monitor/bin, e default/painel, para
-# monitor/painel. default/nucleo/monitoramento.py é link para
-# monitor/painel/monitoramento.py e, alcançado antes por default/nucleo/,
-# conta como Monitor pela classificação específica, antes da pasta Core.
-monitor bin/jangada-painel
-monitor bin/jangada-consumo
-monitor bin/jangada-subagentes
-monitor bin/jangada-verificar
-monitor default/painel/
-
-# Compartilhados (1.1, 1.2 e 1.4)
-compartilhado bin/jangada
-compartilhado bin/jangada-config
-compartilhado bin/jangada-gancho
-compartilhado bin/jangada-update
-compartilhado bin/jangada-migrar
-compartilhado bin/jangada-versao
-compartilhado bin/jangada-assinar
-compartilhado default/visual/
+# Contrato K9: comandos de outras aplicações (jangada-shell e jangada-monitor).
+# O Core não os chama por $JANGADA_CORE_PATH: só os procura no PATH, com command -v,
+# e trata a ausência sem erro. Cada chamada que sobra é uma exceção registrada
+# em fronteiras-excecoes.txt.
+# Formato: APLICAÇÃO COMANDO.
+shell jangada-atalhos
+shell jangada-atualizacoes
+shell jangada-audio
+shell jangada-barra
+shell jangada-bloquear
+shell jangada-bluetooth
+shell jangada-calendario
+shell jangada-captura
+shell jangada-conversa
+shell jangada-energia
+shell jangada-importar
+shell jangada-interface-processos
+shell jangada-logo
+shell jangada-mapear
+shell jangada-menu
+shell jangada-monitor
+shell jangada-recarregar
+shell jangada-rede
+shell jangada-sddm
+shell jangada-sessao
+shell jangada-shell
+shell jangada-snapshot
+shell jangada-tarefas
+shell jangada-tema
+shell jangada-terminal
+shell jangada-vidro
+monitor jangada-painel
+monitor jangada-subagentes
+monitor jangada-verificar

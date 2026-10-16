@@ -17,7 +17,7 @@ exemplos_validos() {
   python3 - "$repo_jangada" "$ollama_reqs" <<'PY'
 import json, pathlib, re, sys
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / 'core/delegacao'))
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / 'delegacao'))
 import extracao
 pedidos = [json.loads(linha) for linha in pathlib.Path(sys.argv[2]).read_text().splitlines()]
 assert pedidos
@@ -125,13 +125,13 @@ chmod +x "$tmp/bin/pgrep"
 conf_agy="$tmp/home/.gemini/antigravity-cli/settings.json"
 jq -n --arg w "$(realpath "$tmp/projeto")" '{trustedWorkspaces: [$w]}' >"$conf_agy"
 mkdir -p "$tmp/home/.gemini/config"
-sed "s|@JANGADA_PATH@|$repo_jangada|g" default/agy/hooks.json >"$tmp/home/.gemini/config/hooks.json"
+sed "s|@JANGADA_CORE_PATH@|$repo_jangada|g" agentes/agy/hooks.json >"$tmp/home/.gemini/config/hooks.json"
 
 delegar() {
   rm -f "$tmp/falso/agy.args"
   (cd "$tmp/projeto" && env -u JANGADA_DELEGAR -u JANGADA_DELEGAR_MODELOS -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
     -u JANGADA_DELEGAR_ROTEAMENTO_ID -u JANGADA_DELEGAR_TENTATIVAS -u JANGADA_DELEGAR_CHAMADAS_RESTANTES \
-    HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
+    HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
     FALSO_COTA="${COTA:-0.9}" FALSO_RESPOSTA="${RESPOSTA-relatorio em a.sh:1}" \
     FALSO_CODIGO="${CODIGO:-0}" FALSO_NEGADO="${NEGADO:-}" FALSO_LOG="${LOG:-}" FALSO_USAGE_FALHA="${USAGE_FALHA:-0}" \
     ${AGENTES:+FALSO_AGENTES="$AGENTES"} \
@@ -293,7 +293,7 @@ jq -n --arg w "$(realpath "$tmp/projeto")" '{trustedWorkspaces: [$w]}' >"$conf_a
 ln -s "$tmp/projeto" "$tmp/atalho"
 jq -n --arg w "$tmp/atalho" '{trustedWorkspaces: [$w]}' >"$conf_agy"
 (cd "$tmp/atalho" && env -u JANGADA_DELEGAR -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
-  HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
+  HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
   FALSO_COTA=0.9 FALSO_RESPOSTA="relatorio em a.sh:1" PWD="$tmp/atalho" \
   "$repo_jangada/bin/jangada-delegar" --permitir-remoto explorador "mapeie" >/dev/null 2>&1)
 conferir "caso 14b: pasta confiada pelo link simbólico é aceita" [ $? = 0 ]
@@ -307,7 +307,7 @@ conferir "caso 15: papel ausente no agy recusa antes do pedido" \
 # Confiança no worktree (jangada-worktree-preparar e fim da sessão): a
 # primeira alteração guarda o settings.json original, e só ela.
 confianca() {
-  env HOME="$tmp/home" XDG_STATE_HOME="$tmp/estado" JANGADA_PATH="$repo_jangada" \
+  env HOME="$tmp/home" XDG_STATE_HOME="$tmp/estado" JANGADA_CORE_PATH="$repo_jangada" \
     bash -c 'source "$1/bin/jangada-config"; jangada_agy_ajustar_confianca "$2" "$3"' _ "$repo_jangada" "$@"
 }
 echo '{"trustedWorkspaces": [], "outra": 1}' >"$conf_agy"
@@ -370,7 +370,7 @@ git init --quiet "$tmp/raiz"
 git -C "$tmp/raiz" -c user.name=t -c user.email=t@t commit --quiet --allow-empty -m inicio
 git -C "$tmp/raiz" worktree add --quiet -b agente/t "$tmp/wt"
 preparar() {
-  env HOME="$tmp/home" XDG_STATE_HOME="$tmp/estado" JANGADA_PATH="$repo_jangada" \
+  env HOME="$tmp/home" XDG_STATE_HOME="$tmp/estado" JANGADA_CORE_PATH="$repo_jangada" \
     "$repo_jangada/bin/jangada-worktree-preparar" "$tmp/raiz" "$tmp/wt" </dev/null >"$tmp/saida-preparar" 2>&1
 }
 echo '{"trustedWorkspaces": []}' >"$conf_agy"
@@ -386,7 +386,7 @@ conferir "caso 17: raiz confiável, worktree confiável" \
 # a confiança derivada, diz o passo de cada caso e não concede nada.
 delegar_wt() {
   (cd "$tmp/wt" && env -u JANGADA_DELEGAR -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
-    HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
+    HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
     FALSO_COTA=0.9 FALSO_RESPOSTA="relatorio em a.sh:1" JANGADA_SESSAO=raiz--t \
     "$repo_jangada/bin/jangada-delegar" --permitir-remoto explorador "mapeie" >/dev/null 2>"$tmp/erro-wt"
     echo $? >"$tmp/codigo-wt")
@@ -414,7 +414,7 @@ conferir "caso 18: leitor sem o hook no agy recusa antes do pedido" \
   bash -c '[ "$1" = 4 ] && [ ! -e "$2" ] && grep -q "hook do leitor" "$3"' _ "$(codigo)" "$tmp/falso/agy.args" "$tmp/erro"
 delegar --permitir-remoto explorador "mapeie"
 conferir "caso 18: os outros papéis não dependem do hook" [ "$(codigo)" = 0 ]
-sed "s|@JANGADA_PATH@|$repo_jangada|g" default/agy/hooks.json >"$tmp/home/.gemini/config/hooks.json"
+sed "s|@JANGADA_CORE_PATH@|$repo_jangada|g" agentes/agy/hooks.json >"$tmp/home/.gemini/config/hooks.json"
 
 delegar revisor "revise"
 conferir "caso 11: papel desconhecido dá código 2" [ "$(codigo)" = 2 ]
@@ -851,8 +851,8 @@ SEM_VRAM=1 ISOLADO=1 LOCAL_IGNORAR_VRAM=1 OLLAMA_URL="http://127.0.0.1:$porta_ol
 conferir "caso 46: JANGADA_LOCAL_IGNORAR_VRAM=1 libera chamada" [ "$(codigo)" = 0 ]
 
 # 29. Protocolo de delegação local presente e referenciado
-conferir "caso 47: arquivo protocolo-delegar-local.md existe e legivel" test -r "$repo_jangada/default/agentes/protocolo-delegar-local.md"
-conferir "caso 47: protocolo contém instrução de delegação local" grep -q "delegação local" "$repo_jangada/default/agentes/protocolo-delegar-local.md"
+conferir "caso 47: arquivo protocolo-delegar-local.md existe e legivel" test -r "$repo_jangada/agentes/perfis/protocolo-delegar-local.md"
+conferir "caso 47: protocolo contém instrução de delegação local" grep -q "delegação local" "$repo_jangada/agentes/perfis/protocolo-delegar-local.md"
 
 # Cotas antigas ou inválidas nunca autorizam uma chamada.
 cache_cota="$tmp/home/.cache/jangada/agy-usage.json"
@@ -1133,7 +1133,7 @@ conferir "extração: referência inexistente recusa" jqok -e \
   '.tentativas[0].motivo_codigo == "saida_invalida"' "$tmp/saida"
 conferir "extração: referência inválida mantém código 4" [ "$(codigo)" = 4 ]
 conferir "extração: stderr identifica referência fora do trecho" grep -Fq 'referência "doc1.txt:99" (fora do trecho)' "$tmp/erro"
-python3 - "$repo_jangada/core/delegacao/extracao.py" "$tmp/projeto/doc1.txt" <<'PY'
+python3 - "$repo_jangada/delegacao/extracao.py" "$tmp/projeto/doc1.txt" <<'PY'
 import json, pathlib, subprocess, sys
 modulo, fonte = sys.argv[1:]
 absoluto = str(pathlib.Path(fonte).resolve())
@@ -1358,39 +1358,22 @@ else
   echo "pulado PDF no fluxo completo: pdftotext ausente"
 fi
 
-# A contagem do painel é por registro, mas o consumo não duplica o histórico.
+# A contagem é por registro, mas o consumo não duplica o histórico.
 printf 'Relatório sem referência\n' >"$ollama_resp"
 RESPOSTA='Relatório em doc1.txt:1' OLLAMA_URL="http://127.0.0.1:$porta_ollama" delegar leitor "resuma" \
   --capacidade resumo_curto --permitir-remoto --json --arquivos "$tmp/projeto/doc1.txt"
 id_roteamento="$(jq -r '.roteamento_id' "$tmp/saida")"
 jq -c --arg id "$id_roteamento" 'select(.roteamento_id == $id)' "$reg" >"$tmp/roteamento.jsonl"
-painel_roteamento() {
-  python3 - "$repo_jangada" "$tmp/roteamento.jsonl" "$1" <<'PY'
-import importlib.util
-import pathlib
-import sys
-
-sys.dont_write_bytecode = True
-modulos = {}
-for nome in ("metricas", "subagentes"):
-    spec = importlib.util.spec_from_file_location(nome, pathlib.Path(sys.argv[1]) / f"default/painel/{nome}.py")
-    modulo = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(modulo)
-    modulos[nome] = modulo
-delegacoes = modulos["subagentes"].delegacoes(sys.argv[2])
-assert len(delegacoes) == int(sys.argv[3])
-assert len({d["roteamento_id"] for d in delegacoes}) == 1
-consumo, _ = modulos["metricas"].ollama(sys.argv[2])
-assert len(consumo) == 1
-assert consumo[0]["entrada_total"] == 120 and consumo[0]["saida"] == 45
-PY
+registros_roteamento() {
+  jq -s --argjson n "$1" 'length == $n and (map(.roteamento_id) | unique | length) == 1' \
+    "$tmp/roteamento.jsonl" >/dev/null
 }
-conferir "painel: troca de executor conta duas entradas, sem duplicar consumo" painel_roteamento 2
+conferir "roteamento: troca de executor grava duas entradas com o mesmo roteamento_id" registros_roteamento 2
 RESPOSTA='Relatório sem referência' OLLAMA_URL="http://127.0.0.1:$porta_ollama" delegar leitor "resuma" \
   --capacidade resumo_curto --permitir-remoto --json --arquivos "$tmp/projeto/doc1.txt"
 id_roteamento="$(jq -r '.roteamento_id' "$tmp/saida")"
 jq -c --arg id "$id_roteamento" 'select(.roteamento_id == $id)' "$reg" >"$tmp/roteamento.jsonl"
-conferir "painel: falha total conta executores e recusa final, sem duplicar consumo" painel_roteamento 3
+conferir "roteamento: falha total grava executores e recusa final com o mesmo roteamento_id" registros_roteamento 3
 
 parecer_supervisor="$(jq -cn --arg fonte "A informação foi conferida na fonte $tmp/projeto/doc1.txt:1" \
   '{task_id:"S1",relatorio_sha256:("0" * 64),decisao:"APPROVED",

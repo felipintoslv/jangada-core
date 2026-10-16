@@ -108,7 +108,7 @@ Contratos K5 (leitura da fila e dos projetos) e K7 (formato dos registros).
 $ grep -rn 'import Estado\|from estado' monitor/
 (sem resultado)
 $ grep -n JANGADA_CORE_PY bin/jangada-config | head -1
-14:JANGADA_CORE_PY="$JANGADA_PATH/core"
+14:JANGADA_CORE_PY="$JANGADA_CORE_PATH/core"
 ```
 
 O Monitor não importa a classe de escrita do Core, e o caminho do núcleo
@@ -142,9 +142,9 @@ link aponta para fora do repositório.
 Um comando só funciona pela fachada:
 
 ```
-$ env -u JANGADA_PATH bin/jangada-barra --posicao
+$ env -u JANGADA_CORE_PATH bin/jangada-barra --posicao
 topo
-$ env -u JANGADA_PATH shell/bin/jangada-barra --posicao
+$ env -u JANGADA_CORE_PATH shell/bin/jangada-barra --posicao
 shell/bin/jangada-barra: linha 14: shell/bin/jangada-config: Arquivo ou diretório inexistente
 ```
 
@@ -282,7 +282,7 @@ done
 rm -rf shell monitor
 # em cada cópia, para cada teste t do Core:
 env -u JANGADA_ISOLADO -u JANGADA_DELEGAR -u JANGADA_PAPEL -u JANGADA_PAPEL_AJUSTE -u JANGADA_VALIDAR_REVISOR \
-  JANGADA_PATH="$PWD" timeout 900 python3 testes/$t </dev/null   # ou bash, para .sh
+  JANGADA_CORE_PATH="$PWD" timeout 900 python3 testes/$t </dev/null   # ou bash, para .sh
 ```
 
 **Resultado: o Core não roda inteiro sem os outros módulos. Uma dependência
@@ -305,7 +305,7 @@ As 24 falhas a mais do `validar.sh`:
 
 - 20 casos: 13 do grupo 12 (lintr) e, em cadeia, 6 do caso 17 e 1 do caso
   22. A causa é `core/bin/jangada-validar:803`: sem `.lintr` no projeto, a
-  verificação local usa `$JANGADA_PATH/default/r/lintr`. `default/r` é link
+  verificação local usa `$JANGADA_CORE_PATH/default/r/lintr`. `default/r` é link
   para `shell/integracoes/r`, do Shell. Sem ele, a cópia do arquivo falha
   (`cp: não foi possível obter estado de '.../default/r/lintr'`), as rodadas
   do caso 12 terminam diferente e o contador de rodadas chega deslocado ao
@@ -362,7 +362,7 @@ outras suítes em paralelo:
 
 ```
 env -u JANGADA_ISOLADO -u JANGADA_DELEGAR -u JANGADA_PAPEL -u JANGADA_PAPEL_AJUSTE -u JANGADA_VALIDAR_REVISOR \
-  JANGADA_PATH="$PWD" bash testes/verificar.sh </dev/null >verificar-<base|entrega>.log 2>&1
+  JANGADA_CORE_PATH="$PWD" bash testes/verificar.sh </dev/null >verificar-<base|entrega>.log 2>&1
 $ diff <(grep '^XX' verificar-base.log | sort) <(grep '^XX' verificar-entrega.log | sort) && echo diferença-vazia
 diferença-vazia
 ```
@@ -387,7 +387,7 @@ eliminam o defeito de independência do Core registrado na seção 4.
 Comando da suíte completa, executado no worktree da M3-20:
 
 ```sh
-env -u JANGADA_ISOLADO -u JANGADA_DELEGAR -u JANGADA_PAPEL -u JANGADA_PAPEL_AJUSTE JANGADA_PATH=$PWD bash testes/verificar.sh </dev/null
+env -u JANGADA_ISOLADO -u JANGADA_DELEGAR -u JANGADA_PAPEL -u JANGADA_PAPEL_AJUSTE JANGADA_CORE_PATH=$PWD bash testes/verificar.sh </dev/null
 ```
 
 Resultado informado pelo coordenador: código de término 0, nenhuma linha
@@ -441,7 +441,7 @@ for arq in sys.argv[1:]:
     achados = set()
     for m in re.finditer(r'`([^`\n]+)`', texto):
         for tok in m.group(1).split():
-            tok = re.sub(r'^(\$JANGADA_PATH/|\$PWD/|\./)', '', tok.strip('"\'(),;'))
+            tok = re.sub(r'^(\$JANGADA_CORE_PATH/|\$PWD/|\./)', '', tok.strip('"\'(),;'))
             if re.match(RAIZ + r'/', tok):
                 achados.add((tok, pathlib.Path('.')))
     for m in re.finditer(r'\]\(([^)#\s]+)(?:#[^)]*)?\)', texto):
@@ -522,7 +522,7 @@ Esta tarefa não pode alterar código. Os itens abaixo ficam registrados.
    `docs/atualizacao-e-migracoes.md` passaram a dizer que o aviso não cobre
    as três pastas.
 2. **O `jangada-validar` do Core lê um arquivo do Shell.**
-   `core/bin/jangada-validar:803` usa `$JANGADA_PATH/default/r/lintr` como
+   `core/bin/jangada-validar:803` usa `$JANGADA_CORE_PATH/default/r/lintr` como
    configuração do lintr quando o projeto não tem `.lintr`. `default/r` é
    link para `shell/integracoes/r`. Sem `shell/`, a verificação de arquivos R
    falha (seção 4). O teste de fronteira não confere leitura de arquivo de
@@ -538,7 +538,7 @@ Esta tarefa não pode alterar código. Os itens abaixo ficam registrados.
    `docs/ciclo-da-tarefa.md` subia quatro níveis, o certo quando a skill
    morava em `default/claude/skills/jangada`. Este foi corrigido na M3-20
    original, por ser guia da skill: agora sobe cinco níveis.
-5. **`shell/menus/tarefas/janela.py:27` sem `JANGADA_PATH`.** Ver seção 8,
+5. **`shell/menus/tarefas/janela.py:27` sem `JANGADA_CORE_PATH`.** Ver seção 8,
    item 6.
 6. **Aviso do `jangada-validar` para link de pasta.** Ver seção 8, item 3.
 
@@ -566,7 +566,7 @@ Registradas sem resolver.
    local não responde a tempo, o que acontece com outras suítes rodando
    junto.
 6. **Reserva de `janela.py:27`.** `shell/menus/tarefas/janela.py:27` usa
-   `JANGADA_PATH` e, na falta dele, `Path(__file__).absolute().parents[2]`.
+   `JANGADA_CORE_PATH` e, na falta dele, `Path(__file__).absolute().parents[2]`.
    Com o arquivo em `shell/menus/tarefas`, essa reserva dá `shell/`, não a
    raiz do repositório, e `shell/default` não existe. Pelo comando
    `jangada-tarefas` a variável sempre chega; a reserva só falha para quem

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(RAIZ / "default/delegacao"))
+sys.path.insert(0, str(RAIZ / "delegacao"))
 import avaliar_ollama as avaliacao
 
 
@@ -92,7 +92,7 @@ class Avaliacao(unittest.TestCase):
         with patch.object(avaliacao.subprocess, "run", side_effect=simulado), \
                 patch.object(avaliacao, "print"):
             return avaliacao.avaliar(self.pasta / "execucao", 3,
-                                    {"JANGADA_PATH": str(RAIZ), "JANGADA_ESTADO": str(self.estado),
+                                    {"JANGADA_CORE_PATH": str(RAIZ), "JANGADA_ESTADO": str(self.estado),
                                      "JANGADA_LOCAL_MODELO": "modelo-simulado",
                                      "JANGADA_DELEGAR_ROTEAMENTO_ID": "herdado"})
 
@@ -192,7 +192,7 @@ class Avaliacao(unittest.TestCase):
     def test_comando_recusa_repeticoes_invalidas_sem_criar_estado(self):
         for numero in ("0", "11", "abc"):
             resultado = subprocess.run([str(RAIZ / "bin/jangada-avaliar-ollama"), "--repeticoes", numero],
-                                      env={**os.environ, "JANGADA_PATH": str(RAIZ),
+                                      env={**os.environ, "JANGADA_CORE_PATH": str(RAIZ),
                                            "XDG_STATE_HOME": str(self.pasta / "estado"),
                                            "XDG_CONFIG_HOME": str(self.pasta / "config")},
                                       capture_output=True, text=True, check=False)

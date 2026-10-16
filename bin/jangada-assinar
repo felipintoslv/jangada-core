@@ -3,15 +3,15 @@
 # no ramo da origem e não têm assinatura válida. Os agentes fazem commit no
 # isolamento, onde a chave não aparece; este comando roda num terminal comum,
 # mostra os commits e só assina com confirmação. Com
-# ~/.config/jangada/allowed_signers, o jangada-update só aplica commits
-# assinados por uma chave desse arquivo.
+# ~/.config/jangada/allowed_signers, só vale commit assinado por uma chave
+# desse arquivo.
 #
 # Uso: jangada-assinar [PASTA]
 #   PASTA  repositório a assinar (padrão: JANGADA_REPO)
 # A chave é JANGADA_ASSINATURA_CHAVE no jangada.conf (padrão ~/.ssh/id_ed25519).
 # Reescreve os commits a partir do primeiro sem assinatura válida; os
-# anteriores, que o jangada-update pode já ter aplicado, ficam como estão.
-# Commit já enviado sem assinatura e ainda não aplicado pelo jangada-update
+# anteriores, que a cópia instalada pode já ter aplicado, ficam como estão.
+# Commit já enviado sem assinatura e ainda não aplicado na cópia instalada
 # não é reescrito: o comando avisa e diz como avançar a cópia instalada.
 # Os merges do jangada-agente-fim --integrar são refeitos e assinados também.
 set -euo pipefail
@@ -47,17 +47,17 @@ g symbolic-ref -q HEAD >/dev/null || erro "o HEAD de $repo não está num ramo"
 base="$(g rev-parse --verify --quiet '@{upstream}^{commit}')" || erro "o ramo de $repo não acompanha um ramo da origem"
 
 # Commit enviado sem assinatura fica fora do alcance daqui, que só olha depois
-# da origem, e dentro do que o jangada-update confere, da cópia instalada em
-# diante: o update recusa toda vez e este comando responde "nada a assinar".
-instalada="$(jangada_git_seguro -C "$JANGADA_PATH" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null)" || instalada=""
+# da origem, e dentro do que se confere, da cópia instalada em diante: a
+# conferência recusa toda vez e este comando responde "nada a assinar".
+instalada="$(jangada_git_seguro -C "$JANGADA_CORE_PATH" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null)" || instalada=""
 if [[ -n "$instalada" ]] && g merge-base --is-ancestor "$instalada" "$base" 2>/dev/null; then
   enviados="$(g log --format='%G? %h %s' "$instalada..$base" | grep -v '^G ' | sem_controle)" || true
   if [[ -n "$enviados" ]]; then
     {
-      echo "!! commits já enviados sem assinatura válida; este comando não os reescreve e o jangada-update não passa deles:"
+      echo "!! commits já enviados sem assinatura válida; este comando não os reescreve e a cópia instalada não passa deles:"
       printf '%s\n' "$enviados" | sed 's/^/   /'
       echo "   confira com git log -p ${instalada:0:7}..${base:0:7} e avance a cópia instalada à mão até a origem:"
-      printf '   git -C %q fetch origin && git -C %q merge --ff-only %s\n' "$JANGADA_PATH" "$JANGADA_PATH" "$base"
+      printf '   git -C %q fetch origin && git -C %q merge --ff-only %s\n' "$JANGADA_CORE_PATH" "$JANGADA_CORE_PATH" "$base"
     } >&2
   fi
 fi

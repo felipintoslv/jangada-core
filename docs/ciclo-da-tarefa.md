@@ -6,12 +6,10 @@ Uma tarefa passa por três comandos: `jangada-agente` abre a sessão,
 até o commit aprovado, depois de confirmação humana, e mantém a sessão.
 Veja [segurança operacional](estabilizacao/SEGURANCA_OPERACIONAL.md). O estado de cada sessão fica em
 `~/.local/state/jangada/agentes/SESSAO.json`, com o contrato descrito em
-`default/claude/skills/jangada/agentes.md`.
+`agentes/claude/skills/jangada/agentes.md`.
 
-Desde a modularização 3.0, os comandos deste ciclo moram em `core/bin/` e a
-skill em `core/agentes/claude/skills/jangada/`. Os caminhos de `bin/` e
-`default/` citados aqui são links de compatibilidade e continuam sendo a
-forma de uso. O mapa das pastas está na seção Estrutura do [README](../README.md).
+Os comandos deste ciclo moram em `bin/` e a skill em
+`agentes/claude/skills/jangada/`. O README traz os comandos principais.
 
 Os perfis padrão são `claude-codex` (Claude implementa, Codex revisa) e
 `codex-claude` (Codex implementa, Claude revisa), os dois com delegação ao
@@ -47,7 +45,7 @@ O coordenador pode ser o Claude ou o Codex. A skill vale para qualquer
 projeto e roda numa sessão comum, fora do isolamento, aberta na pasta do
 projeto. No Codex, abrir tarefa, ler o estado, verificar e integrar passam
 pela aprovação do dono na tela. O texto fica em
-`default/claude/skills/coordenador/SKILL.md`; só a descrição entra no contexto
+`agentes/claude/skills/coordenador/SKILL.md`; só a descrição entra no contexto
 até a skill ser chamada.
 
 - Claude Code: `/coordenador`, ou pedir para coordenar as tarefas do projeto.
@@ -169,7 +167,7 @@ observadas ficam em memória durante a janela. Perguntas e permissões
 continuam no terminal. Na tarefa selecionada, `Alt+I` abre a integração,
 que mantém a sessão; `Ctrl+X` abre o encerramento sem integração. Ambos usam
 `jangada-agente-fim`, preservando suas conferências e confirmações.
-Veja [instalação e reversão](interface.md#central-de-tarefas-v01).
+Veja instalação e reversão (documentadas no jangada-shell).
 
 Cada mudança registrada vira uma linha em `eventos-agentes.jsonl`
 ([registros](registros.md)).
@@ -331,8 +329,8 @@ avisa e sai com erro, sem desfazer. Uma recusa anterior ao avanço deixa
 arquivos, índice e HEAD da cópia principal como estavam. Se, depois do
 avanço, os arquivos da cópia principal não conferem com o espelho, a base
 fica avançada, o comando sai com erro e pede conferência manual. Não há `merge --no-ff`, `reset --hard`, `git clean` nem outro
-comando de descarte. O comando não envia ao remoto, não assina, não roda o
-`jangada-update` e mantém sessão, ramo e worktree. O encerramento é outro
+comando de descarte. O comando não envia ao remoto, não assina, não atualiza a
+cópia instalada e mantém sessão, ramo e worktree. O encerramento é outro
 gesto: `Ctrl+X` ou `jangada-agente-fim SESSAO`.
 
 Sem `--integrar`, o encerramento conserva a conferência de alterações
@@ -399,7 +397,7 @@ novo.
 
 ## Skills do Claude Code, do agy e do Codex
 
-A etapa de agentes liga cada pasta de `default/claude/skills` em
+A etapa de agentes liga cada pasta de `agentes/claude/skills` em
 `~/.claude/skills/<nome>` e, se o agy estiver instalado, em
 `~/.gemini/config/skills/<nome>`. Os dois agentes carregam a skill quando a
 tarefa combina com a descrição dela, mesmo abertos em outro projeto:
@@ -433,7 +431,7 @@ ou link alheio com o mesmo nome nessas pastas fica como está, com aviso.
 O seletor calcula as descrições a partir do executor, revisor e delegação
 efetivos. `DESCRICAO` em perfis antigos continua sendo lida, mas não
 substitui esses valores. Os perfis ficam em `~/.config/jangada/agentes/NOME.conf`;
-o modelo está em `default/agentes/exemplo.conf`. Fila e orçamento são
+o modelo está em `agentes/perfis/exemplo.conf`. Fila e orçamento são
 configurados separadamente.
 
 O agy não abre sessão principal. `jangada-agente` recusa `--agente agy` e
@@ -444,7 +442,7 @@ mantém protocolo e testes, mas deixa a entrega sem aprovação.
 
 `JANGADA_AGENTE_PROTOCOLO=0` desliga o protocolo. Em projetos com arquivos R
 até dois níveis abaixo da raiz, também entram as regras de
-`default/agentes/protocolo-r.md`. O Codex usa o worktree e o tmux do jangada,
+`agentes/perfis/protocolo-r.md`. O Codex usa o worktree e o tmux do jangada,
 sem criar outro worktree nem conectar ao servidor compartilhado do programa.
 
 Ganchos pessoais ficam em `~/.config/jangada/ganchos/EVENTO` ou `EVENTO.d/`.
@@ -455,7 +453,7 @@ indicação de integração) e `pos-validar` (sessão e estado).
 ## Detalhes da conferência local e das métricas
 
 O `lintr` usa `.lintr` da base; sem configuração própria, usa
-`default/r/lintr`. Do `object_usage_linter`, só considera variável sem uso;
+`validacao/lintr`. Do `object_usage_linter`, só considera variável sem uso;
 o aviso de variável global em colunas do dplyr é descartado.
 Achados do padrão geram aviso; configuração própria torna o achado impeditivo.
 Ausência ou falha da ferramenta aplicável não aprova a entrega.

@@ -14,7 +14,7 @@ flowchart TB
     desktop["jangada.desktop (SDDM)"]
   end
 
-  subgraph raiz["Repositório (JANGADA_PATH)"]
+  subgraph raiz["Repositório (JANGADA_CORE_PATH)"]
     subgraph bin["bin/ : 59 comandos"]
       cfg["jangada-config"]
       cagentes["agente, agentes, agente-fim, isolar, validar, delegar, hooks"]

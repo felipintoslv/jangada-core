@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Testa a instalação das skills (default/claude/skills) num HOME temporário:
+# Testa a instalação das skills (agentes/claude/skills) num HOME temporário:
 # Claude Code com todas, agy sem a coordenador e Codex só com a coordenador.
 #
 # Uso: testes/skills.sh
@@ -14,7 +14,7 @@ conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-origem="$repo_jangada/default/claude/skills"
+origem="$repo_jangada/agentes/claude/skills"
 casa="$tmp/home"
 # PATH sem claude, agy nem codex: só as pastas do HOME decidem o que é ligado.
 limpo="$tmp/bin"
@@ -23,18 +23,13 @@ for c in bash dirname readlink ln mkdir date cp; do
   ln -s "$(command -v "$c")" "$limpo/$c"
 done
 
-# Uso: instalar [VAR=valor ...] -- comando do lib.sh ou caminho de migração.
+# Uso: instalar [VAR=valor ...] -- comando do lib.sh.
 instalar() {
   local amb=()
   while [[ "$1" != -- ]]; do amb+=("$1"); shift; done
   shift
-  if [[ "$1" == migrations/* ]]; then
-    env -u CODEX_HOME HOME="$casa" PATH="$limpo" JANGADA_PATH="$repo_jangada" JANGADA_SIMULAR=0 \
-      "${amb[@]}" bash "$1" >"$tmp/saida.log" 2>&1
-  else
-    env -u CODEX_HOME HOME="$casa" PATH="$limpo" JANGADA_PATH="$repo_jangada" JANGADA_SIMULAR=0 \
-      "${amb[@]}" bash -c "source install/lib.sh; $1" >"$tmp/saida.log" 2>&1
-  fi
+  env -u CODEX_HOME HOME="$casa" PATH="$limpo" JANGADA_CORE_PATH="$repo_jangada" JANGADA_SIMULAR=0 \
+    "${amb[@]}" bash -c "source install/lib.sh; $1" >"$tmp/saida.log" 2>&1
 }
 nomes() { find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | sort | paste -sd,; }
 todas="$(find "$origem/" -mindepth 2 -maxdepth 2 -name SKILL.md -printf '%h\n' | sed 's#.*/##' | sort | paste -sd,)"
@@ -65,7 +60,7 @@ conferir "Codex: coordenador aponta para o repositório" \
 instalar -- ligar_skill_codex
 conferir "Codex: rodar de novo avisa que já está ligada" grep -q 'skill coordenador do Codex já ligada' "$tmp/saida.log"
 
-ln -sfn /velho/jangada/default/claude/skills/coordenador "$casa/.codex/skills/coordenador"
+ln -sfn /velho/jangada/agentes/claude/skills/coordenador "$casa/.codex/skills/coordenador"
 instalar -- ligar_skill_codex
 conferir "Codex: link antigo do jangada é trocado" \
   [ "$(readlink "$casa/.codex/skills/coordenador")" = "$origem/coordenador" ]
@@ -83,30 +78,6 @@ conferir "Codex: pasta alheia com o mesmo nome fica" [ "$(cat "$casa/.codex/skil
 
 instalar CODEX_HOME="$tmp/codex" -- ligar_skill_codex
 conferir "Codex: CODEX_HOME muda a pasta" [ "$(readlink "$tmp/codex/skills/coordenador")" = "$origem/coordenador" ]
-
-# Migração numa instalação existente.
-migracao=migrations/202610102200-skill-coordenador.sh
-rm -rf "$casa" "$tmp/codex"
-mkdir -p "$casa/.claude/skills"
-ln -s /outra/origem/graficos "$casa/.claude/skills/graficos"
-conferir "migração sem Codex termina bem" instalar -- "$migracao"
-conferir "migração liga a coordenador ao Claude Code" \
-  [ "$(readlink "$casa/.claude/skills/coordenador")" = "$origem/coordenador" ]
-conferir "migração preserva link de outra origem" [ "$(readlink "$casa/.claude/skills/graficos")" = /outra/origem/graficos ]
-conferir "migração sem Codex não cria a pasta dele" [ ! -e "$casa/.codex" ]
-conferir "migração não liga nada ao agy" [ ! -e "$casa/.gemini" ]
-
-mkdir "$casa/.codex"
-conferir "migração com Codex termina bem" instalar -- "$migracao"
-conferir "migração liga só a coordenador ao Codex" [ "$(nomes "$casa/.codex/skills")" = coordenador ]
-antes="$(readlink "$casa/.codex/skills/coordenador")"
-conferir "migração repetida termina bem" instalar -- "$migracao"
-conferir "migração repetida não muda o link" [ "$(readlink "$casa/.codex/skills/coordenador")" = "$antes" ]
-
-rm -rf "$casa"
-mkdir -p "$casa"
-conferir "migração sem Claude Code e sem Codex termina bem" instalar -- "$migracao"
-conferir "migração sem Claude Code e sem Codex não cria nada" [ -z "$(find "$casa" -mindepth 1 -print -quit)" ]
 
 if ((falhas)); then
   echo "$falhas teste(s) das skills falharam"
