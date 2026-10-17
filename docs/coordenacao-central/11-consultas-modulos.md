@@ -94,12 +94,16 @@ rodada válida mais recente.
 Esta é a única leitura em `revisoes/`: a consulta abre só
 `revisoes/validar.jsonl`, sem listar a pasta nem abrir pareceres ou cópias
 de sessão. Sem esse arquivo, as rodadas protegidas não aparecem. Por isso
-`parecer_origem` é sempre nulo na origem `protegida`. Na origem `sessao`,
-o parecer é o arquivo regular do topo de `agentes/` cujo horário de
-modificação fica a até 60 segundos de `data`, o mais próximo, cada arquivo
-usado uma vez. A consulta só confere `stat`, sem abrir o arquivo. O N do
-nome não é a rodada; depois de `jangada-agente-fim`, os pareceres somem e o
-campo fica nulo.
+`parecer_origem` é sempre nulo na origem `protegida`. O registro não grava
+o N do parecer, e o N não é a rodada. Na origem `sessao`, o campo indica o
+arquivo regular do topo de `agentes/` cujo horário de modificação fica a até
+60 segundos de `data`, só quando a correspondência é única nos dois
+sentidos: um arquivo perto de uma linha só, e essa linha perto desse arquivo
+só. Contam todas as linhas da sessão, de qualquer etapa ou execução, antes
+do limite de rodadas. Fora disso, o campo é nulo. A indicação vem do
+horário, não de prova no registro. A consulta só confere `stat`, sem abrir o
+arquivo. Depois de `jangada-agente-fim`, os pareceres somem e o campo fica
+nulo.
 
 Cada `validar.jsonl` é lido nos últimos 8 MiB e nas últimas 5.000 linhas.
 Linha acima de 64 KiB, JSON inválido ou valor que não é objeto são

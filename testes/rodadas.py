@@ -89,6 +89,23 @@ def main():
         assert segunda['parecer_origem'] is None and segunda['segundos'] == 12.5, segunda
         assert segunda['modelo'] == 'sonnet' and segunda['apontamentos'] == 0, segunda
 
+        # Parecer perto de duas linhas, ou duas perto de uma, fica sem dono.
+        gravar(estado / 'validar.jsonl', [
+            rodada(1, 'revisar', '2026-10-17T10:00:00-03:00', execucao='e2'),
+            dict(rodada(2, 'revisar', '2026-10-17T10:00:30-03:00', execucao='e2'), etapa='local'),
+        ])
+        assert rodadas('s1')['rodadas'][0]['parecer_origem'] is None
+        gravar(estado / 'validar.jsonl', [rodada(1, 'revisar', '2026-10-17T10:00:00-03:00', execucao='e2')])
+        outro = agentes / 'validacao-s1-r4.md'
+        outro.write_text('STATUS: REVISAR\n')
+        os.utime(outro, (1792242010, 1792242010))
+        assert rodadas('s1')['rodadas'][0]['parecer_origem'] is None
+        outro.unlink()
+        gravar(estado / 'validar.jsonl', [rodada(1, 'revisar', '2026-10-17T10:00:00-03:00', execucao='e2',
+                                                 segundos=10 ** 400)])
+        grande = rodadas('s1')['rodadas'][0]
+        assert grande['segundos'] is None and grande['parecer_origem'] == 'validacao-s1-r3.md', grande
+
         # Sessão encerrada: vale a execução do registro mais recente.
         (agentes / 's1.json').unlink()
         gravar(estado / 'validar.jsonl', [

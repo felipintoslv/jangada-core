@@ -1,5 +1,6 @@
 """Consulta das rodadas de revisão de uma sessão, só leitura e sem pareceres."""
 
+import bisect
 import collections
 import contextlib
 from datetime import datetime
@@ -93,9 +94,9 @@ def inteiro(valor, minimo=0):
 
 
 def numero(valor):
-    if type(valor) not in (int, float) or not math.isfinite(valor) or not 0 <= valor <= 2 ** 53:
-        return None
-    return valor
+    if type(valor) is int:
+        return inteiro(valor)
+    return valor if type(valor) is float and math.isfinite(valor) and 0 <= valor <= 2 ** 53 else None
 
 
 def momento(valor):
@@ -129,6 +130,30 @@ def pareceres(fd, sessao):
             if stat.S_ISREG(info.st_mode):
                 achados.append((info.st_mtime, entrada.name))
     return achados
+
+
+def associar(candidatos, registros):
+    """Parecer de cada registro só quando a correspondência por horário é única nos dois sentidos.
+
+    Considera todas as linhas da sessão, de qualquer etapa e execução, antes do
+    limite de rodadas: um parecer perto de duas linhas, ou duas perto de uma
+    linha, fica sem dono.
+    """
+    candidatos = sorted(candidatos)
+    horarios = [mtime for mtime, _ in candidatos]
+    perto_do_registro, perto_do_parecer = {}, {}
+    for posicao, registro in registros:
+        quando = momento(registro.get('data'))
+        if quando is None:
+            continue
+        inicio = bisect.bisect_left(horarios, quando - JANELA)
+        fim = bisect.bisect_right(horarios, quando + JANELA)
+        for _, nome in candidatos[inicio:fim]:
+            perto_do_registro.setdefault(posicao, set()).add(nome)
+            perto_do_parecer.setdefault(nome, set()).add(posicao)
+    por_posicao = {posicao: registro for posicao, registro in registros}
+    return {id(por_posicao[posicao]): nome for posicao, nomes in perto_do_registro.items()
+            for nome in nomes if len(nomes) == 1 and perto_do_parecer[nome] == {posicao}}
 
 
 def rodadas_sessao(raiz, sessao):
@@ -169,17 +194,11 @@ def rodadas_sessao(raiz, sessao):
         execucao = ordem[-1][1].get('execucao') if ordem else None
     escolhidas = [r for _, r in ordem if r.get('execucao') == execucao][-RODADAS_MAX:]
 
-    usados = set()
+    associados = associar(candidatos, [(posicao, r) for posicao, r in enumerate(validacoes)
+                                       if r.get('origem') == 'sessao' and r.get('rotulo') == sessao])
     rodadas = []
     for registro in escolhidas:
-        origem_parecer = None
         quando = momento(registro.get('data'))
-        if registro['origem'] == 'sessao' and quando is not None:
-            perto = [(abs(mtime - quando), nome) for mtime, nome in candidatos
-                     if nome not in usados and abs(mtime - quando) <= JANELA]
-            if perto:
-                origem_parecer = min(perto)[1]
-                usados.add(origem_parecer)
         rodadas.append(dict(
             rodada=inteiro(registro.get('rodada'), 1),
             origem=registro['origem'],
@@ -190,7 +209,7 @@ def rodadas_sessao(raiz, sessao):
             data=registro['data'] if quando is not None else None,
             segundos=numero(registro.get('segundos')),
             apontamentos=inteiro(registro.get('itens')),
-            parecer_origem=origem_parecer))
+            parecer_origem=associados.get(id(registro))))
     return {'versao': 1, 'sessao': sessao, 'execucao': execucao, 'rodadas': rodadas}
 
 
