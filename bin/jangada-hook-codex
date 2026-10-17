@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Hook do Codex: atualiza somente a sessão existente, sem decidir permissões.
 # Recebe o JSON do evento pela entrada padrão. Saída vazia mantém a decisão do Codex.
+# Só o PostToolUse escreve na saída: os avisos do jangada-hook-regras, que o
+# Codex entrega ao modelo como additionalContext.
+exec 3>&1
 {
   [[ -n "${JANGADA_SESSAO:-}" && -z "${JANGADA_HOOK_DESLIGADO:-}" ]] || exit 0
   [[ "$JANGADA_SESSAO" =~ ^[A-Za-z0-9_.-]+$ ]] || exit 0
@@ -10,6 +13,9 @@
   source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
   entrada="$(cat)"
   jq -e 'type == "object"' <<<"$entrada" >/dev/null 2>&1 || exit 0
+  if [[ "$evento" == trabalhando && "$(jq -r '.hook_event_name // ""' <<<"$entrada")" == PostToolUse ]]; then
+    timeout 25 "$(dirname "${BASH_SOURCE[0]}")/jangada-hook-regras" gravacao <<<"$entrada" >&3
+  fi
   # Subagentes usam o id da sessão principal; não mudam o estado dela.
   [[ "$(jq -r '.agent_id // ""' <<<"$entrada")" == "" ]] || exit 0
   arq="$JANGADA_ESTADO/agentes/$JANGADA_SESSAO.json"

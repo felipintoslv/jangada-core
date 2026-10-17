@@ -114,6 +114,86 @@ conferir "sem JANGADA_CORE_PATH, escrita recusada com 2" [ "$?" = 2 ]
 conferir "agy: outro agente segue as permissões" [ "$(agy_link "rm a" "")" = ask ]
 conferir "agy: leitor que grava é recusado" [ "$(agy_link "rm a" leitor)" = deny ]
 
+echo "== regras ao gravar (jangada-hook-regras gravacao)"
+obra="$tmp/obra"
+mkdir -p "$obra"
+travessao=$'\xe2\x80\x94'
+printf 'ver %s/notas\n' "$HOME" >"$obra/pessoal.txt"
+printf 'um %s dois\n' "$travessao" >"$obra/texto.md"
+printf 'um %s dois\n' "$travessao" >"$obra/texto.txt"
+printf '#!/usr/bin/env bash\nrm -rf $PASTA/\n' >"$obra/script"
+printf 'def f(:\n' >"$obra/quebrado.py"
+printf 'limpo\n' >"$obra/limpo.md"
+regras() { # JSON do evento; demais argumentos vão para o env
+  local json="$1"; shift
+  env "$@" bin/jangada-hook-regras gravacao <<<"$json" 2>/dev/null
+}
+gravou() { # arquivo
+  jq -cn --arg c "$obra" --arg f "$obra/$1" \
+    '{hook_event_name: "PostToolUse", cwd: $c, tool_name: "Write", tool_input: {file_path: $f}}'
+}
+json_ok() { jq -e "$@" >/dev/null; }
+contexto() { jq -r '.hookSpecificOutput | select(.hookEventName == "PostToolUse") | .additionalContext'; }
+conferir "caminho pessoal avisa" bash -c 'grep -q "pessoal.txt: caminho pessoal" <<<"$1"' _ \
+  "$(regras "$(gravou pessoal.txt)" JANGADA_SESSAO=t | contexto)"
+conferir "travessão em .md avisa" bash -c 'grep -q "texto.md: travessão na linha 1" <<<"$1"' _ \
+  "$(regras "$(gravou texto.md)" JANGADA_SESSAO=t | contexto)"
+conferir "travessão fora de .md não avisa" [ -z "$(regras "$(gravou texto.txt)" JANGADA_SESSAO=t)" ]
+if command -v shellcheck >/dev/null 2>&1; then
+  conferir "shellcheck em script de bash avisa" bash -c 'grep -q "SC2115" <<<"$1"' _ \
+    "$(regras "$(gravou script)" JANGADA_SESSAO=t | contexto)"
+else
+  echo "pulado: shellcheck ausente"
+fi
+conferir "sintaxe Python avisa" bash -c 'grep -q "quebrado.py: erro de sintaxe Python" <<<"$1"' _ \
+  "$(regras "$(gravou quebrado.py)" JANGADA_SESSAO=t | contexto)"
+conferir "sintaxe Python não grava __pycache__" test ! -e "$obra/__pycache__"
+conferir "arquivo limpo não avisa" [ -z "$(regras "$(gravou limpo.md)" JANGADA_SESSAO=t)" ]
+conferir "sem JANGADA_SESSAO não faz nada" [ -z "$(regras "$(gravou pessoal.txt)" -u JANGADA_SESSAO)" ]
+conferir "JANGADA_HOOK_DESLIGADO não faz nada" \
+  [ -z "$(regras "$(gravou pessoal.txt)" JANGADA_SESSAO=t JANGADA_HOOK_DESLIGADO=1)" ]
+conferir "entrada inválida sai com 0 e em silêncio" \
+  bash -c '[ -z "$(JANGADA_SESSAO=t bin/jangada-hook-regras gravacao <<<"não é json")" ]'
+patch="$(printf '*** Begin Patch\n*** Update File: texto.md\n@@\n*** Add File: quebrado.py\n+x\n*** End Patch')"
+evento_codex() { # evento
+  jq -cn --arg c "$obra" --arg p "$patch" --arg e "$1" \
+    '{hook_event_name: $e, cwd: $c, tool_name: "apply_patch", tool_input: {command: $p}}'
+}
+export -f contexto
+saida_codex="$(env JANGADA_SESSAO=t bin/jangada-hook-codex trabalhando <<<"$(evento_codex PostToolUse)" 2>/dev/null)"
+conferir "Codex: apply_patch avisa pelos dois arquivos" \
+  bash -c 'c="$(contexto <<<"$1")"; grep -q "texto.md: travessão" <<<"$c" && grep -q "quebrado.py: erro" <<<"$c"' _ "$saida_codex"
+conferir "Codex: outro evento não escreve na saída" \
+  [ -z "$(env JANGADA_SESSAO=t bin/jangada-hook-codex trabalhando <<<"$(evento_codex PreToolUse)" 2>/dev/null)" ]
+conferir "Codex: sem JANGADA_SESSAO não faz nada" \
+  [ -z "$(env -u JANGADA_SESSAO bin/jangada-hook-codex trabalhando <<<"$(evento_codex PostToolUse)" 2>/dev/null)" ]
+conferir "hooks.json: regras só nas ferramentas que gravam" \
+  json_ok '.hooks.PostToolUse | any(.matcher == "Edit|Write|MultiEdit|NotebookEdit"
+    and (.hooks[0].command | endswith("jangada-hook-regras gravacao")))' agentes/claude/hooks.json
+
+echo "== lembrete de decisões ao coordenador (jangada-hook-regras coordenacao)"
+coord="$tmp/coord"
+mkdir -p "$coord/.jangada" "$tmp/sem-coord"
+: >"$coord/.jangada/coordenacao.md"
+inicio() { # pasta, origem; demais argumentos vão para o env
+  local json
+  json="$(jq -cn --arg c "$1" --arg s "$2" '{hook_event_name: "SessionStart", cwd: $c, source: $s}')"
+  shift 2
+  env "$@" bin/jangada-hook-regras coordenacao <<<"$json" 2>/dev/null \
+    | jq -r '.hookSpecificOutput | select(.hookEventName == "SessionStart") | .additionalContext'
+}
+conferir "depois do resumo, lembra de registrar as decisões" \
+  bash -c 'grep -q "acabou de ser resumida" <<<"$1" && grep -qF "$2" <<<"$1"' _ \
+  "$(inicio "$coord" compact -u JANGADA_SESSAO)" "$coord/.jangada/coordenacao.md"
+conferir "ao abrir, lembra de registrar as decisões" \
+  bash -c 'grep -q "Registre ali cada decisão" <<<"$1"' _ "$(inicio "$coord" startup -u JANGADA_SESSAO)"
+conferir "sessão de agente não recebe o lembrete" [ -z "$(inicio "$coord" compact JANGADA_SESSAO=t)" ]
+conferir "pasta sem coordenacao.md não recebe o lembrete" [ -z "$(inicio "$tmp/sem-coord" compact -u JANGADA_SESSAO)" ]
+conferir "/clear não recebe o lembrete" [ -z "$(inicio "$coord" clear -u JANGADA_SESSAO)" ]
+conferir "hooks.json: lembrete no início, na retomada e depois do resumo" \
+  json_ok '.hooks.SessionStart | any(.matcher == "startup|resume|compact"
+    and (.hooks[0].command | endswith("jangada-hook-regras coordenacao")))' agentes/claude/hooks.json
+
 if ((falhas)); then
   echo "$falhas teste(s) dos hooks falharam"
   exit 1

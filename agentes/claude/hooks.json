@@ -18,6 +18,16 @@
             "command": "@JANGADA_CORE_PATH@/bin/jangada-hook-claude trabalhando"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "@JANGADA_CORE_PATH@/bin/jangada-hook-regras gravacao",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "Notification": [
@@ -46,6 +56,16 @@
           {
             "type": "command",
             "command": "@JANGADA_CORE_PATH@/bin/jangada-hook-claude inicio"
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "@JANGADA_CORE_PATH@/bin/jangada-hook-regras coordenacao",
+            "timeout": 10
           }
         ]
       }

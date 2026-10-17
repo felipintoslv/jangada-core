@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Regras automáticas devolvidas ao modelo como contexto, sem bloquear nada.
+#
+# Uso (hooks do Claude Code e, pelo jangada-hook-codex, do Codex):
+#   jangada-hook-regras gravacao      PostToolUse: confere os arquivos gravados
+#   jangada-hook-regras coordenacao   SessionStart: lembra o coordenador de
+#                                     registrar as decisões
+# Recebe o JSON do evento pela entrada padrão e escreve na saída o JSON com
+# hookSpecificOutput.additionalContext, ou nada. Erro interno sai com 0 e em
+# silêncio: o hook não pode travar o agente.
+#
+# gravacao só age com JANGADA_SESSAO (sessão de agente); coordenacao só age
+# sem ela (sessão comum do dono). Ver docs/regras-automaticas.md.
+
+[[ -z "${JANGADA_HOOK_DESLIGADO:-}" ]] || exit 0
+modo="${1:-}"
+LIMITE_ARQUIVO=$((2 * 1024 * 1024))
+MAX_ARQUIVOS=20
+MAX_LINHAS=3
+
+entrada="$(head -c 4194304 2>/dev/null)" || exit 0
+jq -e 'type == "object"' <<<"$entrada" >/dev/null 2>&1 || exit 0
+cwd="$(jq -r '.cwd // "" | strings' <<<"$entrada" 2>/dev/null)"
+[[ "$cwd" == /* && -d "$cwd" ]] || cwd="$PWD"
+
+responder() { # evento, texto
+  jq -nc --arg e "$1" --arg t "$2" '{hookSpecificOutput: {hookEventName: $e, additionalContext: $t}}'
+}
+
+# Até MAX_LINHAS números de linha da saída do grep -n, separados por vírgula.
+linhas() { cut -d: -f1 | head -n "$MAX_LINHAS" | paste -sd, -; }
+
+conferir_arquivo() { # caminho absoluto, caminho para exibir
+  local f="$1" nome="$2" achado saida
+  [[ -f "$f" && ! -L "$f" && -r "$f" ]] || return 0
+  (( $(stat -c %s -- "$f" 2>/dev/null || echo "$LIMITE_ARQUIVO") < LIMITE_ARQUIVO )) || return 0
+  # grep -I trata arquivo binário como sem ocorrência.
+  if [[ -n "${HOME:-}" && "$HOME" != / ]]; then
+    achado="$(LC_ALL=C timeout 5 grep -I -n -F -- "$HOME" "$f" 2>/dev/null | linhas)"
+    [[ -z "$achado" ]] || printf -- '- %s: caminho pessoal (o valor de $HOME) na linha %s; use ~ ou caminho relativo\n' "$nome" "$achado"
+  fi
+  if [[ "$f" == *.md ]]; then
+    achado="$(LC_ALL=C.UTF-8 timeout 5 grep -I -n -F -- $'\xe2\x80\x94' "$f" 2>/dev/null | linhas)"
+    [[ -z "$achado" ]] || printf -- '- %s: travessão na linha %s; use vírgula, dois-pontos ou frase nova\n' "$nome" "$achado"
+  fi
+  if [[ "$f" == *.sh ]] || head -n1 -- "$f" 2>/dev/null | grep -qE '^#!.*[/ ]bash([[:space:]]|$)'; then
+    if command -v shellcheck >/dev/null 2>&1; then
+      saida="$(cd "$cwd" && timeout 5 shellcheck -x -S warning -f gcc -- "$f" 2>/dev/null | head -n "$MAX_LINHAS")"
+      saida="${saida//"$f:"/linha }"
+      [[ -z "$saida" ]] || printf -- '- %s: shellcheck -S warning:\n%s\n' "$nome" "$saida"
+    fi
+  fi
+  if [[ "$f" == *.py ]]; then
+    # compile() no lugar de py_compile: confere a sintaxe sem gravar __pycache__.
+    saida="$(timeout 5 python3 -B -I -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$f" 2>&1 \
+      | tail -n "$MAX_LINHAS")"
+    [[ -z "$saida" ]] || printf -- '- %s: erro de sintaxe Python:\n%s\n' "$nome" "$saida"
+  fi
+}
+
+gravacao() {
+  local sessao="${JANGADA_SESSAO:-}" evento caminhos caminho abs nome texto="" n=0
+  [[ -n "$sessao" ]] || return 0
+  evento="$(jq -r '.hook_event_name // "PostToolUse" | strings' <<<"$entrada" 2>/dev/null)"
+  [[ "$evento" == PostToolUse ]] || return 0
+  # Claude: file_path (Edit, Write, MultiEdit) e notebook_path (NotebookEdit).
+  # Codex: o texto do apply_patch, em qualquer campo de tool_input, com as
+  # linhas "*** Add File:", "*** Update File:" e "*** Move to:".
+  caminhos="$(jq -r '
+    [ (.tool_input | objects | (.file_path, .notebook_path) | strings),
+      (.tool_input | .. | strings | split("\n")[]
+        | capture("^\\*\\*\\* (?:(?:Add|Update) File|Move to): (?<p>.+)$")? | .p) ]
+    | map(select(length > 0 and (test("\n") | not))) | unique[]' <<<"$entrada" 2>/dev/null)" || return 0
+  while IFS= read -r caminho; do
+    [[ -n "$caminho" ]] || continue
+    ((n++ < MAX_ARQUIVOS)) || break
+    if [[ "$caminho" == /* ]]; then abs="$caminho"; else abs="$cwd/$caminho"; fi
+    nome="${abs#"$cwd"/}"
+    texto+="$(conferir_arquivo "$abs" "$nome")"$'\n'
+  done <<<"$caminhos"
+  texto="$(sed '/^$/d' <<<"$texto" | head -c 3000)"
+  [[ -n "$texto" ]] || return 0
+  responder PostToolUse "Regras do projeto (aviso do jangada, não bloqueia); corrija antes de seguir:
+$texto"
+}
+
+coordenacao() {
+  local origem raiz arq="" texto
+  [[ -z "${JANGADA_SESSAO:-}" ]] || return 0
+  origem="$(jq -r '.source // "" | strings' <<<"$entrada" 2>/dev/null)"
+  if [[ -f "$cwd/.jangada/coordenacao.md" ]]; then
+    arq="$cwd/.jangada/coordenacao.md"
+  else
+    raiz="$(timeout 5 git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
+    [[ -n "$raiz" && -f "$raiz/.jangada/coordenacao.md" ]] && arq="$raiz/.jangada/coordenacao.md"
+  fi
+  [[ -n "$arq" ]] || return 0
+  case "$origem" in
+    compact)
+      texto="A conversa acabou de ser resumida. Confira se as decisões do dono e da coordenação tomadas antes do resumo estão em $arq e registre ali as que faltam, antes de seguir." ;;
+    startup|resume)
+      texto="Esta pasta tem $arq. Registre ali cada decisão do dono e da coordenação assim que ela for tomada: o resumo automático da conversa e o encerramento da sessão perdem o que não estiver no arquivo." ;;
+    *) return 0 ;;
+  esac
+  responder SessionStart "$texto"
+}
+
+case "$modo" in
+  gravacao) gravacao ;;
+  coordenacao) coordenacao ;;
+esac 2>/dev/null
+exit 0
