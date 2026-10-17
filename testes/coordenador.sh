@@ -47,6 +47,21 @@ done
 printf '%s\0' "$@" >"$FALSO_DIR/codex.args"
 exec cat >/dev/null
 EOF
+# tmux de passagem: roda o gancho gravado pelo teste antes do comando
+# (gancho-CMD) ou depois dele (gancho-depois-CMD), para provocar a corrida
+# num ponto exato do envio.
+tmux_real="$(command -v tmux)"
+cat >"$tmp/bin/tmux" <<EOF
+#!/usr/bin/env bash
+cmd=""
+for a in "\$@"; do
+  case "\$a" in load-buffer|paste-buffer) cmd="\$a"; break ;; esac
+done
+[[ -z "\$cmd" || ! -f "\$FALSO_DIR/gancho-\$cmd" ]] || bash "\$FALSO_DIR/gancho-\$cmd" </dev/null
+"$tmux_real" "\$@"; rc=\$?
+[[ -z "\$cmd" || ! -f "\$FALSO_DIR/gancho-depois-\$cmd" ]] || bash "\$FALSO_DIR/gancho-depois-\$cmd" </dev/null
+exit \$rc
+EOF
 for c in notify-send pkill hyprctl; do
   printf '#!/bin/sh\nexit 0\n' >"$tmp/bin/$c"
 done
@@ -183,6 +198,8 @@ conferir "a mensagem com concluido sai com 0" [ "$?" = 0 ]
 esperada="$(printf '\033[200~primeira linha\nsegunda linha\033[201~\r' | od -An -c | tr -s ' \n' ' ')"
 conferir "o Claude recebe só o texto colado e um Enter" esperar [ "$(bytes)" = "$esperada" ]
 conferir "o buffer da mensagem é apagado" [ -z "$(tm list-buffers 2>/dev/null)" ]
+conferir "depois do Enter o registro fica trabalhando" [ "$(campo .estado)" = trabalhando ]
+conferir "a trava de envio tem modo 600" [ "$(stat -c %a "$reg/.projeto--coordenador.envio")" = 600 ]
 : >"$tmp/claude.bytes"
 for e in aguardando trabalhando; do
   hook "$e" '{"prompt":"p"}' JANGADA_COORDENADOR=projeto--coordenador
@@ -192,6 +209,48 @@ for e in aguardando trabalhando; do
 done
 sleep 0.2
 conferir "nada chega ao Claude nas recusas" [ ! -s "$tmp/claude.bytes" ]
+hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
+
+# Corridas: um hook grava entre a conferência e a colagem, ou entre a
+# colagem e o Enter.
+mudar='JANGADA_COORDENADOR=projeto--coordenador "$JANGADA_CORE_PATH/bin/jangada-coordenador" --registrar aguardando <<<"pedido de permissão"'
+printf '%s\n' "$mudar" >"$tmp/gancho-load-buffer"
+rodar "$repo_jangada/bin/jangada-coordenador" --mensagem projeto--coordenador --arquivo "$tmp/msg" >"$tmp/saida" 2>&1
+conferir "estado mudado antes da colagem sai com 3" [ "$?" = 3 ]
+conferir "a recusa diz que foi antes da colagem" grep -q "antes da colagem" "$tmp/saida"
+sleep 0.2
+conferir "nada é colado quando o estado muda antes" [ ! -s "$tmp/claude.bytes" ]
+conferir "o buffer recusado é apagado" [ -z "$(tm list-buffers 2>/dev/null)" ]
+rm -f "$tmp/gancho-load-buffer"
+hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
+printf '%s\n' "$mudar" >"$tmp/gancho-depois-paste-buffer"
+rodar env JANGADA_COORDENADOR_PAUSA=0.2 "$repo_jangada/bin/jangada-coordenador" \
+  --mensagem projeto--coordenador --arquivo "$tmp/msg" >"$tmp/saida" 2>&1
+conferir "estado mudado entre a colagem e o Enter sai com 3" [ "$?" = 3 ]
+conferir "o aviso diz que o texto ficou sem envio" grep -q "ficou na caixa de entrada do terminal, sem Enter, e não foi enviado" "$tmp/saida"
+sleep 0.2
+conferir "sem Enter depois da colagem" [ "$(bytes)" = "$(printf '\033[200~primeira linha\nsegunda linha\033[201~' | od -An -c | tr -s ' \n' ' ')" ]
+conferir "o estado gravado pelo hook fica" [ "$(campo .estado)" = aguardando ]
+rm -f "$tmp/gancho-depois-paste-buffer"
+: >"$tmp/claude.bytes"
+hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
+
+# Dois envios juntos: o segundo encontra a trava ocupada e sai com 3.
+printf 'touch "$FALSO_DIR/colando"; sleep 1\n' >"$tmp/gancho-depois-paste-buffer"
+rodar env JANGADA_COORDENADOR_PAUSA=0.1 "$repo_jangada/bin/jangada-coordenador" \
+  --mensagem projeto--coordenador --arquivo "$tmp/msg" >"$tmp/saida1" 2>&1 &
+primeiro=$!
+esperar test -f "$tmp/colando"
+rodar "$repo_jangada/bin/jangada-coordenador" --mensagem projeto--coordenador --arquivo "$tmp/msg" >"$tmp/saida2" 2>&1
+conferir "o segundo envio simultâneo sai com 3" [ "$?" = 3 ]
+conferir "a recusa diz que há outro envio" grep -q "outro envio em andamento" "$tmp/saida2"
+wait "$primeiro"
+conferir "o primeiro envio sai com 0" [ "$?" = 0 ]
+conferir "só um texto chega ao Claude" esperar [ "$(bytes)" = "$esperada" ]
+rm -f "$tmp/gancho-depois-paste-buffer" "$tmp/colando"
+: >"$tmp/claude.bytes"
+rodar "$repo_jangada/bin/jangada-coordenador" --mensagem projeto--coordenador --arquivo "$tmp/msg" >"$tmp/saida" 2>&1
+conferir "depois de um envio, outro espera o hook marcar concluido" [ "$?" = 3 ]
 hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
 printf 'texto\033[31m com escape\n' >"$tmp/msg-controle"
 printf 'linha\r\n' >"$tmp/msg-cr"
