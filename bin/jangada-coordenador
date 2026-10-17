@@ -225,9 +225,11 @@ fim() {
   [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "o coordenador encerra fora do isolamento"
   nome_valido "$sessao" && [[ "$sessao" == *--coordenador ]] || erro "sessão de coordenador inválida: $sessao" 2
   arq="$(registro "$sessao")" || erro "coordenador sem registro: $sessao" 1
-  "${JANGADA_TMUX[@]}" kill-session -t "=$sessao" 2>/dev/null || true
   agora="$(jangada_data_iso)"
+  # Sob a trava da abertura: um --projeto no meio recriaria a sessão, e a
+  # marcação cairia no registro novo.
   _fim() {
+    "${JANGADA_TMUX[@]}" kill-session -t "=$sessao" 2>/dev/null 9<&- || true
     # shellcheck disable=SC2016  # variáveis do jq
     regravar "$arq" --arg a "$agora" '.estado = "encerrado" | .encerrado = $a | .atualizado = $a'
   }

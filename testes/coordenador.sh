@@ -200,6 +200,40 @@ conferir "hook depois do --fim não reabre o registro" [ "$(campo .estado)" = en
 conferir "a consulta mostra o coordenador encerrado e morto" [ "$(rodar "$repo_jangada/bin/jangada-agentes" \
   --coordenadores-json | jq -c '.coordenadores[0] | [.estado, .viva]')" = '["encerrado",false]' ]
 
+# --fim espera a trava da abertura antes de fechar a sessão.
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" >/dev/null 2>&1
+esperar tm has-session -t =projeto--coordenador
+flock "$reg" sleep 1 &
+segura=$!
+sleep 0.2
+rodar "$repo_jangada/bin/jangada-coordenador" --fim projeto--coordenador >/dev/null 2>&1 &
+fim_pid=$!
+sleep 0.4
+conferir "com a trava ocupada o --fim não fecha a sessão" tm has-session -t =projeto--coordenador
+wait "$segura"; wait "$fim_pid"
+conferir "solta a trava, o --fim encerra" [ "$?" = 0 -a "$(campo .estado)" = encerrado ]
+
+# --projeto junto com --fim: sessão e registro concordam no fim.
+coerente() {
+  local estado_viva
+  estado_viva="$(rodar "$repo_jangada/bin/jangada-agentes" --coordenadores-json \
+    | jq -c '.coordenadores[] | select(.sessao == "projeto--coordenador") | [.estado == "encerrado", .viva]')"
+  if tm has-session -t =projeto--coordenador 2>/dev/null; then
+    [ "$estado_viva" = '[false,true]' ]
+  else
+    [ "$estado_viva" = '[true,false]' ]
+  fi
+}
+incoerentes=0
+for _ in 1 2 3 4 5; do
+  rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" >/dev/null 2>&1
+  rodar "$repo_jangada/bin/jangada-coordenador" --fim projeto--coordenador >/dev/null 2>&1 &
+  rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" >/dev/null 2>&1 &
+  wait
+  coerente || incoerentes=$((incoerentes + 1))
+done
+conferir "--projeto junto com --fim nunca deixa sessão viva com registro encerrado" [ "$incoerentes" = 0 ]
+
 if ((falhas)); then
   echo "$falhas falha(s)"
   exit 1
