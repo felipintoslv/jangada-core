@@ -200,6 +200,7 @@ O `jangada-isolar` a oculta, então o agente isolado não lê nem grava ali.
 | `validacao-SESSAO-rN.md` | `bin/jangada-validar` rodado fora do isolamento: pelo atendente da sessão, a pedido do agente isolado (`--atendido`), ou pelo `--integrar` | `bin/jangada-agente-fim`, ao encerrar |
 | `validacao-SESSAO.aprovado` | idem, no APROVADO: `COMMIT N limpo` ou `COMMIT N sujo` | `bin/jangada-agente-fim`, ao encerrar |
 | `validar.jsonl` | idem, uma linha por rodada, no formato da seção 1 | ninguém |
+| `validacao-SESSAO.erros` | `bin/jangada-validar --atendido`, quando o revisor falha ou vence o prazo: um inteiro, os erros seguidos; no 3, recusa novos pedidos ([isolamento](isolamento.md#o-atendente-da-revisão)) | `bin/jangada-validar` fora, na rodada com parecer; `bin/jangada-agente-fim`, ao encerrar |
 
 - O `jangada-validar --metricas` lê os dois `validar.jsonl` e diz quantas
   aprovações vieram de fora.

@@ -140,25 +140,42 @@ uma sessão de agente roda fora, pedida pelo soquete.
 - **Onde fica:** um processo python fora do bwrap, com o soquete numa pasta
   0700 em `$XDG_RUNTIME_DIR/jangada-isolar/atendente-*` (ou no `TMPDIR`). A
   pasta entra no bwrap somente leitura em `/tmp/.jangada-atendente`.
-- **O que o agente pode pedir:** só a revisão do sha da cabeça. O
-  `jangada-validar` de dentro, sem opções, lê o `HEAD` e manda o sha. Com
-  `--forcar`, `--pular-local`, `--revisor`, `--modelo`, `--esforco`,
-  `--base`, `--resposta`, `--reverter-se-limite` ou `--atendido`, sai com 1
-  sem falar com o atendente. `--metricas` roda dentro, como antes.
-- **O que o atendente aceita:** pedido de até 1 KiB que seja um sha de 40
-  caracteres hexadecimais. O resto recebe `RECUSADO`. Um pedido por vez na
-  sessão; outro, enquanto o primeiro roda, recebe `OCUPADO`. Do pedido só o
-  sha segue, para `jangada-validar --atendido SHA`. Nenhum comando, caminho
-  ou texto do pedido é executado.
+- **O que o agente pode pedir:** só a revisão do sha da cabeça, com a
+  resposta ao parecer anterior. O `jangada-validar` de dentro lê o `HEAD` e
+  manda o sha e, se houver, o texto de `--resposta`. Com `--forcar`,
+  `--pular-local`, `--revisor`, `--modelo`, `--esforco`, `--base`,
+  `--reverter-se-limite` ou `--atendido`, sai com 1 sem falar com o
+  atendente. `--metricas` roda dentro, como antes.
+- **O que o atendente aceita:** uma linha com o sha de 40 caracteres
+  hexadecimais e, depois dela, a resposta: até 8 KiB de UTF-8 válido, sem
+  caracteres de controle além da quebra de linha (tabulação também é
+  recusada). O resto recebe `RECUSADO`. Um pedido por vez na sessão; outro,
+  enquanto o primeiro roda, recebe `OCUPADO`. O sha e a resposta seguem como
+  argumentos separados, sem shell, para
+  `jangada-validar --atendido SHA --resposta TEXTO`; a resposta entra no
+  pedido ao revisor como texto. Nenhum comando ou caminho do pedido é
+  executado.
 - **O que roda fora:** o `--atendido` lê a sessão, a base, o revisor, o
   modelo e o esforço de `revisoes/SESSAO.json` e o limite de rodadas do
   ambiente do atendente (`JANGADA_VALIDAR_RODADAS`). Ele recusa o sha que não
   for a cabeça do ramo da sessão, lida com o git blindado, a pasta que não
-  estiver nessa cabeça e a pasta com alteração sem commit. Depois tira a foto
+  estiver nessa cabeça e a pasta com alteração sem commit. Essas recusas vêm
+  depois do `ACEITO`: o atendente só confere o formato, e quem conhece o ramo
+  e a pasta é o `--atendido`, que sai com 1 e diz o motivo. A pasta com
+  alteração sem commit é recusada porque a revisão vale para exatamente
+  aquele sha: faça commit e peça de novo. Depois tira a foto
   em `fotos/`, roda a verificação local e o revisor sob a trava de
   `revisoes/travas/`, e grava parecer, contexto, marca e linha de
   `validar.jsonl` em `revisoes/`. O sha já revisado contra a mesma base
   devolve o parecer gravado, sem chamar o revisor e sem gastar rodada.
+- **Erros do revisor:** a rodada em que o revisor falha ou vence o prazo
+  (`JANGADA_VALIDAR_PRAZO`) não grava parecer e não conta no limite. O
+  `--atendido` conta os erros seguidos em `revisoes/validacao-SESSAO.erros`;
+  no terceiro, e nos pedidos seguintes, sai com 1 e "o revisor falhou 3
+  vezes seguidas; peça ao coordenador". A rodada com parecer, inclusive a
+  reprovada na verificação local, apaga a contagem. O coordenador libera
+  apagando o arquivo ou rodando o validar fora, e o `jangada-agente-fim`
+  o apaga no encerramento.
 - **A resposta:** o texto do parecer e o código de saída voltam pelo soquete
   como dado; o validar de dentro só os imprime.
 - **Sem atendente** (isolar antigo, sessão sem cópia protegida, soquete

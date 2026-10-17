@@ -204,16 +204,17 @@ flowchart TD
     L -- REVISAR --> N[registra, código 3]
 ```
 
-- **Dentro do isolamento.** Numa sessão de agente, o `jangada-validar` sem
-  opções não revisa ali: manda o sha do `HEAD` ao atendente que o
+- **Dentro do isolamento.** Numa sessão de agente, o `jangada-validar` não
+  revisa ali: manda o sha do `HEAD` e a `--resposta`, se houver, ao atendente que o
   `jangada-isolar` mantém fora do bwrap, e o fluxo acima roda fora, com a
   base, o revisor e o limite de rodadas de `revisoes/SESSAO.json` e de fora.
   O parecer volta pelo terminal; o registro, a marca e a contagem ficam em
   `revisoes/`. Antes de pedir, faça commit: pasta com alteração sem commit é
   recusada. As opções que mudam o critério (`--forcar`, `--pular-local`,
-  `--revisor`, `--modelo`, `--esforco`, `--base`, `--resposta`,
+  `--revisor`, `--modelo`, `--esforco`, `--base`,
   `--reverter-se-limite`) saem com código 1 dentro. Sem atendente, o
-  comando sai com 1 e pede o coordenador. Detalhes em
+  comando sai com 1 e pede o coordenador; depois de 3 erros seguidos do
+  revisor, também. Detalhes em
   [isolamento](isolamento.md#o-atendente-da-revisão).
 - **Ponto de comparação.** Parte do `merge-base` entre a base e o `HEAD`.
   Direto no ramo base, vale o commit `inicio` gravado na abertura. Depois de
