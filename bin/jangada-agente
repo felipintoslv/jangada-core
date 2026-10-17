@@ -605,6 +605,12 @@ if ((sessao_nova)); then
     exit 1
   fi
 
+  # Tarefa aberta de dentro de uma sessão do jangada-coordenador: liga a
+  # tarefa ao registro dele, que a consulta --coordenadores-json lê.
+  coordenador_sessao="${JANGADA_COORDENADOR:-}"
+  if ! [[ "$coordenador_sessao" =~ ^[A-Za-z0-9_.-]{1,255}$ && -f "$JANGADA_ESTADO/coordenadores/$coordenador_sessao.json" ]]; then
+    coordenador_sessao=""
+  fi
   rm -f "$estado_dir/$sessao.json"
   jq -n --arg sessao "$sessao" --arg dir "$dir" --arg raiz "$raiz" --arg worktree "$worktree" \
     --arg ramo "$ramo" --arg base "$base" --arg agente "$agente" \
@@ -613,7 +619,8 @@ if ((sessao_nova)); then
     --arg inicio "$( ((eh_git)) && git -C "$dir" rev-parse HEAD 2>/dev/null || true)" \
     --arg tarefa "$prompt" --arg perfil "$perfil" --arg comando "$cmd_base" \
     --arg atividade "$atividade" --arg tarefa_id "$tarefa_id" --arg execucao "$execucao" \
-    --arg revisor "$revisor_efetivo" --arg delegar "$delegar" --arg coordenador "${coordenador:-dono}" --argjson isolar "$([[ "$isolar" != 0 ]] && echo true || echo false)" \
+    --arg revisor "$revisor_efetivo" --arg delegar "$delegar" --arg coordenador "${coordenador:-dono}" \
+    --arg coordenador_sessao "$coordenador_sessao" --argjson isolar "$([[ "$isolar" != 0 ]] && echo true || echo false)" \
     '{sessao:$sessao, dir:$dir, raiz:$raiz, worktree:$worktree, ramo:$ramo, base:$base,
       agente:$agente, comando:$comando, isolar:$isolar, estado:"iniciado", mensagem:"", desde:$agora, atualizado:$agora}
      + (if $tarefa != "" then {tarefa:$tarefa} else {} end)
@@ -624,7 +631,8 @@ if ((sessao_nova)); then
      + (if $modelos != {} then {modelos_tarefa:$modelos} else {} end)
      + (if $inicio != "" then {inicio:$inicio} else {} end)
      + (if $revisor != "" then {revisor:$revisor} else {} end)
-     + {delegar:$delegar, coordenador:$coordenador}' \
+     + {delegar:$delegar, coordenador:$coordenador}
+     + (if $coordenador_sessao != "" then {coordenador_sessao:$coordenador_sessao} else {} end)' \
     >"$estado_dir/$sessao.json"
   # Cópia dos metadados em revisoes/, que o jangada-isolar oculta: o
   # jangada-validar rodado fora do isolamento lê base, tarefa, autor e
@@ -632,7 +640,7 @@ if ((sessao_nova)); then
   # isolamento, a cópia cairia na pasta que some no fim.
   if [[ -z "${JANGADA_ISOLADO:-}" ]]; then
     (umask 077; mkdir -p "$JANGADA_ESTADO/revisoes") \
-      && jq '{sessao, raiz, worktree, ramo, base, agente, desde, tarefa, inicio, revisor, delegar, execucao, atividade, tarefa_id, modelos_tarefa}
+      && jq '{sessao, raiz, worktree, ramo, base, agente, desde, tarefa, inicio, revisor, delegar, execucao, atividade, tarefa_id, modelos_tarefa, coordenador_sessao}
              | with_entries(select(.value != null))' "$estado_dir/$sessao.json" \
            >"$JANGADA_ESTADO/revisoes/$sessao.json" \
       || echo "aviso: não gravei a cópia da sessão em $JANGADA_ESTADO/revisoes" >&2

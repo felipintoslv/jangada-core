@@ -117,7 +117,7 @@
   },
   "SESSAO.json": {
     "secao": "4",
-    "sem_exemplo": ["pid"],
+    "sem_exemplo": ["pid", "coordenador_sessao"],
     "campos": {
       "sessao": {"tipo": ["texto"], "obrigatorio": true},
       "dir": {"tipo": ["texto"], "obrigatorio": true},
@@ -143,7 +143,8 @@
       "revisor": {"tipo": ["texto"], "obrigatorio": false},
       "conversa": {"tipo": ["texto"], "obrigatorio": false},
       "validacao": {"tipo": ["texto"], "obrigatorio": false},
-      "pid": {"tipo": ["inteiro"], "obrigatorio": false}
+      "pid": {"tipo": ["inteiro"], "obrigatorio": false},
+      "coordenador_sessao": {"tipo": ["texto"], "obrigatorio": false}
     }
   },
   "eventos-agentes.jsonl": {

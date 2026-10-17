@@ -269,15 +269,22 @@ class Gerador:
                    '--projeto', self.projeto, '--nome', 'tarefa', '--prompt', 'tarefa de teste')
         return self.sessao()
 
-    def coordenador_de(self, nome, **variaveis):
-        """Coordenador gravado numa sessão aberta sem a opção --coordenador."""
+    def registro_de(self, nome, **variaveis):
+        """SESSAO.json e cópia em revisoes/ de uma sessão aberta sem a opção --coordenador."""
         # Pasta própria para o tmux falso, que só conhece uma sessão por pasta.
         falso = self.tmp / f'falso-{nome}'
         falso.mkdir()
         self.rodar(self.comando('jangada-agente'), '--agente', 'claude', '--projeto', self.projeto,
                    '--nome', nome, '--prompt', 'tarefa de teste', FALSO_DIR=str(falso), **variaveis)
-        arquivo = self.estado / 'agentes' / f'projeto--{nome}.json'
-        return json.loads(arquivo.read_text(encoding='utf-8')).get('coordenador') if arquivo.is_file() else None
+        lidos = []
+        for pasta in ('agentes', 'revisoes'):
+            arquivo = self.estado / pasta / f'projeto--{nome}.json'
+            lidos.append(json.loads(arquivo.read_text(encoding='utf-8')) if arquivo.is_file() else {})
+        return lidos
+
+    def coordenador_de(self, nome, **variaveis):
+        """Coordenador gravado numa sessão aberta sem a opção --coordenador."""
+        return self.registro_de(nome, **variaveis)[0].get('coordenador')
 
     def hooks(self):
         """eventos-agentes.jsonl (seção 8) e os campos que os hooks põem no SESSAO.json."""
@@ -378,6 +385,16 @@ def main():
         conferir('sem --coordenador, o SESSAO.json diz "dono"', gerador.coordenador_de('sem-opcao') == 'dono')
         conferir('JANGADA_COORDENADOR vale como a opção',
                  gerador.coordenador_de('pela-variavel', JANGADA_COORDENADOR='codex') == 'codex')
+        sem_registro = gerador.registro_de('sem-registro', JANGADA_COORDENADOR='outro--coordenador')
+        conferir('sem registro do coordenador, a tarefa não ganha coordenador_sessao',
+                 all('coordenador_sessao' not in r for r in sem_registro), sem_registro)
+        coordenadores = gerador.estado / 'coordenadores'
+        coordenadores.mkdir(mode=0o700, exist_ok=True)
+        (coordenadores / 'projeto--coordenador.json').write_text('{"sessao": "projeto--coordenador"}')
+        de_dentro = gerador.registro_de('de-dentro', JANGADA_COORDENADOR='projeto--coordenador')
+        conferir('a tarefa aberta de dentro do coordenador grava coordenador_sessao no SESSAO.json e na cópia',
+                 [r.get('coordenador_sessao') for r in de_dentro] == ['projeto--coordenador'] * 2
+                 and de_dentro[0].get('coordenador') == 'projeto--coordenador', de_dentro)
         conferir('os hooks e a troca de foco gravam seis eventos',
                  [e.get('estado') for _, e in registros['eventos-agentes.jsonl']]
                  == ['inicio', 'trabalhando', 'subagente-inicio', 'subagente-fim', 'aguardando', 'foco'],

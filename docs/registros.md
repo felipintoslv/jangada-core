@@ -30,6 +30,8 @@ O [contrato M1.2](coordenacao-central/11-consultas-modulos.md) define campos,
 limites, seleção e erros. Os registros abaixo permanecem inalterados.
 Texto repassado não é autorização; a consulta nunca inclui `revisoes/`.
 `jangada-agentes --rodadas-json` lista as rodadas da seção 1 por sessão; em `revisoes/`, abre só o `validar.jsonl`.
+`jangada-agentes --coordenadores-json` lista os coordenadores da seção 7 e
+as tarefas de cada um, lidas das cópias `revisoes/SESSAO.json`.
 
 ## 1. validar.jsonl
 
@@ -402,7 +404,7 @@ resultado.
   `atividade` e `tarefa_id` (vínculos dados por `--atividade` e
   `--tarefa-id`), `inicio` (commit),
   `revisor`, `conversa`, `validacao`, `delegar` (sempre gravado),
-  `coordenador` (sempre gravado) e
+  `coordenador` (sempre gravado), `coordenador_sessao` e
   `pid` (só o antigo par; nenhum script grava hoje, e o
   `jangada-agente-fim` não o lê nem mata processo por ele).
 - `jangada-agente-fim` (função `conferir_estado`) recusa, sem alterar nada,
@@ -423,6 +425,10 @@ resultado.
   vale `"dono"`. Hooks e `jangada-validar` não o alteram. Serve só para
   exibição na Central e no painel: nenhuma permissão, revisão ou integração
   depende dele.
+- `coordenador_sessao` é gravado a partir de 17/10/2026 só quando a tarefa
+  é aberta de dentro de uma sessão do `jangada-coordenador`: vale
+  `JANGADA_COORDENADOR` quando há registro em `coordenadores/` com esse
+  nome. Vai também para a cópia em `revisoes/`.
 - `conversa` é o `sessionId` do Claude (nome do `.jsonl`) ou o
   `conversationId` do agy (nome do `.db`). É o único lugar que liga a sessão
   do jangada à conversa.
@@ -515,6 +521,15 @@ subagente tem `.db` próprio.
 - `$JANGADA_ESTADO/migracoes/`: marcas de migrações aplicadas, gravadas
   pelo repositório jangada-shell. Fora do Core.
 - `$JANGADA_ESTADO/tarefas/*.md`: especificações de tarefa escritas à mão.
+- `$JANGADA_ESTADO/coordenadores/SESSAO.json` (pasta modo 700, a partir de
+  17/10/2026): um por coordenador aberto pelo `jangada-coordenador`. Campos
+  `sessao`, `projeto` (raiz absoluta), `provedor`, `estado` (`iniciado`,
+  `trabalhando`, `aguardando`, `concluido`, `encerrado`), `ultima_linha`
+  (até 200 caracteres, sem caracteres de controle), `desde`, `atualizado` e,
+  depois do `--fim`, `encerrado` (data). O comando cria; os hooks do Claude e
+  do Codex atualizam `estado`, `ultima_linha` e `atualizado` só com
+  `JANGADA_COORDENADOR` definido, por arquivo temporário e `mv`. Ninguém
+  apaga: o `--fim` só marca.
 - `~/.claude/history.jsonl`: um pedido digitado por linha, `display`,
   `pastedContents`, `timestamp` (ms), `project` (cwd), `sessionId`. 2.617
   linhas desde 02/05/2026; não é apagado pela limpeza de 30 dias. Serve
