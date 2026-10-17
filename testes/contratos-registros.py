@@ -234,7 +234,10 @@ class Gerador:
         """Roda como o agente chama: com JANGADA_ISOLADO e a marca do isolamento
         montada. Dentro de uma sessão a marca já existe; fora, o bwrap monta só
         ela, como faz o testes/validar.sh."""
-        prefixo, variaveis = [], {'JANGADA_ISOLADO': '1', 'JANGADA_SESSAO': SESSAO}
+        # Sem o atendente do jangada-isolar, que este teste não abre: o validar
+        # revisa dentro, como antes; testes/atendente.sh cobre o pedido.
+        prefixo, variaveis = [], {'JANGADA_ISOLADO': '1', 'JANGADA_SESSAO': SESSAO,
+                                  'JANGADA_VALIDAR_SEM_ATENDENTE': '1'}
         montagens = pathlib.Path('/proc/self/mountinfo').read_text().splitlines()
         if not any(linha.split()[4] == MARCA for linha in montagens):
             marca = self.tmp / 'marca'

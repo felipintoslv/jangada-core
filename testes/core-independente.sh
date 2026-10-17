@@ -72,7 +72,8 @@ chmod +x "$tmp/bin/claude"
 export PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso"
 export JANGADA_ISOLAR_ESCRITA="$tmp/falso"
 export XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config"
-export JANGADA_CORE_PATH="$copia" JANGADA_SESSAO=s JANGADA_ISOLADO=1
+# Sem o atendente do jangada-isolar: o validar revisa dentro, como antes.
+export JANGADA_CORE_PATH="$copia" JANGADA_SESSAO=s JANGADA_ISOLADO=1 JANGADA_VALIDAR_SEM_ATENDENTE=1
 git -C "$tmp/projeto" init -q -b main
 printf 'x <- 1\n' >"$tmp/projeto/exemplo.R"
 git -C "$tmp/projeto" add exemplo.R
