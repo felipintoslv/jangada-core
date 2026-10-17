@@ -23,7 +23,9 @@
 #   --metricas        resume as rodadas registradas e sai
 #   --atendido SHA    uso do atendente do jangada-isolar: revisa a sessão de
 #                     JANGADA_SESSAO se SHA for a cabeça do ramo dela, sem
-#                     outras opções; o sha já revisado devolve o parecer gravado
+#                     outras opções além de --resposta; o sha já revisado
+#                     devolve o parecer gravado; depois de 3 erros seguidos do
+#                     revisor, recusa até uma rodada fora dar parecer
 #
 # A revisão pelo agy leva alguns minutos. Quem chama por uma ferramenta com
 # tempo limite deve dar pelo menos 10 minutos. Cada chamada ao revisor tem
@@ -45,10 +47,10 @@
 # o agente não forja o que está ali. Os metadados da sessão (base, tarefa,
 # autor, revisor) vêm da cópia que o jangada-agente grava ali ao criá-la.
 #
-# Dentro do isolamento o validar não revisa: manda o sha da cabeça ao
-# atendente que o jangada-isolar mantém fora, por um soquete, e imprime o
-# parecer e o código de saída que ele devolve. As opções acima, menos
-# --metricas, são recusadas ali. Sem atendente, sai com 1 e não grava nada.
+# Dentro do isolamento o validar não revisa: manda o sha da cabeça e a
+# --resposta ao atendente que o jangada-isolar mantém fora, por um soquete, e
+# imprime o parecer e o código de saída que ele devolve. As outras opções,
+# menos --metricas, são recusadas ali. Sem atendente, sai com 1 e não grava nada.
 set -euo pipefail
 # shellcheck source=bin/jangada-config
 source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
@@ -60,7 +62,7 @@ pular_local="${JANGADA_VALIDAR_PULAR_LOCAL:-0}"
 reverter_se_limite=0; metricas=0; atendido=""; restritas=()
 while (($#)); do
   case "$1" in
-    --revisor|--base|--modelo|--esforco|--resposta|--forcar|--pular-local|--reverter-se-limite)
+    --revisor|--base|--modelo|--esforco|--forcar|--pular-local|--reverter-se-limite)
       restritas+=("$1") ;;
   esac
   case "$1" in
@@ -74,7 +76,7 @@ while (($#)); do
     --reverter-se-limite) reverter_se_limite=1; shift ;;
     --metricas) metricas=1; shift ;;
     --atendido) atendido="$2"; shift 2 ;;
-    -h|--ajuda|--help) sed -n '2,52s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    -h|--ajuda|--help) sed -n '2,54s/^# \{0,1\}//p' "$0"; exit 0 ;;
     --) shift; break ;;
     -*) echo "opção desconhecida: $1" >&2; exit 1 ;;
     *) break ;;
@@ -97,7 +99,8 @@ else
 fi
 
 # Dentro do isolamento o validar só pede a revisão ao atendente que o
-# jangada-isolar mantém fora: vai o sha da cabeça e mais nada. Sessão, base,
+# jangada-isolar mantém fora: vai o sha da cabeça e, se houver, a resposta ao
+# parecer anterior, como dado. Sessão, base,
 # revisor, modelo, esforço e limite de rodadas são os de fora, e só lá se
 # grava. JANGADA_VALIDAR_SEM_ATENDENTE=1 roda aqui dentro como antes (os
 # testes do validar); o que essa rodada grava não entra nas somas nem integra.
@@ -112,13 +115,16 @@ if ((!fora)) && [[ "${JANGADA_VALIDAR_SEM_ATENDENTE:-0}" != 1 ]]; then
     cabeca_pedido="$(git -C "$pasta_pedido" rev-parse --verify --quiet 'HEAD^{commit}')" \
       || { echo "jangada-validar: $pasta_pedido não tem commit para revisar" >&2; exit 1; }
     exec python3 -c 'import json, socket, sys
-caminho, sha = sys.argv[1:]
+caminho, sha, resposta = sys.argv[1:]
 indisponivel = "revisão fora do isolamento indisponível; peça ao coordenador"
+resposta = resposta.encode("utf-8", "surrogateescape")
+if len(resposta) > 8192:
+    sys.exit("jangada-validar: a resposta passa de 8 KiB; resuma e peça de novo")
 try:
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(10)
     s.connect(caminho)
-    s.sendall(sha.encode() + b"\n")
+    s.sendall(sha.encode() + b"\n" + resposta)
     s.shutdown(socket.SHUT_WR)
     f = s.makefile("rb")
     primeira = f.readline(4096).decode("utf-8", "replace").strip()
@@ -139,17 +145,18 @@ except (OSError, ValueError, KeyError, TypeError, AssertionError):
     sys.exit(indisponivel)
 sys.stdout.write(saida)
 sys.stderr.write(erros)
-sys.exit(codigo if 0 <= codigo <= 255 else 1)' "${JANGADA_VALIDAR_SOQUETE:-/tmp/.jangada-atendente/soquete}" "$cabeca_pedido"
+sys.exit(codigo if 0 <= codigo <= 255 else 1)' "${JANGADA_VALIDAR_SOQUETE:-/tmp/.jangada-atendente/soquete}" "$cabeca_pedido" "$resposta"
   fi
 fi
 
-# --atendido SHA: o pedido que o atendente repassa. Só o sha vem de dentro,
-# conferido como a cabeça do ramo da sessão; pasta e metadados vêm da cópia
-# protegida em revisoes/.
+# --atendido SHA: o pedido que o atendente repassa. De dentro vêm só o sha,
+# conferido como a cabeça do ramo da sessão, e a resposta, que entra no
+# pedido ao revisor como texto; pasta e metadados vêm da cópia protegida em
+# revisoes/.
 if [[ -n "$atendido" ]]; then
   ((fora)) || { echo "jangada-validar: --atendido só roda fora do isolamento" >&2; exit 1; }
   ((${#restritas[@]} == 0 && !metricas && $# == 0)) \
-    || { echo "jangada-validar: --atendido não aceita outras opções nem pasta" >&2; exit 1; }
+    || { echo "jangada-validar: --atendido não aceita outras opções além de --resposta, nem pasta" >&2; exit 1; }
   [[ "$atendido" =~ ^[0-9a-f]{40}$ ]] || { echo "jangada-validar: --atendido espera um sha de 40 caracteres hexadecimais" >&2; exit 1; }
   sessao_atendida="${JANGADA_SESSAO:-}"
   [[ "$sessao_atendida" =~ ^[A-Za-z0-9_.-]+$ && "$sessao_atendida" != . && "$sessao_atendida" != .. ]] \
@@ -584,6 +591,8 @@ if ! congelar; then
   exit 1
 fi
 dir="$foto"
+arq_erros="$revisoes_dir/validacao-$rotulo.erros"
+zerar_erros() { ((!fora)) || rm -f "$arq_erros"; }
 
 if [[ -n "$atendido" ]]; then
   if [[ "$candidato" != "$atendido" ]]; then
@@ -606,6 +615,15 @@ if [[ -n "$atendido" ]]; then
     primeira="$(grep -m1 -v '^[[:space:]]*$' "$gravado" || true)"
     [[ "$primeira" =~ ^[#[:space:]*]*STATUS:[[:space:]*]*APROVADO[[:space:]*]*$ ]] && exit 0
     exit 3
+  fi
+  # Rodada que termina em erro do revisor não grava parecer e não conta no
+  # limite; os erros seguidos contam aqui, e a rodada com parecer zera.
+  erros_seguidos=0
+  [[ -f "$arq_erros" && ! -L "$arq_erros" ]] && read -r erros_seguidos <"$arq_erros"
+  [[ "$erros_seguidos" =~ ^[0-9]+$ ]] || erros_seguidos=0
+  if ((erros_seguidos >= 3)); then
+    echo "jangada-validar: o revisor falhou 3 vezes seguidas; peça ao coordenador" >&2
+    exit 1
   fi
 fi
 
@@ -1241,6 +1259,7 @@ if ((!pular_local)) && [[ "${JANGADA_VALIDAR_TESTANDO:-0}" != "1" ]]; then
     echo >&2
     echo "jangada-validar: REVISAR (parecer em $saida)" >&2
     registrar revisar local
+    zerar_erros
     "$JANGADA_CORE_PATH/bin/jangada-gancho" pos-validar "$rotulo" "REVISAR" || true
     exit 3
   fi
@@ -1409,9 +1428,14 @@ if ! revisar; then
     echo "jangada-validar: a chamada ao $nome_revisor falhou" >&2
   fi
   registrar erro revisor
+  if [[ -n "$atendido" ]]; then
+    printf '%s\n' "$((erros_seguidos + 1))" >"$arq_erros.tmp" && mv -f "$arq_erros.tmp" "$arq_erros"
+    ((erros_seguidos + 1 < 3)) || echo "jangada-validar: o revisor falhou 3 vezes seguidas; peça ao coordenador" >&2
+  fi
   exit 1
 fi
 mv "$saida.tmp" "$saida"
+zerar_erros
 medir_tokens_revisor
 
 status="REVISAR"

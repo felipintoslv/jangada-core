@@ -548,7 +548,8 @@ limpar() {
   for parecer in "$JANGADA_ESTADO/revisoes/validacao-$s-r"[0-9]*.md; do
     [[ "${parecer#"$JANGADA_ESTADO/revisoes/validacao-$s-r"}" =~ ^[0-9]+\.md$ ]] && rm -f "$parecer"
   done
-  rm -f "$JANGADA_ESTADO/revisoes/validacao-$s.aprovado" "$JANGADA_ESTADO/revisoes/$s.json"
+  rm -f "$JANGADA_ESTADO/revisoes/validacao-$s.aprovado" "$JANGADA_ESTADO/revisoes/validacao-$s.erros" \
+    "$JANGADA_ESTADO/revisoes/$s.json"
   echo "sessão encerrada: $s"
   # Só depois do branch -d: assinar reescreve os commits do ramo, e o git
   # deixaria de vê-lo como mesclado.

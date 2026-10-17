@@ -55,11 +55,11 @@ EOF
   chmod +x "$tmp/bwrap-falso/bwrap"
 fi
 
-# Revisor falso: conta as chamadas e responde o que está em $F/resposta,
-# depois de $F/espera segundos, se houver.
+# Revisor falso: guarda o pedido, conta as chamadas e responde o que está em
+# $F/resposta, depois de $F/espera segundos, se houver.
 cat >"$tmp/bin/claude" <<'EOF'
 #!/usr/bin/env bash
-cat >/dev/null
+cat >"$FALSO_DIR/pedido"
 echo x >>"$FALSO_DIR/chamadas"
 [[ -f "$FALSO_DIR/espera" ]] && sleep "$(cat "$FALSO_DIR/espera")"
 printf '%b\n' "$(cat "$FALSO_DIR/resposta")"
@@ -94,8 +94,10 @@ limpar_ambiente=(-u JANGADA_ISOLADO -u DBUS_SESSION_BUS_ADDRESS -u JANGADA_VALID
   -u JANGADA_DELEGAR -u JANGADA_ISOLAR_FOTO -u JANGADA_ISOLAR_PERFIL)
 command -v gitleaks >/dev/null 2>&1 || ambiente+=(JANGADA_VALIDAR_SEM_GITLEAKS=1)
 # isolar SESSAO COMANDO...: abre a sessão no worktree, como o jangada-agente.
+# $extra vale para o atendente, fora.
+extra=()
 isolar() {
-  (cd "$tmp/wt" && env "${limpar_ambiente[@]}" "${ambiente[@]}" JANGADA_SESSAO="$1" \
+  (cd "$tmp/wt" && env "${limpar_ambiente[@]}" "${ambiente[@]}" "${extra[@]}" JANGADA_SESSAO="$1" \
     "$repo_jangada/bin/jangada-isolar" -- "${@:2}" </dev/null)
 }
 validar="$repo_jangada/bin/jangada-validar"
@@ -146,7 +148,7 @@ conferir "caso 2: nenhuma rodada nova" bash -c '[ "$1" = 1 ] && [ "$2" = 1 ]' _ 
 
 # Caso 3: opções que mudariam a revisão são recusadas dentro, sem o atendente.
 for opcao in "--forcar" "--pular-local" "--revisor codex" "--modelo x" "--esforco high" \
-             "--base HEAD" "--resposta 1 corrigido" "--reverter-se-limite" "--atendido $base_sha"; do
+             "--base HEAD" "--reverter-se-limite" "--atendido $base_sha"; do
   read -ra partes <<<"$opcao"
   pedir op "$validar" "${partes[@]}"
   conferir "caso 3: ${partes[0]} recusada com 1 e mensagem" \
@@ -176,13 +178,18 @@ import socket, sys
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.settimeout(30)
 s.connect(sys.argv[1])
-s.sendall(sys.argv[2].encode())
+s.sendall(sys.argv[2].encode("utf-8", "surrogateescape"))
 s.shutdown(socket.SHUT_WR)
 print(s.makefile(encoding='utf-8', errors='replace').read())
 EOF
 isolar t bash -c 'for p in "$@"; do python3 "$FALSO_DIR/cru.py" "$JANGADA_VALIDAR_SOQUETE" "$p"; echo "--"; done' _ \
-  "$(printf 'a%.0s' {1..2000})" "nao-e-sha" "$cabeca; touch $F/injetado" "$base_sha" >"$F/cru.out" 2>&1
-conferir "caso 4: pedido maior que 1 KiB recusado" grep -q '^RECUSADO pedido maior que 1 KiB' "$F/cru.out"
+  "$cabeca"$'\n'"$(printf 'a%.0s' {1..8300})" "nao-e-sha" "$cabeca; touch $F/injetado" "$base_sha" \
+  "$cabeca"$'\n'"1 corrigido"$'\e'"[2J" "$cabeca"$'\n'"1 corrigido"$'\t'"x" "$cabeca"$'\n'"1 "$'\xff' \
+  >"$F/cru.out" 2>&1
+conferir "caso 4: resposta maior que 8 KiB recusada" grep -q '^RECUSADO a resposta passa de 8 KiB' "$F/cru.out"
+conferir "caso 4: resposta com caractere de controle recusada" \
+  bash -c '[ "$(grep -c "^RECUSADO a resposta tem caracteres de controle" "$1")" = 2 ]' _ "$F/cru.out"
+conferir "caso 4: resposta fora do UTF-8 recusada" grep -q '^RECUSADO a resposta não é UTF-8 válido' "$F/cru.out"
 conferir "caso 4: texto que não é sha recusado" \
   bash -c '[ "$(grep -c "^RECUSADO o pedido não é um sha" "$1")" = 2 ]' _ "$F/cru.out"
 conferir "caso 4: o texto do pedido não roda" test ! -e "$F/injetado"
@@ -226,8 +233,14 @@ rm -f "$F/espera"
 
 # Caso 7: o limite de rodadas é o de fora; a variável de dentro não vale.
 commitar
-pedir l1 "$validar"
+pedir l1 "$validar" --resposta "1 corrigido: teste novo; \$(touch $F/injetado) \"aspas\""
 conferir "caso 7: segunda rodada da entrega" [ "$(rc l1)" = 3 ]
+conferir "caso 7: a resposta chega ao revisor como texto" \
+  bash -c 'grep -qF "1 corrigido: teste novo; \$(touch $2/injetado) \"aspas\"" "$1" && [ ! -e "$2/injetado" ]' _ \
+  "$F/pedido" "$F"
+pedir lg "$validar" --resposta "$(printf 'a%.0s' {1..8200})"
+conferir "caso 7: resposta acima de 8 KiB recusada no pedido" \
+  bash -c '[ "$1" = 1 ] && grep -q "passa de 8 KiB" "$2"' _ "$(rc lg)" "$F/lg.err"
 commitar
 pedir l2 env JANGADA_VALIDAR_RODADAS=99 "$validar"
 conferir "caso 7: terceira rodada para no limite de fora" \
@@ -276,6 +289,34 @@ conferir "caso 10: o atendente acaba depois do KILL" atendente_morto
 pkill -f '^sleep 31$' 2>/dev/null
 pkill -f "^bwrap .*$tmp/" 2>/dev/null
 wait 2>/dev/null
+
+# Caso 12: o revisor que vence o prazo. Três erros seguidos param os pedidos;
+# a rodada com parecer zera a contagem.
+extra=(JANGADA_VALIDAR_RODADAS=10 JANGADA_VALIDAR_PRAZO=1)
+echo 'STATUS: REVISAR\n1. arquivo.txt:9 y' >"$F/resposta"
+commitar
+echo 4 >"$F/espera"
+pedir e1 "$validar"; pedir e2 "$validar"
+conferir "caso 12: prazo vencido sai com 1, sem parecer" \
+  bash -c '[ "$1" = 1 ] && [ "$2" = 1 ] && grep -q "não respondeu em 1s" "$3" && [ "$4" = 4 ]' _ \
+  "$(rc e1)" "$(rc e2)" "$F/e2.err" "$(pareceres)"
+rm -f "$F/espera"
+pedir e3 "$validar"
+conferir "caso 12: a rodada com parecer zera a contagem" \
+  bash -c '[ "$1" = 3 ] && [ ! -e "$2" ]' _ "$(rc e3)" "$estado/revisoes/validacao-t.erros"
+commitar
+echo 4 >"$F/espera"
+pedir e4 "$validar"; pedir e5 "$validar"; pedir e6 "$validar"
+conferir "caso 12: o terceiro erro seguido avisa" \
+  bash -c '[ "$1" = 1 ] && [ "$2" = 1 ] && ! grep -q "3 vezes" "$3" && grep -q "o revisor falhou 3 vezes seguidas; peça ao coordenador" "$4"' _ \
+  "$(rc e4)" "$(rc e6)" "$F/e5.err" "$F/e6.err"
+antes="$(chamadas)"
+pedir e7 "$validar"
+conferir "caso 12: depois do terceiro erro o pedido é recusado sem chamar o revisor" \
+  bash -c '[ "$1" = 1 ] && grep -q "o revisor falhou 3 vezes seguidas; peça ao coordenador" "$2" && [ "$3" = "$4" ]' _ \
+  "$(rc e7)" "$F/e7.err" "$antes" "$(chamadas)"
+rm -f "$F/espera"
+extra=()
 
 # Caso 11, só com o bwrap: o agente não troca o soquete nem lê revisoes/.
 if ((real)); then

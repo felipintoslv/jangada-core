@@ -48,7 +48,8 @@
 # Numa sessão de agente (JANGADA_SESSAO com cópia em revisoes/), fica aqui
 # fora um atendente da revisão, num soquete que aparece dentro em
 # /tmp/.jangada-atendente/soquete (JANGADA_VALIDAR_SOQUETE). O
-# jangada-validar de dentro manda por ele só o sha da cabeça; a revisão roda
+# jangada-validar de dentro manda por ele só o sha da cabeça e a resposta ao
+# parecer anterior; a revisão roda
 # fora, com os metadados e o limite de rodadas de fora, e só fora se grava.
 # O atendente acaba com a sessão.
 set -euo pipefail
@@ -59,7 +60,7 @@ mostrar=0
 while (($#)); do
   case "$1" in
     --mostrar) mostrar=1; shift ;;
-    -h|--ajuda|--help) sed -n '2,53s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    -h|--ajuda|--help) sed -n '2,54s/^# \{0,1\}//p' "$0"; exit 0 ;;
     --) shift; break ;;
     *) break ;;
   esac
@@ -574,9 +575,11 @@ args+=(--ro-bind /dev/null /tmp/.jangada-sem-autoridade)
 
 # Atendente da revisão: numa sessão de agente com cópia protegida em
 # revisoes/, um processo aqui fora atende pelo soquete os pedidos do
-# jangada-validar de dentro. Do pedido só se aproveita um sha de 40
-# caracteres hexadecimais, repassado a "jangada-validar --atendido", que
-# confere se é a cabeça do ramo da sessão e grava em revisoes/. Um pedido por
+# jangada-validar de dentro. O pedido é um sha de 40 caracteres
+# hexadecimais, numa linha, e a resposta ao parecer anterior, até 8 KiB de
+# UTF-8 sem caracteres de controle além da quebra de linha. Os dois vão como
+# argumentos, sem shell, a "jangada-validar --atendido", que confere se o sha
+# é a cabeça do ramo da sessão e grava em revisoes/. Um pedido por
 # vez; o outro recebe OCUPADO. A pasta do soquete entra somente leitura: o
 # agente conecta, mas não troca nem apaga o soquete. O atendente sai quando
 # este script acaba, e mata a revisão em curso.
@@ -592,7 +595,7 @@ if ((!mostrar)) && [[ "$perfil" == agente && -z "${JANGADA_ISOLAR_FOTO:-}" ]] \
   [[ -n "$atendente_pasta" ]] || atendente_pasta="$(mktemp -d "${TMPDIR:-/tmp}/jangada-atendente-XXXXXX" 2>/dev/null)" || atendente_pasta=""
 fi
 if [[ -n "$atendente_pasta" ]]; then
-  exec {atendente_fd}< <(exec env -u JANGADA_ISOLADO python3 -c 'import json, os, re, signal, socket, subprocess, sys, threading
+  exec {atendente_fd}< <(exec env -u JANGADA_ISOLADO python3 -c 'import json, os, re, signal, socket, subprocess, sys, threading, unicodedata
 pasta, sessao, validar, pai = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 for nome in os.listdir("/proc/self/fd"):
     if int(nome) > 2:
@@ -607,6 +610,7 @@ revisao = threading.Lock()
 conexoes = threading.BoundedSemaphore(8)
 filho = []
 TETO = 512 * 1024
+LIMITE = 41 + 8192
 
 def encerrar(*_):
     for p in filho:
@@ -626,14 +630,14 @@ def atender(con):
         con.settimeout(5)
         dados = b""
         try:
-            while len(dados) <= 1024:
-                parte = con.recv(1025 - len(dados))
+            while len(dados) <= LIMITE:
+                parte = con.recv(LIMITE + 1 - len(dados))
                 if not parte: break
                 dados += parte
         except OSError:
             return enviar(con, "RECUSADO pedido incompleto em 5 s\n")
-        if len(dados) > 1024:
-            enviar(con, "RECUSADO pedido maior que 1 KiB\n")
+        if len(dados) > LIMITE:
+            enviar(con, "RECUSADO a resposta passa de 8 KiB\n")
             # Fechar com bytes por ler manda RST, e a recusa se perde no cliente.
             try:
                 for _ in range(64):
@@ -641,14 +645,24 @@ def atender(con):
             except OSError:
                 pass
             return
-        if not re.fullmatch(rb"[0-9a-f]{40}\n?", dados):
+        sha, _, resposta = dados.partition(b"\n")
+        if not re.fullmatch(rb"[0-9a-f]{40}", sha):
             return enviar(con, "RECUSADO o pedido não é um sha de 40 caracteres hexadecimais\n")
+        try:
+            resposta = resposta.decode("utf-8")
+        except UnicodeDecodeError:
+            return enviar(con, "RECUSADO a resposta não é UTF-8 válido\n")
+        if any(c != "\n" and unicodedata.category(c) == "Cc" for c in resposta):
+            return enviar(con, "RECUSADO a resposta tem caracteres de controle além da quebra de linha\n")
+        argumentos = [validar, "--atendido", sha.decode()]
+        if resposta.strip():
+            argumentos += ["--resposta", resposta]
         if not revisao.acquire(blocking=False):
             return enviar(con, "OCUPADO\n")
         try:
             enviar(con, "ACEITO\n")
             ambiente = dict(os.environ, JANGADA_SESSAO=sessao)
-            p = subprocess.Popen([validar, "--atendido", dados[:40].decode()], stdin=subprocess.DEVNULL,
+            p = subprocess.Popen(argumentos, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ambiente, cwd="/",
                                  start_new_session=True)
             filho.append(p)
