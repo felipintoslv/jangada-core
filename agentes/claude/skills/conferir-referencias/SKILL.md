@@ -40,7 +40,7 @@ Levante todas as chaves ou citações, com a localização:
 | Pandoc, Quarto e R Markdown | `@chave`, `[@chave, p. 12]`, `[@a; @b]` |
 | Autor e data (DOCX, PDF, texto corrido) | `(SILVA, 2020, p. 12)`, `Silva (2020)`, `(SILVA; SOUZA, 2019)`, `et al.` |
 
-No formato autor e data, case pelo sobrenome do primeiro autor e pelo ano.
+No formato autor e data, associe pelo sobrenome do primeiro autor e pelo ano.
 Dois trabalhos do mesmo autor e ano precisam de letra (2020a, 2020b) no
 texto e na lista.
 

@@ -12,9 +12,9 @@ description: >
 
 # Protocolo: conferir citação
 
-Responde a uma pergunta por afirmação: a fonte citada diz o que o texto diz
-que ela diz? A existência da referência e o formato da lista são outra
-conferência, a da skill `conferir-referencias`.
+Responde a uma pergunta por afirmação: a fonte citada sustenta o que o texto
+afirma? A existência da referência e o formato da lista ficam com a skill
+`conferir-referencias`.
 
 ## 1. Regras que não mudam
 
