@@ -123,7 +123,7 @@ lembrete_pesquisa() { # tipos, um por linha
   fi
   if ((marcas)); then
     timeout 5 find -P "$avisos" -mindepth 1 -maxdepth 1 -type d -empty -mtime +7 \
-      \( -name '*.escrita' -o -name '*.figuras' \) -delete 2>/dev/null
+      -regextype posix-extended -regex '.*/[A-Za-z0-9_-]+\.(escrita|figuras)' -delete 2>/dev/null
   fi
   for tipo in escrita figuras; do
     grep -qx "$tipo" <<<"$tipos" || continue
