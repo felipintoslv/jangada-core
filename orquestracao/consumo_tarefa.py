@@ -106,6 +106,7 @@ def codex(estado, sessao, inicio):
 
     arquivos.sort(key=instante_arquivo)
     ultimo = None
+    primeiro = None
     modelo = None
     parcial = False
     for arquivo in arquivos:
@@ -133,6 +134,10 @@ def codex(estado, sessao, inicio):
                     contagem = corpo
                 if isinstance(contagem, dict):
                     ultimo = contagem
+                    inicial = uso_codex(contagem)
+                    # O primeiro token_count costuma vir sem info, só com os limites.
+                    if inicial is not None and (primeiro is None or data < primeiro[0]):
+                        primeiro = (data, inicial)
                     modelo = corpo.get('model') or corpo.get('model_name') or modelo
         except OSError:
             continue
@@ -142,9 +147,23 @@ def codex(estado, sessao, inicio):
     atual = t.get('total_token_usage') or t.get('last_token_usage') or t
     if not isinstance(atual, dict):
         return vazio('registro Codex inválido')
+    # No Codex, input_tokens já inclui os cached_input_tokens.
+    contexto = numero(primeiro[1].get('input_tokens')) if primeiro else None
     return dict(entrada=numero(atual.get('input_tokens')), saida=numero(atual.get('output_tokens')),
                 cache_lido=numero(atual.get('cached_input_tokens')), modelo=modelo,
-                motivo='medição parcial' if parcial else None)
+                motivo='medição parcial' if parcial else None,
+                contexto_inicial=contexto,
+                motivo_contexto=None if primeiro else 'primeiro token_count sem uso registrado')
+
+
+def uso_codex(contagem):
+    info = contagem.get('info') if isinstance(contagem.get('info'), dict) else None
+    if info is None and 'input_tokens' in contagem:
+        info = {'last_token_usage': contagem}
+    if info is None:
+        return None
+    uso = info.get('last_token_usage') or info.get('total_token_usage')
+    return uso if isinstance(uso, dict) and type(uso.get('input_tokens')) is int else None
 
 
 def claude(home, projeto, inicio):
@@ -199,16 +218,21 @@ def claude(home, projeto, inicio):
         return vazio('não foi possível ler registros Claude')
     if not respostas:
         return vazio('medição parcial' if parcial else 'registro Claude ausente')
-    respostas.sort(key=lambda x: x[0])
+    respostas.sort(key=lambda x: instante(x[0]))
+    primeira = respostas[0][1]
     return dict(entrada=sum(numero(x[1].get('input_tokens')) for x in respostas),
                 saida=sum(numero(x[1].get('output_tokens')) for x in respostas),
                 cache_lido=sum(numero(x[1].get('cache_read_input_tokens')) for x in respostas),
                 modelo=next((x[2] for x in reversed(respostas) if x[2]), None),
-                motivo='medição parcial' if parcial else None)
+                motivo='medição parcial' if parcial else None,
+                contexto_inicial=sum(numero(primeira.get(campo)) for campo in
+                                     ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens')),
+                motivo_contexto=None)
 
 
 def vazio(motivo):
-    return dict(entrada=None, saida=None, cache_lido=None, modelo=None, motivo=motivo)
+    return dict(entrada=None, saida=None, cache_lido=None, modelo=None, motivo=motivo,
+                contexto_inicial=None, motivo_contexto=motivo)
 
 
 def medir(estado, sessao, autor, projeto, home=None, inicio=None, worktree=True):

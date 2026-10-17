@@ -98,7 +98,8 @@ def montar_com_datas(estado, projeto='', desde=''):
         motivo = ('tarefa aberta; consumo medido no encerramento' if aberta
                   else 'consumo não registrado no encerramento')
         por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=execucao, autor=None,
-            tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None, motivo=motivo), inicio=None, fim=None))
+            tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None, motivo=motivo), inicio=None, fim=None,
+            contexto_inicial=None, motivo_contexto=motivo))
 
     tarefas, datas = {}, {}
     for (sessao, execucao), c in por_chave.items():
@@ -108,10 +109,20 @@ def montar_com_datas(estado, projeto='', desde=''):
         ds = [x for x in delegacoes if x.get('sessao') == sessao and x.get('execucao') == execucao]
         ultima = protegidas[-1] if protegidas else {}
         t = tokens(c, c.get('autor'))
+        contexto = c.get('contexto_inicial') if type(c.get('contexto_inicial')) is int and c['contexto_inicial'] >= 0 else None
+        if contexto is not None:
+            motivo_contexto = None
+        elif isinstance(c.get('motivo_contexto'), str):
+            motivo_contexto = c['motivo_contexto']
+        elif 'contexto_inicial' not in c:
+            motivo_contexto = 'registro anterior à medição do contexto inicial'
+        else:
+            motivo_contexto = 'contexto inicial não medido'
         datas[f'{sessao}:{execucao or ""}'] = max(
             [x for x in [c.get('fim')] + [v.get('data') for v in relacionadas if v.get('origem') == 'protegida'] if isinstance(x, str)],
             default='')
         tarefas[f'{sessao}:{execucao or ""}'] = dict(sessao=sessao, autor=c.get('autor'), tokens=t,
+            contexto_inicial=contexto, motivo_contexto=motivo_contexto,
             rodadas=len(protegidas), rodadas_sessao=len(sessao_v), ultimo_resultado=ultima.get('resultado'),
             delegacoes=[dict(papel=x.get('papel'), destino=x.get('destino'), modelo=x.get('modelo'), origem='sessao',
                 tokens_entrada=x.get('tokens_local_entrada') if x.get('destino') == 'local' else None,
@@ -204,7 +215,7 @@ def texto(dados, datas, todas=False, limite=10):
         tk = t['tokens']
         linhas.append(f"  {texto_terminal(t['sessao'])}: entrada {valor(tk.get('entrada'))}, "
                       f"saída {valor(tk.get('saida'))}, cache lido {valor(tk.get('cache_lido'))}, "
-                      f"rodadas {t['rodadas']}, rodadas sessão {t['rodadas_sessao']}, "
+                      f"contexto inicial {valor(t['contexto_inicial'])}, rodadas {t['rodadas']}, rodadas sessão {t['rodadas_sessao']}, "
                       f"revisão {t['segundos_revisao']} s")
     revisores = dados['revisores']
     totais = []

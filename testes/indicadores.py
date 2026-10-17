@@ -51,7 +51,7 @@ def main():
         sessao = 's1'
         gravar(estado, 'consumo-tarefas.jsonl', [dict(sessao=sessao, projeto='p', execucao='e1', autor='claude',
             modelo='m', tokens=dict(entrada=50, saida=20, cache_lido=5), motivo=None,
-            inicio='2026-01-01', fim='2026-01-02'),
+            inicio='2026-01-01', fim='2026-01-02', contexto_inicial=40, motivo_contexto=None),
             dict(sessao='sem-medicao', projeto='p', execucao='e4', autor='claude', modelo=None,
                  tokens=dict(entrada=None, saida=None, cache_lido=None), motivo='registro ausente',
                  inicio='2026-01-01', fim='2026-01-02')])
@@ -101,6 +101,9 @@ def main():
                 'total_token_usage': {'input_tokens': 900, 'output_tokens': 900}}}}) + '\n' +
             json.dumps({'timestamp': '2026-01-01T14:00:00Z',
                         'payload': {'type': 'turn_context', 'model': 'codex-test'}}) + '\n' +
+            # O primeiro token_count da sessão vem sem info, só com os limites.
+            json.dumps({'timestamp': '2026-01-01T14:00:30Z', 'payload': {'type': 'token_count', 'info': None,
+                'rate_limits': {}}}) + '\n' +
             json.dumps({'timestamp': '2026-01-01T14:01:00Z', 'payload': {'type': 'token_count', 'info': {
                 'total_token_usage': {'input_tokens': 100, 'output_tokens': 25,
                                       'cached_input_tokens': 30}}}}) + '\n', encoding='utf-8')
@@ -146,7 +149,8 @@ def main():
         pasta_claude.mkdir(parents=True)
         resposta = {'type': 'assistant', 'requestId': 'q', 'timestamp': '2026-01-01T14:00:00Z',
                     'message': {'id': 'm', 'model': 'claude-test', 'usage': {
-                        'input_tokens': 11, 'output_tokens': 3, 'cache_read_input_tokens': 7}}}
+                        'input_tokens': 11, 'output_tokens': 3, 'cache_read_input_tokens': 7,
+                        'cache_creation_input_tokens': 5}}}
         antiga = dict(resposta, requestId='antiga', timestamp='2026-01-01T11:00:00Z',
                       message=dict(resposta['message'], id='antiga', usage=dict(
                           input_tokens=1000, output_tokens=1000, cache_read_input_tokens=1000)))
@@ -155,7 +159,11 @@ def main():
             json.dumps(dict(resposta, requestId='msg-invalida', message='x')) + '\n' +
             # Contém "usage": passa pelo filtro e chega ao json.loads.
             '{"usage": ' + '[' * 100000 + '\n', encoding='utf-8')
-        (pasta_claude / 'b.jsonl').write_text(json.dumps(resposta) + '\n', encoding='utf-8')
+        seguinte = dict(resposta, requestId='q2', timestamp='2026-01-01T15:00:00Z',
+                        message=dict(resposta['message'], id='m2', usage=dict(
+                            input_tokens=2, output_tokens=1, cache_read_input_tokens=40)))
+        (pasta_claude / 'b.jsonl').write_text(json.dumps(seguinte) + '\n' + json.dumps(resposta) + '\n',
+                                              encoding='utf-8')
         (base / 'fora.jsonl').write_text(json.dumps(dict(resposta, requestId='link')) + '\n', encoding='utf-8')
         (pasta_claude / 'link.jsonl').symlink_to(base / 'fora.jsonl')
         if hasattr(os, 'mkfifo'):
@@ -163,20 +171,25 @@ def main():
         from consumo_tarefa import medir
         parcial = medir(estado, 'aberta', 'codex', 'p')
         assert parcial['entrada'] == 110 and parcial['motivo'] == 'medição parcial'
+        assert parcial['contexto_inicial'] == 900 and parcial['motivo_contexto'] is None
         (codex / 'rollout-longo.jsonl').unlink()
         consumo_tarefa.LIMITE_JSONL = 16 * 1024 * 1024
         acrescentar_linha_aninhada(codex / 'rollout-1.jsonl')
         c = medir(estado, 'aberta', 'codex', 'p', inicio='2026-01-01T10:00:00-03:00')
         assert (c['entrada'], c['saida'], c['cache_lido'], c['modelo']) == (100, 25, 30, 'codex-test')
+        assert c['contexto_inicial'] == 100 and c['motivo_contexto'] is None
         sessions = codex.parent
         sessions.rename(base / 'sessions-originais')
         (base / 'sessions-externas').mkdir()
         sessions.symlink_to(base / 'sessions-externas', target_is_directory=True)
         sessions_link = medir(estado, 'aberta', 'codex', 'p')
         assert sessions_link['entrada'] is None and 'sessions' in sessions_link['motivo']
+        assert sessions_link['contexto_inicial'] is None and 'sessions' in sessions_link['motivo_contexto']
         cl = medir(estado, 'claude-sessao', 'claude', projeto_claude, home,
                    inicio='2026-01-01T10:00:00-03:00', worktree=True)
-        assert (cl['entrada'], cl['saida'], cl['cache_lido'], cl['modelo']) == (11, 3, 7, 'claude-test')
+        assert (cl['entrada'], cl['saida'], cl['cache_lido'], cl['modelo']) == (13, 4, 47, 'claude-test')
+        # Primeira resposta: entrada, cache criado e cache lido.
+        assert cl['contexto_inicial'] == 11 + 5 + 7 and cl['motivo_contexto'] is None
         projeto_link = base / 'claude-projeto-link'
         chave_link = re.sub(r'[^A-Za-z0-9]', '-', str(projeto_link.resolve()))
         (home / '.claude' / 'projects' / chave_link).symlink_to(pasta_claude, target_is_directory=True)
@@ -185,6 +198,11 @@ def main():
         sem_worktree = medir(estado, 'claude-sessao', 'claude', projeto_claude, home,
                              inicio='2026-01-01T00:00:00Z', worktree=False)
         assert sem_worktree['entrada'] is None and 'worktree' in sem_worktree['motivo']
+        assert sem_worktree['contexto_inicial'] is None and 'worktree' in sem_worktree['motivo_contexto']
+        sem_registro = medir(estado, 'claude-sessao', 'claude', projeto_claude, home,
+                             inicio='2027-01-01T00:00:00Z', worktree=True)
+        assert sem_registro['contexto_inicial'] is None
+        assert sem_registro['motivo_contexto'] == 'registro Claude ausente'
         sessao_invalida = medir(estado, '../fora', 'codex', 'p')
         assert sessao_invalida['entrada'] is None and 'nome de sessão' in sessao_invalida['motivo']
         env = dict(os.environ, HOME=str(home), XDG_STATE_HOME=str(base / 'state'), JANGADA_CORE_PATH=str(RAIZ))
@@ -193,6 +211,7 @@ def main():
         assert d['versao'] == 1
         t = d['tarefas'][0]
         assert t['tokens'] == dict(entrada=50, saida=20, cache_lido=5, modelo='m', motivo=None)
+        assert t['contexto_inicial'] == 40 and t['motivo_contexto'] is None
         assert t['rodadas'] == 3 and t['rodadas_sessao'] == 1 and t['segundos_revisao'] == 18
         assert t['ultimo_resultado'] == 'revisar'
         assert not any(x['sessao'] in {'aberta', 'vazia', 'claude-sem-worktree', 'sem-copia'}
@@ -201,6 +220,8 @@ def main():
         assert parada['rodadas'] == 1 and parada['ultimo_resultado'] == 'aprovado'
         assert parada['tokens']['entrada'] is None
         assert parada['tokens']['motivo'] == 'tarefa aberta; consumo medido no encerramento'
+        assert parada['contexto_inicial'] is None
+        assert parada['motivo_contexto'] == 'tarefa aberta; consumo medido no encerramento'
         encerrada_sem_copia = next(x for x in d['tarefas'] if x['sessao'] == 'encerrada-sem-copia')
         assert encerrada_sem_copia['tokens']['motivo'] == 'consumo não registrado no encerramento'
         assert not any(x['sessao'] == '../controle' for x in d['tarefas'])
@@ -211,6 +232,8 @@ def main():
         assert sem_medicao['tokens']['entrada'] is None and sem_medicao['tokens']['motivo'] == 'registro ausente'
         assert sem_medicao['rodadas'] == 0 and sem_medicao['rodadas_sessao'] == 0
         assert sem_medicao['ultimo_resultado'] is None and sem_medicao['segundos_revisao'] == 0
+        assert sem_medicao['contexto_inicial'] is None
+        assert sem_medicao['motivo_contexto'] == 'registro anterior à medição do contexto inicial'
         r = next(x for x in d['revisores'] if x['revisor'] == 'codex' and x['origem'] == 'protegida')
         assert (r['pareceres'], r['apontamentos'], r['procedentes'], r['rejeitados'], r['sem_classificacao']) == (3, 5, 1, 1, 0)
         assert r['taxa_procedencia'] == 0.5 and r['casos_taxa'] == 2
@@ -246,7 +269,7 @@ def main():
         assert tarefas[0] == f'Tarefas: {total} (as 10 mais recentes; --todas lista todas)'
         assert tarefas[1].startswith('  total: entrada 62, saída 20, cache lido 5, sem medição')
         assert len(tarefas) == 12
-        assert f'  {sessao}: entrada 50,' in texto and 'antiga-11:' in texto and 'antiga-04:' in texto
+        assert f'  {sessao}: entrada 50,' in texto and 'contexto inicial 40,' in texto and 'antiga-11:' in texto and 'antiga-04:' in texto
         assert 'antiga-03:' not in texto and 'parada:' not in texto
         todas = subprocess.check_output([str(RAIZ / 'bin/jangada-indicadores'), '--todas'], env=env, text=True)
         assert 'None' not in todas and 'parada:' in todas and 'antiga-00:' in todas

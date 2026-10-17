@@ -602,7 +602,9 @@ registrar_consumo_tarefa() {
     '{sessao:$sessao,projeto:(if $projeto == "" then null else $projeto end),
       execucao:(if $execucao == "" then null else $execucao end),autor:$autor,
       modelo:$tokens.modelo,tokens:{entrada:$tokens.entrada,saida:$tokens.saida,cache_lido:$tokens.cache_lido},
-      motivo:$tokens.motivo,inicio:(if $inicio == "" then null else $inicio end),fim:$fim}')" || return 0
+      motivo:$tokens.motivo,inicio:(if $inicio == "" then null else $inicio end),fim:$fim,
+      contexto_inicial:(if ($tokens.contexto_inicial | type) == "number" then $tokens.contexto_inicial else null end)}
+    | .motivo_contexto = (if .contexto_inicial == null then ($tokens.motivo_contexto // $tokens.motivo // "contexto inicial não medido") else null end)')" || return 0
   jangada_anexar_linha "$arquivo" "$linha" || true
 }
 

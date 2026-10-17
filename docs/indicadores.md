@@ -15,9 +15,16 @@ O objeto JSON tem `versao: 1` e três listas:
 
 - `tarefas`: uma entrada por sessão e execução, com `sessao`, `autor`, `tokens`
   (`entrada`, `saida`, `cache_lido`, `modelo` e `motivo`), `rodadas`,
-  `rodadas_sessao`, `ultimo_resultado`, `delegacoes` e `segundos_revisao`.
+  `rodadas_sessao`, `ultimo_resultado`, `delegacoes`, `segundos_revisao`,
+  `contexto_inicial` e `motivo_contexto`.
   Sessões abertas só aparecem com rodadas protegidas e têm tokens nulos até o
   encerramento. Sessões encerradas usam `consumo-tarefas.jsonl`.
+  `contexto_inicial` é o total de tokens que a primeira resposta do autor leu:
+  entrada, cache criado e cache lido. No Claude vem da primeira resposta do
+  registro da conversa; no Codex, do primeiro `token_count` com uso (o
+  `input_tokens` do Codex já inclui o cache). Quando não há medição, o campo é
+  `null` e `motivo_contexto` diz por quê; linhas gravadas antes da medição
+  trazem `registro anterior à medição do contexto inicial`.
 - `revisores`: uma entrada por revisor, modelo e origem (`sessao` ou
   `protegida`), com `pareceres`, `apontamentos`,
   `procedentes`, `rejeitados`, `sem_classificacao`, `casos`, `casos_taxa` e
@@ -57,5 +64,5 @@ e ignora linhas inválidas ou que não sejam objetos.
 
 Após parar o agente e preservar as evidências, o Core mede e grava o consumo em
 `$JANGADA_ESTADO/consumo-tarefas.jsonl`, antes de remover a pasta de trabalho.
-A linha inclui sessão, projeto, execução, autor, modelo, tokens, motivo, início
-e fim. Falha de medição não impede o encerramento.
+A linha inclui sessão, projeto, execução, autor, modelo, tokens, motivo, início,
+fim, `contexto_inicial` e `motivo_contexto`. Falha de medição não impede o encerramento.

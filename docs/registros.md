@@ -704,6 +704,13 @@ bordas para conferir assinaturas não entra nessas contagens.
   - `motivo`: motivo da medição ausente; `null` quando medida.
   - `inicio`: data de criação da sessão, com fuso; `null` quando ausente.
   - `fim`: data da medição após parar o agente, com fuso.
+  - `contexto_inicial` (desde 17/10/2026): tokens lidos pela primeira resposta
+    do autor, somando entrada, cache criado e cache lido. Claude: primeira
+    resposta do registro da conversa após o início. Codex: primeiro
+    `token_count` com uso no rollout, cujo `input_tokens` já inclui o cache.
+    `null` quando não medido.
+  - `motivo_contexto` (desde 17/10/2026): motivo de `contexto_inicial` nulo;
+    `null` quando medido. Linhas anteriores não têm os dois campos.
 - **Acúmulo e limpeza:** não é sobrescrito nem apagado no encerramento.
   Uma medição ausente não bloqueia a limpeza da sessão. O consumo do revisor
   fica fora deste registro. Consulte o [contrato dos indicadores](indicadores.md).
