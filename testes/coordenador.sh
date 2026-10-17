@@ -102,6 +102,17 @@ conferir "o segundo pedido sai com 0 e avisa" [ "$rc" = 0 ]
 conferir "o aviso diz que já está aberto" grep -q "já está aberto" <<<"$saida"
 conferir "continua uma sessão só" [ "$(tm list-sessions -F '#S' | grep -c coordenador)" = 1 ]
 
+# Outra pasta com o mesmo nome: recusa, sem focar nem mexer no coordenador
+# que existe.
+git init -q -b main "$tmp/a/projeto"
+antes="$(cat "$reg/projeto--coordenador.json")"
+saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/a/projeto" 2>&1)"; rc=$?
+conferir "pasta de mesmo nome sai com 2" [ "$rc" = 2 ]
+conferir "a recusa nomeia a pasta do coordenador existente" grep -q "coordenador de $tmp/projeto, não de $tmp/a/projeto" <<<"$saida"
+conferir "a recusa não foca a janela" bash -c '! grep -q "foc" <<<"$1"' _ "$saida"
+conferir "o registro do outro fica intacto" [ "$(cat "$reg/projeto--coordenador.json")" = "$antes" ]
+conferir "nenhuma sessão nova" [ "$(tm list-sessions -F '#S' | grep -c coordenador)" = 1 ]
+
 # Codex: os hooks do jangada vão na chamada, com a aprovação no estado.
 saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/outro" --provedor codex 2>&1)"
 conferir "a abertura com Codex cria a sessão" [ "$saida" = outro--coordenador ]

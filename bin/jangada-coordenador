@@ -10,7 +10,8 @@
 #   jangada-coordenador --executar-codex     uso interno; abre o Codex com os hooks
 #
 # Um coordenador por projeto: a sessão se chama PROJETO--coordenador e um
-# segundo pedido só avisa e foca a janela. A sessão recebe
+# segundo pedido só avisa e foca a janela. Outra pasta de mesmo nome é
+# recusada. A sessão recebe
 # JANGADA_COORDENADOR com o próprio nome (e não JANGADA_SESSAO): os hooks
 # gravam estado e última linha em $JANGADA_ESTADO/coordenadores/SESSAO.json.
 #
@@ -137,7 +138,7 @@ executar_codex() {
 }
 
 abrir() {
-  local projeto="$1" provedor="$2" janela="$3" raiz repo sessao arq cmd existente=0 rc
+  local projeto="$1" provedor="$2" janela="$3" raiz repo sessao arq cmd existente=0 rc outro
   [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "o coordenador abre fora do isolamento"
   case "$provedor" in claude|codex) ;; *) erro "provedor deve ser claude ou codex" 2 ;; esac
   jangada_provedor "$provedor" && [[ " $PROVEDOR_FUNCOES " == *" principal "* ]] \
@@ -202,8 +203,10 @@ abrir() {
   fi
 
   if ((existente)); then
-    if [[ "$(campo "$arq" .projeto)" != "$raiz" ]]; then
-      erro "a sessão $sessao já existe e não é o coordenador de $raiz"
+    # Pastas de mesmo nome dão o mesmo nome de sessão: a outra fica intocada.
+    outro="$(campo "$arq" .projeto)"
+    if [[ "$outro" != "$raiz" ]]; then
+      erro "a sessão $sessao já é o coordenador de ${outro:-outra pasta}, não de $raiz; encerre aquele com --fim ou renomeie a pasta" 2
     fi
     echo "o coordenador de $raiz já está aberto: $sessao" >&2
     focar "$sessao"
@@ -324,7 +327,7 @@ while (($#)); do
     --fim) modo=fim; alvo="${2:?}"; shift 2 ;;
     --registrar) modo=registrar; alvo="${2-}"; shift $(($# > 1 ? 2 : 1)) ;;
     --executar-codex) modo=codex; shift ;;
-    -h|--ajuda) sed -n '2,21s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    -h|--ajuda) sed -n '2,23s/^# \{0,1\}//p' "$0"; exit 0 ;;
     *) erro "argumento desconhecido: $1" 2 ;;
   esac
 done
