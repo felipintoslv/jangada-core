@@ -10,9 +10,6 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-from consumo_tarefa import medir
-
-
 def linhas(path):
     try:
         with path.open(encoding='utf-8', errors='replace') as f:
@@ -62,84 +59,41 @@ def carregar(estado, projeto, desde):
 def montar(estado, projeto='', desde=''):
     estado = Path(estado)
     consumos, validacoes, delegacoes = carregar(estado, projeto, desde)
-    tarefas = {}
     por_chave = {}
-
-    def sem_medicao_aberta(sessao, motivo):
-        execucoes = []
-        for registro in validacoes:
-            if registro.get('rotulo') != sessao or registro.get('origem') != 'sessao':
-                continue
-            execucao = registro.get('execucao') if isinstance(registro.get('execucao'), str) else None
-            if execucao not in execucoes:
-                execucoes.append(execucao)
-        if not execucoes and (projeto or desde):
-            return
-        for execucao in execucoes or [None]:
-            chave = (sessao, execucao)
-            por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=execucao, autor=None,
-                tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None, motivo=motivo),
-                inicio=None, fim=None))
-
     for c in consumos:
         chave = (c.get('sessao'), c.get('execucao'))
         por_chave[chave] = c
-    abertos = estado / 'agentes'
-    if abertos.is_dir():
-        for arq in abertos.glob('*.json'):
-            sessao = arq.stem
-            if sessao in {'.', '..'} or not re.fullmatch(r'[A-Za-z0-9_.-]+', sessao): continue
-            try: m = json.loads(arq.read_text(encoding='utf-8'))
-            except (OSError, ValueError): continue
-            if not isinstance(m, dict): continue
-            if m.get('sessao', sessao) != sessao: continue
-            protegido = estado / 'revisoes' / f'{sessao}.json'
-            try:
-                if protegido.is_symlink() or not protegido.is_file():
-                    sem_medicao_aberta(sessao, 'cópia protegida da sessão ausente')
-                    continue
-                seguro = json.loads(protegido.read_text(encoding='utf-8'))
-            except (OSError, ValueError):
-                seguro = None
-            if not isinstance(seguro, dict) or seguro.get('sessao') != sessao:
-                sem_medicao_aberta(sessao, 'cópia protegida da sessão ausente ou inválida')
-                continue
-            execucao = seguro.get('execucao') if isinstance(seguro.get('execucao'), str) else None
-            chave = (sessao, execucao)
-            if chave not in por_chave:
-                raiz = seguro.get('raiz') or ''
-                if not isinstance(raiz, str): continue
-                projeto_aberto = Path(raiz).name
-                if projeto and projeto_aberto != projeto:
-                    continue
-                inicio = seguro.get('desde') if isinstance(seguro.get('desde'), str) else ''
-                if desde and inicio[:10] < desde:
-                    continue
-                agente = seguro.get('agente') if isinstance(seguro.get('agente'), str) else ''
-                provedor = agente.split()
-                autor = os.path.basename(provedor[0]) if provedor else ''
-                tem_worktree = bool(seguro.get('worktree'))
-                caminho = seguro.get('worktree') or raiz
-                if not isinstance(caminho, str): continue
-                medido = medir(estado, sessao, autor, caminho, inicio=inicio, worktree=tem_worktree)
-                por_chave[chave] = dict(sessao=sessao, projeto=projeto_aberto, execucao=execucao,
-                    autor=autor, tokens=medido, inicio=inicio or None, fim=None)
+    def rodada_valida(registro):
+        return (registro.get('etapa') == 'revisor'
+                and registro.get('resultado') in ('aprovado', 'revisar'))
+
+    for registro in validacoes:
+        sessao = registro.get('rotulo')
+        if (registro.get('origem') != 'protegida' or not isinstance(sessao, str)
+                or sessao in {'.', '..'} or not re.fullmatch(r'[A-Za-z0-9_.-]+', sessao)
+                or not rodada_valida(registro)):
+            continue
+        execucao = registro.get('execucao') if isinstance(registro.get('execucao'), str) else None
+        chave = (sessao, execucao)
+        por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=execucao, autor=None,
+            tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None,
+                        motivo='tarefa aberta; consumo medido no encerramento'), inicio=None, fim=None))
+
+    tarefas = {}
     for (sessao, execucao), c in por_chave.items():
         relacionadas = [x for x in validacoes if x.get('rotulo') == sessao and x.get('execucao') == execucao]
-        origem_rodadas = ('protegida' if any(x['origem'] == 'protegida' for x in relacionadas)
-                          else 'sessao' if relacionadas else None)
-        v = [x for x in relacionadas if x.get('origem') == origem_rodadas
-             and x.get('etapa') == 'revisor' and x.get('resultado') in ('aprovado', 'revisar')]
+        protegidas = [x for x in relacionadas if x.get('origem') == 'protegida' and rodada_valida(x)]
+        sessao_v = [x for x in relacionadas if x.get('origem') == 'sessao' and rodada_valida(x)]
         ds = [x for x in delegacoes if x.get('sessao') == sessao and x.get('execucao') == execucao]
-        ultima = v[-1] if v else {}
+        ultima = protegidas[-1] if protegidas else {}
         t = tokens(c, c.get('autor'))
         tarefas[f'{sessao}:{execucao or ""}'] = dict(sessao=sessao, autor=c.get('autor'), tokens=t,
-            rodadas=len(v), ultimo_resultado=ultima.get('resultado'), origem_rodadas=origem_rodadas,
+            rodadas=len(protegidas), rodadas_sessao=len(sessao_v), ultimo_resultado=ultima.get('resultado'),
             delegacoes=[dict(papel=x.get('papel'), destino=x.get('destino'), modelo=x.get('modelo'),
                 tokens_entrada=x.get('tokens_local_entrada') if x.get('destino') == 'local' else None,
                 tokens_saida=x.get('tokens_local_saida') if x.get('destino') == 'local' else None,
                 tokens_agy=x.get('tokens_agy'))
-                for x in ds], segundos_revisao=sum(x.get('segundos', 0) for x in v
+                for x in ds], segundos_revisao=sum(x.get('segundos', 0) for x in protegidas
                     if isinstance(x.get('segundos'), (int, float))))
     grupos = {}
     for v in validacoes:
@@ -211,11 +165,12 @@ def main():
         for t in dados['tarefas']:
             tokens = t['tokens']
             print(f"  {texto_terminal(t['sessao'])}: entrada {tokens.get('entrada')}, saída {tokens.get('saida')}, "
-                  f"cache lido {tokens.get('cache_lido')}, rodadas {t['rodadas']}, revisão {t['segundos_revisao']} s")
+                  f"cache lido {tokens.get('cache_lido')}, rodadas {t['rodadas']}, "
+                  f"rodadas sessão {t['rodadas_sessao']}, revisão {t['segundos_revisao']} s")
         print(f"Revisores: {len(dados['revisores'])}")
         for r in dados['revisores']:
             taxa = 'sem casos' if r['taxa_procedencia'] is None else f"{r['taxa_procedencia']:.0%} ({r['casos_taxa']} casos)"
-            print(f"  {texto_terminal(r['revisor'])} / {texto_terminal(r['modelo'])}: "
+            print(f"  {texto_terminal(r['revisor'])} / {texto_terminal(r['modelo'])} [{r['origem']}]: "
                   f"{r['procedentes']} procedentes, {r['rejeitados']} rejeitados, taxa {taxa}")
         print('Local e agy:')
         for d in dados['local_vs_agy']:

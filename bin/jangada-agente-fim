@@ -560,36 +560,48 @@ limpar() {
 }
 
 registrar_consumo_tarefa() {
-  local autor projeto execucao inicio fim medicao linha copia="$JANGADA_ESTADO/revisoes/$s.json" arquivo="$JANGADA_ESTADO/consumo-tarefas.jsonl"
+  local autor projeto execucao inicio fim medicao linha raiz_medicao worktree_medicao
+  local copia="$JANGADA_ESTADO/revisoes/$s.json" arquivo="$JANGADA_ESTADO/consumo-tarefas.jsonl"
   [[ -f "$arq" ]] || return 0
   if [[ ! -f "$copia" || -L "$copia" ]] \
       || ! jq -e --arg sessao "$s" 'type == "object" and .sessao == $sessao' "$copia" >/dev/null 2>&1; then
     inicio=""
     execucao=""
     autor=""
+    projeto=""
     medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"cópia protegida da sessão ausente ou inválida"}'
   else
     execucao="$(jq -r '.execucao // ""' "$copia" 2>/dev/null || true)"
     inicio="$(jq -r 'if (.desde | type) == "string" then .desde else "" end' "$copia" 2>/dev/null || true)"
     autor="$(basename -- "$(jq -r '.agente // ""' "$copia" 2>/dev/null | awk '{print $1}')")"
+    raiz_medicao="$(jq -r 'if (.raiz | type) == "string" then .raiz else "" end' "$copia" 2>/dev/null || true)"
+    worktree_medicao="$(jq -r 'if (.worktree | type) == "string" then .worktree else "" end' "$copia" 2>/dev/null || true)"
     if ! jangada_provedor "$autor"; then autor=""; fi
     [[ "$execucao" =~ ^exe-[0-9a-f]{16}$ ]] || execucao=""
+    if [[ "$raiz_medicao" == /* ]]; then
+      projeto="$(basename -- "$raiz_medicao")"
+    else
+      projeto=""
+      medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"raiz protegida da sessão inválida"}'
+    fi
   fi
-  if [[ -f "$arquivo" ]] && jq -e --arg sessao "$s" --arg execucao "$execucao" --arg inicio "$inicio" \
-      'select(.sessao == $sessao and (.execucao // "") == $execucao and (.inicio // "") == $inicio)' \
+  if [[ -f "$arquivo" ]] && jq -Rn --arg sessao "$s" --arg execucao "$execucao" --arg inicio "$inicio" \
+      --arg projeto "$projeto" \
+      '[inputs | fromjson? | objects | select(.sessao == $sessao and (.execucao // "") == $execucao
+        and (.inicio // "") == $inicio and (.projeto // null) == (if $projeto == "" then null else $projeto end))] | length > 0' \
       "$arquivo" >/dev/null 2>&1; then return 0; fi
-  projeto="$(basename "$raiz")"
   fim="$(jangada_data_iso)"
   if [[ -z "${medicao:-}" ]]; then
     local -a args=(python3 "$JANGADA_CORE_PATH/orquestracao/consumo_tarefa.py" "$JANGADA_ESTADO" "$s" "$autor"
-      --projeto "${worktree:-$raiz}" --inicio "$inicio")
-    [[ -n "$worktree" ]] || args+=(--sem-worktree)
+      --projeto "${worktree_medicao:-$raiz_medicao}" --inicio "$inicio")
+    [[ -n "$worktree_medicao" ]] || args+=(--sem-worktree)
     medicao="$(timeout 10s "${args[@]}" 2>/dev/null)" \
       || medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"falha na medição"}'
   fi
   linha="$(jq -nc --arg sessao "$s" --arg projeto "$projeto" --arg execucao "$execucao" \
     --arg autor "$autor" --arg inicio "$inicio" --arg fim "$fim" --argjson tokens "$medicao" \
-    '{sessao:$sessao,projeto:$projeto,execucao:(if $execucao == "" then null else $execucao end),autor:$autor,
+    '{sessao:$sessao,projeto:(if $projeto == "" then null else $projeto end),
+      execucao:(if $execucao == "" then null else $execucao end),autor:$autor,
       modelo:$tokens.modelo,tokens:{entrada:$tokens.entrada,saida:$tokens.saida,cache_lido:$tokens.cache_lido},
       motivo:$tokens.motivo,inicio:(if $inicio == "" then null else $inicio end),fim:$fim}')" || return 0
   jangada_anexar_linha "$arquivo" "$linha" || true

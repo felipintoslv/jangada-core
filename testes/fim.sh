@@ -159,9 +159,11 @@ conferir "base --output: nada gravado" test ! -e "$tmp/escrito"
 
 echo "== estado válido"
 mkdir -p "$XDG_STATE_HOME/jangada"
-printf '%s\n' '{"sessao":"x","execucao":null,"autor":"antigo","inicio":"2026-04-01T00:00:00Z"}' \
+printf '%s\n' '{"sessao":"x","execucao":null,"autor":"antigo","inicio":"2026-04-02T00:00:00Z"}' \
   >"$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
-gravar x "{\"raiz\": \"$proj\", \"worktree\": \"$wts/proj/x\", \"ramo\": \"agente/x\", \"base\": \"main\", \"estado\": \"concluido\", \"execucao\": \"forjada\", \"agente\": \"/usr/bin/claude --flag\", \"desde\": \"2026-04-02T00:00:00Z\"}"
+printf '[]\n{"truncado":\n' >>"$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
+ln -s "$proj" "$tmp/proj-alias"
+gravar x "{\"raiz\": \"$tmp/proj-alias\", \"worktree\": \"$wts/proj/x\", \"ramo\": \"agente/x\", \"base\": \"main\", \"estado\": \"concluido\", \"execucao\": \"forjada\", \"agente\": \"/usr/bin/claude --flag\", \"desde\": \"2026-04-02T00:00:00Z\"}"
 mkdir -p "$XDG_STATE_HOME/jangada/revisoes"
 jq -n --arg raiz "$proj" --arg wt "$wts/proj/x" \
   '{sessao:"x", raiz:$raiz, worktree:$wt, execucao:"exe-1111111111111111", agente:"codex", desde:"2026-04-01T12:00:00Z"}' \
@@ -176,10 +178,30 @@ rm -f "$estado/validacao-x-rotas-r1.md"
 conferir "encerra ($rc)" test "$rc" -eq 0
 conferir "worktree removido" test ! -d "$wts/proj/x"
 conferir "estado apagado" test ! -f "$estado/x.json"
-conferir "consumo usa a cópia protegida divergente" \
-  jq -se 'any(.[]; .sessao == "x" and .inicio == "2026-04-01T12:00:00Z" and .execucao == "exe-1111111111111111" and .autor == "codex")' \
+conferir "estado divergente não controla a duplicidade nem o projeto" \
+  jq -Rn '[inputs | fromjson? | objects] | map(select(.sessao == "x")) | length == 2 and any(.[]; .sessao == "x" and .inicio == "2026-04-01T12:00:00Z" and .execucao == "exe-1111111111111111" and .autor == "codex" and .projeto == "proj")' \
   "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 conferir "ramo mantido" git -C "$proj" show-ref --quiet --verify refs/heads/agente/x
+
+echo "== cópia protegida controla duplicidade com JSONL danificado"
+gravar dup "{\"raiz\": \"$outro\", \"estado\": \"concluido\", \"execucao\": \"forjada\"}"
+jq -n --arg raiz "$proj" \
+  '{sessao:"dup", raiz:$raiz, worktree:"", execucao:"exe-2222222222222222", agente:"codex", desde:"2026-04-03T00:00:00Z"}' \
+  >"$XDG_STATE_HOME/jangada/revisoes/dup.json"
+jq -nc '{sessao:"dup",projeto:"proj",execucao:"exe-2222222222222222",autor:"codex",inicio:"2026-04-03T00:00:00Z"}' \
+  >>"$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
+fim dup
+conferir "duplicidade ignora linhas JSONL inválidas" test "$rc" -eq 0
+conferir "registro duplicado não é gravado de novo" \
+  jq -Rn '[inputs | fromjson? | objects | select(.sessao == "dup")] | length == 1' "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
+
+echo "== cópia protegida ausente"
+gravar sem-copia "{\"raiz\": \"$outro\", \"estado\": \"concluido\", \"execucao\": \"forjada\"}"
+fim sem-copia
+conferir "encerramento sem cópia protegida sai com 0" test "$rc" -eq 0
+conferir "sem cópia, projeto e tokens ficam nulos com motivo" \
+  jq -Rn '[inputs | fromjson? | objects] | any(.[]; .sessao == "sem-copia" and .projeto == null and .tokens.entrada == null and (.motivo | strings | length > 0))' \
+  "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 : >"$tmp/mortas"
 
 echo "== --integrar: avanço rápido com parecer de fora, suíte e confirmação"

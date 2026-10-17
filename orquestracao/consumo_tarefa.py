@@ -13,10 +13,11 @@ LIMITE_JSONL = 16 * 1024 * 1024
 
 def ler_jsonl(arquivo):
     try:
-        info = arquivo.lstat()
-        if not stat.S_ISREG(info.st_mode) or info.st_size > LIMITE_JSONL:
-            return None
-        with arquivo.open('rb') as f:
+        fd = os.open(arquivo, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, 'rb') as f:
+            info = os.fstat(f.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > LIMITE_JSONL:
+                return None
             conteudo = f.read(LIMITE_JSONL + 1)
         if len(conteudo) > LIMITE_JSONL:
             return None
@@ -41,14 +42,58 @@ def instante(valor):
         return None
 
 
+def diretorio_sem_link(pasta):
+    try:
+        return stat.S_ISDIR(pasta.lstat().st_mode)
+    except OSError:
+        return False
+
+
+def arquivos_dentro(pasta, prefixo='', sufixo='.jsonl'):
+    try:
+        raiz = pasta.resolve(strict=True)
+    except OSError:
+        return []
+    encontrados = []
+    for diretorio, subpastas, nomes in os.walk(pasta, followlinks=False):
+        atual = Path(diretorio)
+        subpastas[:] = sorted(nome for nome in subpastas
+                              if not (atual / nome).is_symlink())
+        for nome in sorted(nomes):
+            if not nome.startswith(prefixo) or not nome.endswith(sufixo):
+                continue
+            arquivo = atual / nome
+            try:
+                resolvido = arquivo.resolve(strict=True)
+                if os.path.commonpath((str(raiz), str(resolvido))) != str(raiz):
+                    continue
+            except (OSError, RuntimeError, ValueError):
+                continue
+            encontrados.append(arquivo)
+    return encontrados
+
+
 def codex(estado, sessao, inicio):
     if sessao in {'.', '..'} or not re.fullmatch(r'[A-Za-z0-9_.-]+', sessao):
         return vazio('nome de sessão inválido')
     limite = instante(inicio) if inicio else None
     if inicio and limite is None:
         return vazio('início da sessão inválido')
-    arquivos = sorted((estado / 'codex' / sessao).glob('sessions/**/rollout-*.jsonl'),
-                      key=lambda p: p.stat().st_mtime if p.exists() else 0)
+    codex_home = estado / 'codex'
+    pasta = codex_home / sessao
+    sessions = pasta / 'sessions'
+    if (not diretorio_sem_link(codex_home) or not diretorio_sem_link(pasta)
+            or not diretorio_sem_link(sessions)):
+        return vazio('pasta sessions do Codex ausente ou inválida')
+    arquivos = arquivos_dentro(sessions, 'rollout-', '.jsonl')
+    def instante_arquivo(caminho):
+        try:
+            info = caminho.lstat()
+            return info.st_mtime if stat.S_ISREG(info.st_mode) else 0
+        except OSError:
+            return 0
+
+    arquivos.sort(key=instante_arquivo)
     ultimo = None
     modelo = None
     for arquivo in arquivos:
@@ -92,12 +137,16 @@ def claude(home, projeto, inicio):
     limite = instante(inicio) if inicio else None
     if inicio and limite is None:
         return vazio('início da sessão inválido')
-    projetos = home / '.claude' / 'projects'
+    claude_home = home / '.claude'
+    projetos = claude_home / 'projects'
     chave = re.sub(r'[^A-Za-z0-9]', '-', str(Path(projeto).resolve()))
     pasta = projetos / chave
+    if (not diretorio_sem_link(claude_home) or not diretorio_sem_link(projetos)
+            or not diretorio_sem_link(pasta)):
+        return vazio('pasta do projeto Claude ausente ou inválida')
     vistos, respostas = set(), []
     try:
-        arquivos = pasta.rglob('*.jsonl')
+        arquivos = arquivos_dentro(pasta, '', '.jsonl')
         for arquivo in arquivos:
             linhas = ler_jsonl(arquivo)
             if linhas is None:

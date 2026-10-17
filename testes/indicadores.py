@@ -142,9 +142,20 @@ def main():
         from consumo_tarefa import medir
         c = medir(estado, 'aberta', 'codex', 'p', inicio='2026-01-01T10:00:00-03:00')
         assert (c['entrada'], c['saida'], c['cache_lido'], c['modelo']) == (100, 25, 30, 'codex-test')
+        sessions = codex.parent
+        sessions.rename(base / 'sessions-originais')
+        (base / 'sessions-externas').mkdir()
+        sessions.symlink_to(base / 'sessions-externas', target_is_directory=True)
+        sessions_link = medir(estado, 'aberta', 'codex', 'p')
+        assert sessions_link['entrada'] is None and 'sessions' in sessions_link['motivo']
         cl = medir(estado, 'claude-sessao', 'claude', projeto_claude, home,
                    inicio='2026-01-01T10:00:00-03:00', worktree=True)
         assert (cl['entrada'], cl['saida'], cl['cache_lido'], cl['modelo']) == (11, 3, 7, 'claude-test')
+        projeto_link = base / 'claude-projeto-link'
+        chave_link = re.sub(r'[^A-Za-z0-9]', '-', str(projeto_link.resolve()))
+        (home / '.claude' / 'projects' / chave_link).symlink_to(pasta_claude, target_is_directory=True)
+        claude_link = medir(estado, 'claude-sessao', 'claude', projeto_link, home, worktree=True)
+        assert claude_link['entrada'] is None and 'pasta do projeto Claude' in claude_link['motivo']
         sem_worktree = medir(estado, 'claude-sessao', 'claude', projeto_claude, home,
                              inicio='2026-01-01T00:00:00Z', worktree=False)
         assert sem_worktree['entrada'] is None and 'worktree' in sem_worktree['motivo']
@@ -156,30 +167,22 @@ def main():
         assert d['versao'] == 1
         t = d['tarefas'][0]
         assert t['tokens'] == dict(entrada=50, saida=20, cache_lido=5, modelo='m', motivo=None)
-        assert t['rodadas'] == 3 and t['segundos_revisao'] == 18
+        assert t['rodadas'] == 3 and t['rodadas_sessao'] == 1 and t['segundos_revisao'] == 18
         assert t['ultimo_resultado'] == 'revisar'
-        assert t['origem_rodadas'] == 'protegida'
-        aberta = next(x for x in d['tarefas'] if x['sessao'] == 'aberta')
-        assert (aberta['tokens']['entrada'], aberta['tokens']['saida']) == (100, 25)
-        assert aberta['autor'] == 'codex'
-        assert aberta['origem_rodadas'] == 'sessao' and aberta['rodadas'] == 1
-        vazia = next(x for x in d['tarefas'] if x['sessao'] == 'vazia')
-        assert vazia['tokens']['entrada'] is None and vazia['tokens']['motivo']
-        claude_sem_worktree = next(x for x in d['tarefas'] if x['sessao'] == 'claude-sem-worktree')
-        assert claude_sem_worktree['tokens']['entrada'] is None
-        assert 'worktree' in claude_sem_worktree['tokens']['motivo']
+        assert not any(x['sessao'] in {'aberta', 'vazia', 'claude-sem-worktree', 'sem-copia'}
+                       for x in d['tarefas'])
         parada = next(x for x in d['tarefas'] if x['sessao'] == 'parada')
         assert parada['rodadas'] == 1 and parada['ultimo_resultado'] == 'aprovado'
-        assert parada['origem_rodadas'] == 'protegida'
-        sem_copia = next(x for x in d['tarefas'] if x['sessao'] == 'sem-copia')
-        assert sem_copia['rodadas'] == 1 and sem_copia['origem_rodadas'] == 'sessao'
-        assert sem_copia['tokens']['entrada'] is None and 'cópia protegida' in sem_copia['tokens']['motivo']
+        assert parada['tokens']['entrada'] is None
+        assert parada['tokens']['motivo'] == 'tarefa aberta; consumo medido no encerramento'
         assert not any(x['sessao'] == '../controle' for x in d['tarefas'])
         assert not any(x['sessao'] == '..' for x in d['tarefas'])
         forjado = next(x for x in d['revisores'] if x['revisor'] == 'forjado')
         assert forjado['origem'] == 'sessao' and forjado['pareceres'] == 1
         sem_medicao = next(x for x in d['tarefas'] if x['sessao'] == 'sem-medicao')
         assert sem_medicao['tokens']['entrada'] is None and sem_medicao['tokens']['motivo'] == 'registro ausente'
+        assert sem_medicao['rodadas'] == 0 and sem_medicao['rodadas_sessao'] == 0
+        assert sem_medicao['ultimo_resultado'] is None and sem_medicao['segundos_revisao'] == 0
         r = next(x for x in d['revisores'] if x['revisor'] == 'codex' and x['origem'] == 'protegida')
         assert (r['pareceres'], r['apontamentos'], r['procedentes'], r['rejeitados'], r['sem_classificacao']) == (3, 5, 1, 1, 0)
         assert r['taxa_procedencia'] == 0.5 and r['casos_taxa'] == 2
@@ -202,6 +205,8 @@ def main():
         assert not recente['tarefas'] and not recente['revisores'] and not recente['local_vs_agy']
         texto = subprocess.check_output([str(RAIZ / 'bin/jangada-indicadores')], env=env, text=True)
         assert all(rotulo in texto for rotulo in ('Tarefas:', 'Revisores:', 'Local e agy:', 'taxa'))
+        assert 'forjado / hostil [sessao]' in texto
+        assert 'rodadas sessão 1' in texto
         assert not any((ord(c) < 32 and c != '\n') or ord(c) == 127 for c in texto)
         print('indicadores: ok')
 
