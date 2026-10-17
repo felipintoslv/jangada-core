@@ -188,6 +188,11 @@ conferir "campo ausente sai nulo, nunca \"None\"" [ "$(rodar "$repo_jangada/bin/
   | jq -c '.coordenadores[] | select(.sessao == "vazio--coordenador") | [.projeto, .estado, .ultima_linha, .atualizado, .viva]')" \
   = '[null,null,null,null,false]' ]
 rm -f "$reg/vazio--coordenador.json"
+ln -s "$tmp/outro.json" "$reg/link--coordenador.json"
+rodar "$repo_jangada/bin/jangada-agentes" --coordenadores-json >"$tmp/saida" 2>/dev/null
+conferir "registro de coordenador com link faz a consulta sair com 1" [ "$?" = 1 ]
+conferir "a consulta recusada não escreve nada no stdout" [ ! -s "$tmp/saida" ]
+rm -f "$reg/link--coordenador.json"
 
 # Mensagem: só com concluido; o texto vai entre as marcas de colagem e um
 # Enter fecha.

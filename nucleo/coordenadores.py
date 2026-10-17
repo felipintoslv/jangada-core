@@ -44,8 +44,9 @@ def ultima_linha(dados):
     return CONTROLE.sub(' ', ANSI.sub('', valor)).strip()[:LINHA_MAX]
 
 
-def arquivos(fd, sufixo='.json'):
-    """Nomes SESSAO.json de arquivos regulares, sem seguir links."""
+def arquivos(fd, sufixo='.json', recusar_link=False):
+    """Nomes SESSAO.json de arquivos regulares, sem seguir links. Com
+    recusar_link, link com nome de registro recusa a consulta."""
     nomes = []
     with os.scandir(fd) as entradas:
         for entrada in entradas:
@@ -58,6 +59,8 @@ def arquivos(fd, sufixo='.json'):
                 continue
             if stat.S_ISREG(info.st_mode):
                 nomes.append(nome)
+            elif recusar_link and stat.S_ISLNK(info.st_mode):
+                raise ValueError('registro %s é link simbólico' % nome)
             if len(nomes) > REGISTROS_MAX:
                 raise ValueError('Consulta excedeu %d registros.' % REGISTROS_MAX)
     return sorted(nomes)
@@ -88,7 +91,7 @@ def coordenadores(estado, vivas):
     with pasta_leitura(Path(estado) / 'coordenadores') as fd:
         if fd is not None:
             # A pasta guarda também a aprovação dos hooks do Codex.
-            for nome in arquivos(fd, '--coordenador.json'):
+            for nome in arquivos(fd, '--coordenador.json', recusar_link=True):
                 try:
                     dados = objeto(fd, nome)
                 except FileNotFoundError:
