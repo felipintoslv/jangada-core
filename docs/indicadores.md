@@ -8,9 +8,11 @@ O objeto JSON tem `versao: 1` e três listas:
 
 - `tarefas`: uma entrada por sessão e execução, com `sessao`, `autor`, `tokens`
   (`entrada`, `saida`, `cache_lido`, `modelo` e `motivo`), `rodadas`,
-  `ultimo_resultado`, `delegacoes` e `segundos_revisao`. Sessões abertas usam
+  `ultimo_resultado`, `origem_rodadas`, `delegacoes` e `segundos_revisao`.
+  `origem_rodadas` é `protegida`, `sessao` ou `null`. Sessões abertas usam
   uma medição atual; sessões encerradas usam `consumo-tarefas.jsonl`.
-- `revisores`: uma entrada por revisor e modelo, com `pareceres`, `apontamentos`,
+- `revisores`: uma entrada por revisor, modelo e origem (`sessao` ou
+  `protegida`), com `pareceres`, `apontamentos`,
   `procedentes`, `rejeitados`, `sem_classificacao`, `casos`, `casos_taxa` e
   `taxa_procedencia`. A taxa divide procedentes por procedentes mais rejeitados.
   `null` indica que não há casos classificados. Linhas antigas sem `resposta`
@@ -30,12 +32,13 @@ exige um worktree para separar as conversas do projeto. Se o autor e o revisor
 forem Claude e usarem o mesmo worktree, os tokens da revisão podem entrar na
 conta do autor, pois os registros não permitem separá-los.
 
-Revisores, rodadas e último resultado vêm apenas de `revisoes/validar.jsonl`,
-que o agente isolado não grava. Para sessões abertas, os dados usados na medição
-vêm da cópia protegida `revisoes/SESSAO.json`; sem ela, a medição fica nula com
-o motivo. Nomes de sessão são conferidos antes de formar caminhos. A leitura
-de JSONL tolera bytes inválidos e ignora linhas inválidas ou que não sejam
-objetos.
+As métricas identificam a origem: `sessao` para `validar.jsonl` e `protegida`
+para `revisoes/validar.jsonl`. Nas tarefas, rodadas, último resultado e duração
+usam a origem protegida quando há registros da sessão; caso contrário, usam a
+origem da sessão. Para sessões abertas, os dados usados na medição vêm da cópia
+protegida `revisoes/SESSAO.json`; sem ela, a medição fica nula com o motivo.
+Nomes de sessão são conferidos antes de formar caminhos. A leitura de JSONL
+tolera bytes inválidos e ignora linhas inválidas ou que não sejam objetos.
 
 Após parar o agente e preservar as evidências, o Core mede e grava o consumo em
 `$JANGADA_ESTADO/consumo-tarefas.jsonl`, antes de remover a pasta de trabalho.

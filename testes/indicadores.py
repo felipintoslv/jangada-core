@@ -51,7 +51,9 @@ def main():
                  inicio='2026-01-01', fim='2026-01-02')])
         gravar(estado, 'validar.jsonl', [dict(rotulo=sessao, execucao='e1', projeto='p', rodada=99,
             etapa='revisor', resultado='aprovado', revisor='forjado', modelo='hostil', itens=99,
-            segundos=999, resposta=dict(corrigidos=99), responde_a=dict(revisor='codex', modelo='r'))])
+            segundos=999, resposta=dict(corrigidos=99), responde_a=dict(revisor='codex', modelo='r')),
+            dict(rotulo='aberta', execucao='e2', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
+                 revisor='codex', modelo='sessao', itens=4, segundos=7)])
         gravar(estado / 'revisoes', 'validar.jsonl', [
             dict(rotulo=sessao, execucao='e1', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
                  revisor='codex', modelo='r', itens=3, segundos=8),
@@ -150,9 +152,11 @@ def main():
         assert t['tokens'] == dict(entrada=50, saida=20, cache_lido=5, modelo='m', motivo=None)
         assert t['rodadas'] == 3 and t['segundos_revisao'] == 18
         assert t['ultimo_resultado'] == 'revisar'
+        assert t['origem_rodadas'] == 'protegida'
         aberta = next(x for x in d['tarefas'] if x['sessao'] == 'aberta')
         assert (aberta['tokens']['entrada'], aberta['tokens']['saida']) == (100, 25)
         assert aberta['autor'] == 'codex'
+        assert aberta['origem_rodadas'] == 'sessao' and aberta['rodadas'] == 1
         vazia = next(x for x in d['tarefas'] if x['sessao'] == 'vazia')
         assert vazia['tokens']['entrada'] is None and vazia['tokens']['motivo']
         claude_sem_worktree = next(x for x in d['tarefas'] if x['sessao'] == 'claude-sem-worktree')
@@ -162,15 +166,16 @@ def main():
         assert parada['rodadas'] == 1 and parada['ultimo_resultado'] == 'aprovado'
         assert not any(x['sessao'] == '../controle' for x in d['tarefas'])
         assert not any(x['sessao'] == '..' for x in d['tarefas'])
-        assert not any(x['revisor'] == 'forjado' for x in d['revisores'])
+        forjado = next(x for x in d['revisores'] if x['revisor'] == 'forjado')
+        assert forjado['origem'] == 'sessao' and forjado['pareceres'] == 1
         sem_medicao = next(x for x in d['tarefas'] if x['sessao'] == 'sem-medicao')
         assert sem_medicao['tokens']['entrada'] is None and sem_medicao['tokens']['motivo'] == 'registro ausente'
-        r = next(x for x in d['revisores'] if x['revisor'] == 'codex')
+        r = next(x for x in d['revisores'] if x['revisor'] == 'codex' and x['origem'] == 'protegida')
         assert (r['pareceres'], r['apontamentos'], r['procedentes'], r['rejeitados'], r['sem_classificacao']) == (3, 5, 1, 1, 0)
         assert r['taxa_procedencia'] == 0.5 and r['casos_taxa'] == 2
-        atual = next(x for x in d['revisores'] if x['revisor'] == 'claude')
+        atual = next(x for x in d['revisores'] if x['revisor'] == 'claude' and x['origem'] == 'protegida')
         assert atual['pareceres'] == 1 and atual['apontamentos'] == 1 and atual['casos'] == 0
-        legado = next(x for x in d['revisores'] if x['revisor'] == 'legado')
+        legado = next(x for x in d['revisores'] if x['revisor'] == 'legado' and x['origem'] == 'protegida')
         assert legado['pareceres'] == 1 and legado['casos'] == 0 and legado['taxa_procedencia'] is None
         local = next(x for x in d['local_vs_agy'] if x['destino'] == 'local')
         agy = next(x for x in d['local_vs_agy'] if x['destino'] == 'agy')

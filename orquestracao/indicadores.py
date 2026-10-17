@@ -45,7 +45,8 @@ def carregar(estado, projeto, desde):
     consumos = [x for x in linhas(estado / 'consumo-tarefas.jsonl')
                 if isinstance(x.get('sessao'), str) and x['sessao']
                 and (x.get('execucao') is None or isinstance(x.get('execucao'), str))]
-    validacoes = list(linhas(estado / 'revisoes' / 'validar.jsonl'))
+    validacoes = [dict(x, origem='sessao') for x in linhas(estado / 'validar.jsonl')]
+    validacoes += [dict(x, origem='protegida') for x in linhas(estado / 'revisoes' / 'validar.jsonl')]
     delegacoes = list(linhas(estado / 'delegacoes.jsonl'))
     if desde:
         consumos = [x for x in consumos if isinstance(x.get('fim'), str) and x['fim'][:10] >= desde]
@@ -113,13 +114,16 @@ def montar(estado, projeto='', desde=''):
                 por_chave[chave] = dict(sessao=sessao, projeto=projeto_aberto, execucao=execucao,
                     autor=autor, tokens=medido, inicio=inicio or None, fim=None)
     for (sessao, execucao), c in por_chave.items():
-        v = [x for x in validacoes if x.get('rotulo') == sessao and x.get('execucao') == execucao
+        relacionadas = [x for x in validacoes if x.get('rotulo') == sessao and x.get('execucao') == execucao]
+        origem_rodadas = ('protegida' if any(x['origem'] == 'protegida' for x in relacionadas)
+                          else 'sessao' if relacionadas else None)
+        v = [x for x in relacionadas if x.get('origem') == origem_rodadas
              and x.get('etapa') == 'revisor' and x.get('resultado') in ('aprovado', 'revisar')]
         ds = [x for x in delegacoes if x.get('sessao') == sessao and x.get('execucao') == execucao]
         ultima = v[-1] if v else {}
         t = tokens(c, c.get('autor'))
         tarefas[f'{sessao}:{execucao or ""}'] = dict(sessao=sessao, autor=c.get('autor'), tokens=t,
-            rodadas=len(v), ultimo_resultado=ultima.get('resultado'),
+            rodadas=len(v), ultimo_resultado=ultima.get('resultado'), origem_rodadas=origem_rodadas,
             delegacoes=[dict(papel=x.get('papel'), destino=x.get('destino'), modelo=x.get('modelo'),
                 tokens_entrada=x.get('tokens_local_entrada') if x.get('destino') == 'local' else None,
                 tokens_saida=x.get('tokens_local_saida') if x.get('destino') == 'local' else None,
@@ -131,8 +135,9 @@ def montar(estado, projeto='', desde=''):
         if v.get('etapa') != 'revisor' or v.get('resultado') not in ('aprovado', 'revisar'): continue
         revisor = v.get('revisor') if isinstance(v.get('revisor'), str) else '?'
         modelo = v.get('modelo') if isinstance(v.get('modelo'), str) else '?'
-        k = (revisor or '?', modelo or '?')
-        g = grupos.setdefault(k, dict(revisor=k[0], modelo=k[1], pareceres=0, apontamentos=0,
+        origem = v.get('origem')
+        k = (revisor or '?', modelo or '?', origem)
+        g = grupos.setdefault(k, dict(revisor=k[0], modelo=k[1], origem=k[2], pareceres=0, apontamentos=0,
             procedentes=0, rejeitados=0, sem_classificacao=0, casos=0))
         g['pareceres'] += 1; g['apontamentos'] += inteiro(v.get('itens'))
         r = v.get('resposta')
@@ -140,8 +145,8 @@ def montar(estado, projeto='', desde=''):
         if isinstance(r, dict) and isinstance(responde_a, dict):
             revisor_alvo = responde_a.get('revisor') if isinstance(responde_a.get('revisor'), str) else '?'
             modelo_alvo = responde_a.get('modelo') if isinstance(responde_a.get('modelo'), str) else '?'
-            alvo = (revisor_alvo or '?', modelo_alvo or '?')
-            classificado = grupos.setdefault(alvo, dict(revisor=alvo[0], modelo=alvo[1], pareceres=0,
+            alvo = (revisor_alvo or '?', modelo_alvo or '?', origem)
+            classificado = grupos.setdefault(alvo, dict(revisor=alvo[0], modelo=alvo[1], origem=alvo[2], pareceres=0,
                 apontamentos=0, procedentes=0, rejeitados=0, sem_classificacao=0, casos=0))
             classificado['procedentes'] += inteiro(r.get('corrigidos'))
             classificado['rejeitados'] += inteiro(r.get('rejeitados'))
