@@ -145,21 +145,11 @@ diagnóstico e stdout vazio; argumento a mais sai com 2.
 avisos, nunca conteúdo de arquivo, e a Central não a executa nem a repassa
 como pedido. A consulta não lê a tela do tmux.
 
-A mensagem do dono vai por `jangada-coordenador --mensagem SESSAO --arquivo
-ARQ`, não pela consulta. O comando cola o texto (até 8 KiB, UTF-8, sem
-caracteres de controle além da quebra de linha) e fecha com um Enter só
-com `estado` `concluido` e a sessão viva. Com `aguardando`, `trabalhando`
-ou `iniciado` sai com 3 e motivo curto, sem colar nada. Um envio por
-coordenador: a trava `coordenadores/.SESSAO.envio` (modo 600) é tomada sem
-espera, e o segundo envio sai com 3. Sob a trava, registro e sessão são
-conferidos antes da colagem e antes do Enter. Mudança antes da colagem sai
-com 3 sem colar; entre a colagem e o Enter, o texto fica na caixa de
-entrada do terminal sem Enter, não é enviado, e sai com 3. Depois do Enter
-o registro vira `trabalhando`, e o próximo envio espera o hook marcar
-`concluido`. O Claude Code e o Codex não garantem que o texto colado vire
-um turno novo: entre a conferência e o Enter, o agente pode abrir um pedido
-que esse Enter responderia. Permissões e leitura completa ficam no terminal. `testes/coordenador.sh`
-confere abertura, registro, consulta, mensagem e `--fim`.
+A Central não manda texto ao coordenador: mostra a última linha e leva à
+janela, e o dono escreve no terminal. O Claude Code e o Codex não oferecem
+canal que aceite só turno novo, e um envio pelo tmux podia responder uma
+permissão no lugar do dono. `testes/coordenador.sh` confere abertura,
+registro, consulta e `--fim`.
 
 ## Limites do terminal
 

@@ -4,7 +4,6 @@
 #
 # Uso:
 #   jangada-coordenador --projeto PASTA [--provedor claude|codex] [--janela]
-#   jangada-coordenador --mensagem SESSAO --arquivo ARQ
 #   jangada-coordenador --fim SESSAO
 #   jangada-coordenador --registrar ESTADO   uso interno dos hooks; linha pela entrada
 #   jangada-coordenador --executar-codex     uso interno; abre o Codex com os hooks
@@ -15,17 +14,12 @@
 # JANGADA_COORDENADOR com o próprio nome (e não JANGADA_SESSAO): os hooks
 # gravam estado e última linha em $JANGADA_ESTADO/coordenadores/SESSAO.json.
 #
-# --mensagem cola o texto do arquivo na sessão e fecha com Enter, só com o
-# estado "concluido" e a sessão viva, um envio por vez; depois marca
-# "trabalhando". Nunca manda outra tecla.
-#
-# Saída: 0 feito; 1 erro; 2 uso ou texto inválido; 3 recusado pelo estado.
+# Saída: 0 feito; 1 erro; 2 uso inválido.
 set -euo pipefail
 # shellcheck source=bin/jangada-config
 source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
 
 reg_dir="$JANGADA_ESTADO/coordenadores"
-TEXTO_MAX=8192
 
 erro() { echo "jangada-coordenador: $1" >&2; exit "${2:-1}"; }
 
@@ -226,116 +220,6 @@ abrir() {
   fi
 }
 
-# Texto da mensagem: UTF-8, até TEXTO_MAX bytes, sem caracteres de controle
-# exceto a quebra de linha. As quebras do fim saem: o único Enter é o que
-# fecha a mensagem. Imprime o texto conferido.
-conferir_texto() {
-  python3 -I - "$1" "$TEXTO_MAX" <<'PY'
-import re, sys
-caminho, limite = sys.argv[1], int(sys.argv[2])
-with open(caminho, 'rb') as f:
-    bruto = f.read(limite + 1)
-if len(bruto) > limite:
-    sys.exit('texto acima de %d bytes' % limite)
-try:
-    texto = bruto.decode('utf-8')
-except UnicodeDecodeError:
-    sys.exit('texto não é UTF-8')
-if re.search('[\x00-\x09\x0b-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]', texto):
-    sys.exit('texto com caractere de controle; só a quebra de linha é aceita')
-texto = texto.rstrip('\n')
-if not texto.strip():
-    sys.exit('texto vazio')
-sys.stdout.write(texto)
-PY
-}
-
-# Motivo da recusa, ou nada se o estado permite o envio. Recebe o retrato
-# [estado, atualizado, ultima_linha, encerrado] do registro.
-motivo_estado() {
-  local retrato="$1"
-  [[ -z "$(jq -r '.[3] // "" | strings' <<<"$retrato" 2>/dev/null)" ]] || { echo "o coordenador foi encerrado"; return; }
-  case "$(jq -r '.[0] // "" | strings' <<<"$retrato" 2>/dev/null)" in
-    concluido) ;;
-    aguardando) echo "o coordenador espera resposta a uma permissão ou pergunta; responda no terminal" ;;
-    trabalhando) echo "o coordenador está no meio de um turno; espere a conclusão" ;;
-    iniciado) echo "o coordenador ainda não concluiu um turno; mande a primeira mensagem pelo terminal" ;;
-    *) echo "o coordenador não está pronto para receber mensagem" ;;
-  esac
-}
-
-mensagem() {
-  local sessao="$1" arquivo="$2" arq texto motivo antes painel buffer trava
-  [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "mensagem ao coordenador só fora do isolamento" 3
-  nome_valido "$sessao" && [[ "$sessao" == *--coordenador ]] || erro "sessão de coordenador inválida: $sessao" 2
-  [[ -n "$arquivo" ]] || erro "informe --arquivo" 2
-  [[ -f "$arquivo" && -r "$arquivo" ]] || erro "arquivo não encontrado: $arquivo" 2
-  arq="$(registro "$sessao")" || erro "coordenador sem registro: $sessao" 3
-  texto="$(conferir_texto "$arquivo" 2>&1)" || erro "${texto:-texto inválido}" 2
-
-  # Um envio por coordenador: a trava fica no descritor 8 até o fim do
-  # comando, e o tmux a recebe fechada.
-  command -v flock >/dev/null 2>&1 || erro "flock ausente; envio não feito"
-  trava="$reg_dir/.$sessao.envio"
-  [[ ! -L "$trava" ]] || erro "$trava é link simbólico"
-  { (umask 077; : >>"$trava") && chmod 600 -- "$trava"; } 2>/dev/null || erro "não foi possível criar $trava"
-  exec 8<"$trava"
-  flock -n 8 || erro "mensagem recusada: outro envio em andamento" 3
-  tmx() { "${JANGADA_TMUX[@]}" "$@" 8<&-; }
-  retrato() { jq -c '[.estado, .atualizado, .ultima_linha, .encerrado]' "$arq" 2>/dev/null; }
-  # O que mudou desde a conferência, ou nada.
-  mudou() {
-    [[ "$(retrato)" == "$antes" ]] || { echo "o estado do coordenador mudou"; return; }
-    tmx has-session -t "=$sessao" 2>/dev/null || echo "a sessão $sessao fechou"
-  }
-
-  # Uma leitura só: o estado conferido é o do retrato que as conferências
-  # seguintes comparam.
-  antes="$(retrato)" || erro "registro ilegível" 1
-  motivo="$(motivo_estado "$antes")"
-  [[ -z "$motivo" ]] || erro "mensagem recusada: $motivo" 3
-  tmx has-session -t "=$sessao" 2>/dev/null || erro "mensagem recusada: a sessão $sessao não está aberta" 3
-  # Painel em modo de cópia engole a colagem; num shell o texto viraria
-  # comando.
-  painel="$(tmx display-message -p -t "=$sessao:" '#{pane_in_mode} #{pane_current_command}' 2>/dev/null)" \
-    || erro "mensagem recusada: painel da sessão $sessao ilegível" 3
-  [[ "${painel%% *}" == 0 ]] || erro "mensagem recusada: o painel está em modo de cópia" 3
-  case "${painel#* }" in
-    bash|zsh|sh|dash|fish|ksh|tcsh|csh) erro "mensagem recusada: o agente não está em execução na sessão" 3 ;;
-  esac
-  buffer="jangada-mensagem-$$"
-  printf '%s' "$texto" | tmx load-buffer -b "$buffer" - \
-    || erro "não foi possível preparar a mensagem" 1
-  motivo="$(mudou)"
-  if [[ -n "$motivo" ]]; then
-    tmx delete-buffer -b "$buffer" 2>/dev/null || true
-    erro "mensagem recusada: $motivo antes da colagem" 3
-  fi
-  # -p: colagem entre marcas (bracketed paste), para as quebras de linha não
-  # virarem Enter; -r: sem trocar LF por CR.
-  if ! tmx paste-buffer -p -r -d -b "$buffer" -t "=$sessao:"; then
-    tmx delete-buffer -b "$buffer" 2>/dev/null || true
-    erro "não foi possível colar a mensagem" 1
-  fi
-  sleep "${JANGADA_COORDENADOR_PAUSA:-0.3}"
-  # Um hook que gravou durante a colagem pode ter aberto um pedido, que o
-  # Enter responderia.
-  motivo="$(mudou)"
-  [[ -z "$motivo" ]] || erro "envio interrompido: $motivo depois da colagem; o texto ficou na caixa de entrada do terminal, sem Enter, e não foi enviado" 3
-  tmx send-keys -t "=$sessao:" Enter
-  # Ainda sob a trava de envio: o próximo envio só passa depois que um hook
-  # marcar concluido. Se um hook já gravou, o registro dele vale.
-  _marcar() {
-    [[ "$(retrato)" == "$antes" ]] || return 0
-    # shellcheck disable=SC2016  # variáveis do jq
-    regravar "$arq" --arg a "$(jangada_data_iso)" '.estado = "trabalhando" | .atualizado = $a'
-  }
-  jangada_com_trava_dir "$reg_dir" _marcar \
-    || echo "jangada-coordenador: aviso: estado trabalhando não gravado em $arq" >&2
-  jangada_avisar_interface estado-sessao
-  echo "mensagem enviada a $sessao"
-}
-
 fim() {
   local sessao="$1" arq agora
   [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "o coordenador encerra fora do isolamento"
@@ -352,27 +236,24 @@ fim() {
   echo "coordenador encerrado: $sessao"
 }
 
-projeto=""; provedor=claude; janela=0; modo=""; alvo=""; arquivo=""
+projeto=""; provedor=claude; janela=0; modo=""; alvo=""
 while (($#)); do
   case "$1" in
     --projeto) projeto="${2:?}"; modo="${modo:-abrir}"; shift 2 ;;
     --provedor) provedor="${2:?}"; shift 2 ;;
     --janela) janela=1; shift ;;
-    --mensagem) modo=mensagem; alvo="${2:?}"; shift 2 ;;
-    --arquivo) arquivo="${2:?}"; shift 2 ;;
     --fim) modo=fim; alvo="${2:?}"; shift 2 ;;
     --registrar) modo=registrar; alvo="${2-}"; shift $(($# > 1 ? 2 : 1)) ;;
     --executar-codex) modo=codex; shift ;;
-    -h|--ajuda) sed -n '2,23s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    -h|--ajuda) sed -n '2,17s/^# \{0,1\}//p' "$0"; exit 0 ;;
     *) erro "argumento desconhecido: $1" 2 ;;
   esac
 done
 
 case "$modo" in
   abrir) abrir "$projeto" "$provedor" "$janela" ;;
-  mensagem) mensagem "$alvo" "$arquivo" ;;
   fim) fim "$alvo" ;;
   registrar) registrar "$alvo" || true; exit 0 ;;
   codex) executar_codex ;;
-  *) erro "informe --projeto, --mensagem ou --fim (veja --ajuda)" 2 ;;
+  *) erro "informe --projeto ou --fim (veja --ajuda)" 2 ;;
 esac

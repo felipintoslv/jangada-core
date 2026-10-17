@@ -531,8 +531,7 @@ subagente tem `.db` próprio.
   `JANGADA_COORDENADOR` definido, por arquivo temporário e `mv`. Ninguém
   apaga: o `--fim` só marca. Na mesma pasta, `codex-hooks-confianca.json`
   guarda a aprovação dos hooks do coordenador com Codex
-  (`bin/jangada-codex-hooks`), e `.SESSAO.envio` (modo 600, vazio) é a
-  trava do `--mensagem`, que grava `trabalhando` depois do Enter.
+  (`bin/jangada-codex-hooks`).
 - `~/.claude/history.jsonl`: um pedido digitado por linha, `display`,
   `pastedContents`, `timestamp` (ms), `project` (cwd), `sessionId`. 2.617
   linhas desde 02/05/2026; não é apagado pela limpeza de 30 dias. Serve
