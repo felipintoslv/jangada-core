@@ -121,8 +121,54 @@ ficar somente leitura dentro deles vem depois.
 | Somente leitura | do Claude: `settings*.json`, `CLAUDE.md`, `commands`, `agents`, `skills`, `hooks`, `plugins`, scripts soltos; clones do AUR | tudo isso define comando ou instrução que valeria numa sessão aberta fora |
 | Git | num worktree, o `.git` comum inteiro somente leitura, liberados `objects`, o gitdir do worktree e, das refs e dos `logs`, só a pasta do ramo da sessão (`refs/heads/agente`) e a das cópias do `reverter` (`refs/heads/backup`); direto no repositório, `config`, `hooks`, `commondir`, `worktrees` e `modules` somente leitura | `core.fsmonitor`, hooks e `commondir` rodariam fora no próximo `git status` |
 | Ocultos | `.ssh`, `.gnupg`, `.password-store`, `.aws`, `.azure`, `.kube`, `.docker`, `.netrc`, `.git-credentials`, `gh`, `rclone`, `gcloud`, `op`, `sops`, Bitwarden, `.vault-token`, `.pgpass`, `.my.cnf`, `.pypirc`, perfis de navegador e do Thunderbird, keyrings, kwallet e o banco do `cliphist`; `JANGADA_ISOLAR_OCULTAR` troca a lista. A pasta `painel-chave` do estado, com o token do `jangada-painel`, a `revisoes`, com as revisões feitas fora do isolamento, e as `fotos` e `integracoes`, com as árvores da entrega que o `jangada-validar` e o `--integrar` extraem fora dele, ficam ocultas sempre; das fotos, só a escolhida em `JANGADA_ISOLAR_FOTO` volta ao revisor, somente leitura | segredos e o histórico da área de transferência; o painel responde a quem alcança a porta, e o agente isolado alcança; a aprovação que o `--integrar` aceita não pode ser escrita pelo agente revisado; as árvores da entrega trazem os links versionados dela e por isso ficam fora de `revisoes`, onde o `jangada-isolar` recusa link |
+| Atendente da revisão | numa sessão de agente com cópia em `revisoes/SESSAO.json`, a pasta do soquete do atendente, somente leitura, em `/tmp/.jangada-atendente` (`JANGADA_VALIDAR_SOQUETE`) | o agente pede a revisão a um processo de fora, mas não troca nem apaga o soquete |
 
 Para ver os argumentos sem abrir nada: `jangada-isolar --mostrar -- true`.
+O `--mostrar` não abre o atendente.
+
+## O atendente da revisão
+
+Dentro do isolamento, `revisoes/` é uma pasta vazia, e o que o
+`jangada-validar` gravasse ali sumiria no fim. O que ele grava no estado
+(`agentes/`, `validar.jsonl`) o agente também edita. Por isso a revisão de
+uma sessão de agente roda fora, pedida pelo soquete.
+
+- **Quando abre:** no perfil `agente`, fora de outro isolamento, sem
+  `JANGADA_ISOLAR_FOTO`, com `JANGADA_SESSAO` válida e
+  `revisoes/SESSAO.json` presente e sem ser link. O revisor que o validar
+  chama não abre outro atendente.
+- **Onde fica:** um processo python fora do bwrap, com o soquete numa pasta
+  0700 em `$XDG_RUNTIME_DIR/jangada-isolar/atendente-*` (ou no `TMPDIR`). A
+  pasta entra no bwrap somente leitura em `/tmp/.jangada-atendente`.
+- **O que o agente pode pedir:** só a revisão do sha da cabeça. O
+  `jangada-validar` de dentro, sem opções, lê o `HEAD` e manda o sha. Com
+  `--forcar`, `--pular-local`, `--revisor`, `--modelo`, `--esforco`,
+  `--base`, `--resposta`, `--reverter-se-limite` ou `--atendido`, sai com 1
+  sem falar com o atendente. `--metricas` roda dentro, como antes.
+- **O que o atendente aceita:** pedido de até 1 KiB que seja um sha de 40
+  caracteres hexadecimais. O resto recebe `RECUSADO`. Um pedido por vez na
+  sessão; outro, enquanto o primeiro roda, recebe `OCUPADO`. Do pedido só o
+  sha segue, para `jangada-validar --atendido SHA`. Nenhum comando, caminho
+  ou texto do pedido é executado.
+- **O que roda fora:** o `--atendido` lê a sessão, a base, o revisor, o
+  modelo e o esforço de `revisoes/SESSAO.json` e o limite de rodadas do
+  ambiente do atendente (`JANGADA_VALIDAR_RODADAS`). Ele recusa o sha que não
+  for a cabeça do ramo da sessão, lida com o git blindado, a pasta que não
+  estiver nessa cabeça e a pasta com alteração sem commit. Depois tira a foto
+  em `fotos/`, roda a verificação local e o revisor sob a trava de
+  `revisoes/travas/`, e grava parecer, contexto, marca e linha de
+  `validar.jsonl` em `revisoes/`. O sha já revisado contra a mesma base
+  devolve o parecer gravado, sem chamar o revisor e sem gastar rodada.
+- **A resposta:** o texto do parecer e o código de saída voltam pelo soquete
+  como dado; o validar de dentro só os imprime.
+- **Sem atendente** (isolar antigo, sessão sem cópia protegida, soquete
+  ausente ou sem resposta em 10 s): o validar de dentro sai com 1 e a
+  mensagem "revisão fora do isolamento indisponível; peça ao coordenador",
+  sem gravar nada. `JANGADA_VALIDAR_SEM_ATENDENTE=1` mantém a revisão antiga
+  dentro do isolamento, para os testes do validar; o que ela grava não entra
+  nas somas nem na integração.
+- **Fim:** o atendente sai quando o `jangada-isolar` acaba, mesmo morto por
+  KILL (confere o pai a cada segundo), e mata a revisão em curso.
 
 ## A marca de isolamento
 

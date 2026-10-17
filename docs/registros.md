@@ -197,7 +197,7 @@ O `jangada-isolar` a oculta, então o agente isolado não lê nem grava ali.
 | Arquivo | Quem escreve | Quem apaga |
 |---|---|---|
 | `SESSAO.json` | `bin/jangada-agente`, fora do isolamento, ao abrir a sessão: `sessao`, `raiz`, `worktree`, `ramo`, `base`, `agente`, `desde`, `tarefa`, `inicio`, `revisor` | `bin/jangada-agente-fim`, ao encerrar |
-| `validacao-SESSAO-rN.md` | `bin/jangada-validar` rodado fora do isolamento, em geral pelo `--integrar` | `bin/jangada-agente-fim`, ao encerrar |
+| `validacao-SESSAO-rN.md` | `bin/jangada-validar` rodado fora do isolamento: pelo atendente da sessão, a pedido do agente isolado (`--atendido`), ou pelo `--integrar` | `bin/jangada-agente-fim`, ao encerrar |
 | `validacao-SESSAO.aprovado` | idem, no APROVADO: `COMMIT N limpo` ou `COMMIT N sujo` | `bin/jangada-agente-fim`, ao encerrar |
 | `validar.jsonl` | idem, uma linha por rodada, no formato da seção 1 | ninguém |
 
@@ -209,6 +209,14 @@ O `jangada-isolar` a oculta, então o agente isolado não lê nem grava ali.
   `jangada-validar` avisa que base, tarefa e revisor vêm do estado gravável.
 - Sessão aberta com `--sem-isolar` alcança esta pasta: nela a revisão de fora
   não protege nada.
+- **De onde vêm as rodadas:** desde 17/10/2026, o agente isolado pede a
+  revisão ao atendente ([isolamento](isolamento.md#o-atendente-da-revisão)),
+  e o parecer, a marca e a linha da rodada vão para esta pasta. O limite de
+  rodadas conta os `validacao-SESSAO-rN.md` daqui. O `validar.jsonl` do
+  estado continua gravável pelo agente; `jangada-agente-fim`,
+  `consumo_tarefa.py soma-revisor` e `nucleo/rodadas.py` contam só o
+  `revisoes/validar.jsonl`. O `--rodadas-json` ainda lista as linhas do
+  estado, com `protegida: false`.
 
 ## 3. Conversas do Claude Code
 
@@ -745,15 +753,15 @@ bordas para conferir assinaturas não entra nessas contagens.
   - `motivo_contexto` (desde 17/10/2026): motivo de `contexto_inicial` nulo;
     `null` quando medido. Linhas anteriores não têm os dois campos.
   - `tokens_revisor` (desde 17/10/2026): soma, campo a campo, do
-    `tokens_revisor` das rodadas da sessão em `validar.jsonl` e
-    `revisoes/validar.jsonl` (seção 1). Entram as linhas com o mesmo `rotulo`
+    `tokens_revisor` das rodadas da sessão em `revisoes/validar.jsonl`
+    (seção 1). Entram as linhas com o mesmo `rotulo`
     e `execucao`, etapa `revisor`, resultado `aprovado` ou `revisar` e, com
     `inicio` conhecido, `data` a partir dele. Tem `entrada`, `saida`,
     `cache_lido` e `total`, cada um `null` quando nenhuma rodada mediu aquele
     campo, mais `rodadas_medidas` (rodadas com algum campo medido) e
     `rodadas` (rodadas que entraram). Falha da soma deixa tudo `null`.
-    As rodadas de `validar.jsonl` são graváveis pelo agente. Linhas
-    anteriores não têm o campo.
+    As linhas do `validar.jsonl` do estado, graváveis pelo agente, ficam
+    fora da soma. Linhas anteriores não têm o campo.
 - **Acúmulo e limpeza:** não é sobrescrito nem apagado no encerramento.
   Uma medição ausente não bloqueia a limpeza da sessão. O consumo do revisor
   fica em `tokens_revisor`, separado de `tokens`. Consulte o

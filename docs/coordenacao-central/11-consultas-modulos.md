@@ -75,6 +75,7 @@ Cada rodada tem:
 |---|---|
 | `rodada` | Inteiro do registro, a partir de 1; recomeça depois de um APROVADO; nulo se inválido |
 | `origem` | `sessao` (`validar.jsonl`) ou `protegida` (`revisoes/validar.jsonl`) |
+| `protegida` | Booleano: `true` para a origem `protegida`, a única que conta para limite, soma de tokens e integração; `false` para a linha do `validar.jsonl` do estado, gravável pelo agente. Acrescentado em 17/10/2026, sem mudar a versão |
 | `resultado` | `aprovado` ou `revisar` |
 | `etapa` | `revisor` |
 | `revisor`, `modelo` | Texto do registro, vazio se gravado vazio; nulo se ausente ou fora de `[A-Za-z0-9_.:/@+[]-]`, até 128 caracteres |
