@@ -113,18 +113,33 @@ MARCA_FIGURAS='Regras de figura (script R ou Python que gera gráfico):'
 # additionalContext como linha {"type": "attachment", "attachment": {"type":
 # "hook_additional_context", "hookEvent": "PostToolUse", "content": [...]}}.
 # Conta o texto com o cabeçalho e a linha do tipo; um resumo da conversa
-# (compact_boundary) depois dele zera a conta. Só lê arquivo comum, que não é
-# link, dentro de ~/.claude/projects; a transcrição é dado, e daqui só sai
-# escrita, figuras ou nada.
+# (compact_boundary) depois dele zera a conta. A transcrição é dado: daqui só
+# sai escrita, figuras ou nada.
 lembrados() {
-  local t base real
+  local t base
   t="$(jq -r '.transcript_path // "" | strings' <<<"$entrada" 2>/dev/null)"
   [[ "$t" == /* && -n "${HOME:-}" && "$HOME" != / ]] || return 0
-  [[ -f "$t" && ! -L "$t" ]] || return 0
   base="$(realpath -e -- "$HOME/.claude/projects" 2>/dev/null)" || return 0
-  real="$(realpath -e -- "$t" 2>/dev/null)" || return 0
-  [[ "$real" == "$base"/* ]] || return 0
-  timeout 5 tail -c "$LIMITE_CONVERSA" -- "$real" 2>/dev/null \
+  # Abre sem seguir link no último componente e sem esperar por FIFO, e confere
+  # o arquivo aberto (comum, e dentro de ~/.claude/projects pelo caminho real
+  # do descritor), para uma troca do caminho depois da conferência não levar a
+  # leitura para fora. Lê só o fim, pelo mesmo descritor.
+  timeout 5 python3 -B -I -c '
+import os, stat, sys
+caminho, base, limite = sys.argv[1], sys.argv[2], int(sys.argv[3])
+fd = os.open(caminho, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+info = os.fstat(fd)
+if not stat.S_ISREG(info.st_mode) or not os.path.realpath(f"/proc/self/fd/{fd}").startswith(base + "/"):
+    sys.exit(0)
+os.lseek(fd, max(0, info.st_size - limite), os.SEEK_SET)
+resto = limite
+while resto > 0:
+    bloco = os.read(fd, min(resto, 1 << 20))
+    if not bloco:
+        break
+    sys.stdout.buffer.write(bloco)
+    resto -= len(bloco)
+' "$t" "$base" "$LIMITE_CONVERSA" 2>/dev/null \
     | timeout 5 jq -R -r --arg c "$CABECALHO_PESQUISA" --arg e "$MARCA_ESCRITA" --arg f "$MARCA_FIGURAS" '
       fromjson? | objects
       | if .type == "system" and .subtype == "compact_boundary" then "resumo"

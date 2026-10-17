@@ -284,8 +284,13 @@ conferir "conversa: .. que sai de ~/.claude/projects não é lido" \
 ln -s "$projetos/escrita.jsonl" "$projetos/link.jsonl"
 conferir "conversa: transcrição que é link não é lida" \
   tem "$(pesquisa "$pesq/texto.md" "$projetos/link.jsonl")" "Regras de escrita"
+ln -s "$tmp/fora/escrita.jsonl" "$projetos/link-fora.jsonl"
+conferir "conversa: atalho para transcrição de fora com o lembrete não é lido" \
+  tem "$(pesquisa "$pesq/texto.md" "$projetos/link-fora.jsonl")" "Regras de escrita"
+# Sem conferência do caminho antes de abrir, a pasta-atalho faz o descritor
+# aberto apontar para fora, como numa troca entre conferir e ler.
 ln -s "$tmp/fora" "$projetos/pasta-link"
-conferir "conversa: pasta link para fora de ~/.claude/projects não é lida" \
+conferir "conversa: descritor aberto fora de ~/.claude/projects não é lido" \
   tem "$(pesquisa "$pesq/texto.md" "$projetos/pasta-link/escrita.jsonl")" "Regras de escrita"
 conferir "conversa: transcript_path relativo não é lido" \
   tem "$(pesquisa "$pesq/texto.md" "escrita.jsonl")" "Regras de escrita"
