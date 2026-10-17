@@ -564,12 +564,13 @@ registrar_consumo_tarefa() {
   [[ -f "$arq" ]] || return 0
   execucao="$(jq -r '.execucao // ""' "$arq" 2>/dev/null || true)"
   [[ "$execucao" =~ ^exe-[0-9a-f]{16}$ ]] || execucao=""
-  if [[ -n "$execucao" && -f "$arquivo" ]] && jq -e --arg sessao "$s" --arg execucao "$execucao" \
-      'select(.sessao == $sessao and (.execucao // "") == $execucao)' "$arquivo" >/dev/null 2>&1; then return 0; fi
-  autor="$(jq -r '.agente // ""' "$arq" 2>/dev/null | awk '{print $1}')"
+  inicio="$(jq -r 'if (.desde | type) == "string" then .desde else "" end' "$arq" 2>/dev/null || true)"
+  if [[ -f "$arquivo" ]] && jq -e --arg sessao "$s" --arg execucao "$execucao" --arg inicio "$inicio" \
+      'select(.sessao == $sessao and (.execucao // "") == $execucao and (.inicio // "") == $inicio)' \
+      "$arquivo" >/dev/null 2>&1; then return 0; fi
+  autor="$(basename -- "$(jq -r '.agente // ""' "$arq" 2>/dev/null | awk '{print $1}')")"
   if ! jangada_provedor "$autor"; then autor=""; fi
   projeto="$(basename "$raiz")"
-  inicio="$(jq -r '.desde // ""' "$arq" 2>/dev/null)"
   fim="$(jangada_data_iso)"
   local -a args=(python3 "$JANGADA_CORE_PATH/orquestracao/consumo_tarefa.py" "$JANGADA_ESTADO" "$s" "$autor"
     --projeto "${worktree:-$raiz}" --inicio "$inicio")

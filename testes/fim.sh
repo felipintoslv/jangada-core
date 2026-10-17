@@ -158,7 +158,10 @@ recusado "base --output" b
 conferir "base --output: nada gravado" test ! -e "$tmp/escrito"
 
 echo "== estado válido"
-gravar x "{\"raiz\": \"$proj\", \"worktree\": \"$wts/proj/x\", \"ramo\": \"agente/x\", \"base\": \"main\", \"estado\": \"concluido\", \"execucao\": \"forjada\", \"agente\": \"intruso\"}"
+mkdir -p "$XDG_STATE_HOME/jangada"
+printf '%s\n' '{"sessao":"x","execucao":null,"autor":"antigo","inicio":"2026-04-01T00:00:00Z"}' \
+  >"$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
+gravar x "{\"raiz\": \"$proj\", \"worktree\": \"$wts/proj/x\", \"ramo\": \"agente/x\", \"base\": \"main\", \"estado\": \"concluido\", \"execucao\": \"forjada\", \"agente\": \"/usr/bin/claude --flag\", \"desde\": \"2026-04-02T00:00:00Z\"}"
 # Pareceres da sessão x e da vizinha x-rotas, com o mesmo prefixo.
 printf 'STATUS: APROVADO\n' >"$estado/validacao-x-r1.md"
 printf 'STATUS: APROVADO\n' >"$estado/validacao-x-rotas-r1.md"
@@ -169,11 +172,11 @@ rm -f "$estado/validacao-x-rotas-r1.md"
 conferir "encerra ($rc)" test "$rc" -eq 0
 conferir "worktree removido" test ! -d "$wts/proj/x"
 conferir "estado apagado" test ! -f "$estado/x.json"
-conferir "consumo gravado mesmo sem provedor" \
-  jq -e 'select(.sessao == "x") | .tokens.entrada == null and .tokens.saida == null and (.motivo | strings | length > 0)' \
+conferir "consumo da nova execução gravado" \
+  jq -se 'map(select(.sessao == "x")) | length == 2 and any(.[]; .inicio == "2026-04-02T00:00:00Z" and .tokens.entrada == null and (.motivo | strings | length > 0))' \
   "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 conferir "execução e autor sem validação não são registrados" \
-  jq -e 'select(.sessao == "x") | .execucao == null and .autor == ""' \
+  jq -se 'any(.[]; .sessao == "x" and .inicio == "2026-04-02T00:00:00Z" and .execucao == null and .autor == "claude")' \
   "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 conferir "ramo mantido" git -C "$proj" show-ref --quiet --verify refs/heads/agente/x
 : >"$tmp/mortas"

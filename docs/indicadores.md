@@ -2,7 +2,7 @@
 
 `jangada-indicadores` lê os registros em `$JANGADA_ESTADO` e não altera arquivos.
 Use `--projeto NOME` e `--desde AAAA-MM-DD` para filtrar. Sem opções, mostra
-uma linha curta; `--json` imprime o contrato consumido pela Central.
+um resumo em texto por grupo; `--json` imprime o contrato consumido pela Central.
 
 O objeto JSON tem `versao: 1` e três listas:
 

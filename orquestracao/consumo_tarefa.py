@@ -5,6 +5,7 @@ import json
 import os
 import re
 import stat
+from datetime import datetime
 from pathlib import Path
 
 LIMITE_JSONL = 16 * 1024 * 1024
@@ -28,7 +29,22 @@ def numero(v):
     return v if type(v) is int and v >= 0 else 0
 
 
-def codex(estado, sessao):
+def instante(valor):
+    if not isinstance(valor, str) or not valor:
+        return None
+    if valor.endswith('Z'):
+        valor = valor[:-1] + '+00:00'
+    try:
+        data = datetime.fromisoformat(valor)
+        return data if data.utcoffset() is not None else None
+    except ValueError:
+        return None
+
+
+def codex(estado, sessao, inicio):
+    limite = instante(inicio) if inicio else None
+    if inicio and limite is None:
+        return vazio('início da sessão inválido')
     arquivos = sorted((estado / 'codex' / sessao).glob('sessions/**/rollout-*.jsonl'),
                       key=lambda p: p.stat().st_mtime if p.exists() else 0)
     ultimo = None
@@ -42,6 +58,11 @@ def codex(estado, sessao):
                 try:
                     d = json.loads(linha)
                 except ValueError:
+                    continue
+                if not isinstance(d, dict):
+                    continue
+                data = instante(d.get('timestamp'))
+                if data is None or (limite and data < limite):
                     continue
                 corpo = d.get('payload') if isinstance(d.get('payload'), dict) else d
                 if corpo.get('type') in {'session_meta', 'turn_context'} or d.get('type') in {'session_meta', 'turn_context'}:
@@ -58,12 +79,17 @@ def codex(estado, sessao):
         return vazio('registro Codex ausente')
     t = ultimo.get('info') if isinstance(ultimo.get('info'), dict) else ultimo
     atual = t.get('total_token_usage') or t.get('last_token_usage') or t
+    if not isinstance(atual, dict):
+        return vazio('registro Codex inválido')
     return dict(entrada=numero(atual.get('input_tokens')), saida=numero(atual.get('output_tokens')),
                 cache_lido=numero(atual.get('cached_input_tokens')), modelo=modelo,
                 motivo=None)
 
 
 def claude(home, projeto, inicio):
+    limite = instante(inicio) if inicio else None
+    if inicio and limite is None:
+        return vazio('início da sessão inválido')
     projetos = home / '.claude' / 'projects'
     chave = re.sub(r'[^A-Za-z0-9]', '-', str(Path(projeto).resolve()))
     pasta = projetos / chave
@@ -82,12 +108,17 @@ def claude(home, projeto, inicio):
                         d = json.loads(linha)
                     except ValueError:
                         continue
-                    msg = d.get('message') or {}
+                    if not isinstance(d, dict):
+                        continue
+                    msg = d.get('message')
+                    if not isinstance(msg, dict):
+                        continue
                     uso = msg.get('usage')
                     if not isinstance(uso, dict):
                         continue
                     timestamp = d.get('timestamp') or ''
-                    if inicio and (not timestamp or timestamp < inicio):
+                    data = instante(timestamp)
+                    if data is None or (limite and data < limite):
                         continue
                     chave_msg = (msg.get('id'), d.get('requestId'))
                     if chave_msg in vistos:
@@ -114,7 +145,7 @@ def vazio(motivo):
 def medir(estado, sessao, autor, projeto, home=None, inicio=None, worktree=True):
     estado = Path(estado)
     if autor == 'codex':
-        return codex(estado, sessao)
+        return codex(estado, sessao, inicio)
     if autor == 'claude':
         if not projeto:
             return vazio('pasta do projeto ausente')
