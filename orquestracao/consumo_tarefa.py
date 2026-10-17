@@ -118,7 +118,7 @@ def codex(estado, sessao, inicio):
             for linha in linhas:
                 try:
                     d = json.loads(linha)
-                except ValueError:
+                except (ValueError, RecursionError):
                     continue
                 if not isinstance(d, dict):
                     continue
@@ -174,7 +174,7 @@ def claude(home, projeto, inicio):
                         continue
                     try:
                         d = json.loads(linha)
-                    except ValueError:
+                    except (ValueError, RecursionError):
                         continue
                     if not isinstance(d, dict):
                         continue

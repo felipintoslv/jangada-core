@@ -15,6 +15,11 @@ def gravar(pasta, nome, objetos):
     (pasta / nome).write_text(''.join(json.dumps(x) + '\n' for x in objetos), encoding='utf-8')
 
 
+def acrescentar_linha_aninhada(caminho):
+    with caminho.open('a', encoding='utf-8') as f:
+        f.write('[' * 100000 + '\n')
+
+
 def classificar_resposta(texto, caminho='/nao-existe'):
     validar = (RAIZ / 'bin/jangada-validar').read_text(encoding='utf-8')
     bloco = validar.split('resposta_json="$(python3 - "$resposta"', 1)[1].split("<<'PY'\n", 1)[1].split('\nPY', 1)[0]
@@ -75,6 +80,7 @@ def main():
                  revisor='rev\x1b[31m', modelo='mod\x7f', itens=1, segundos=1),
             dict(rotulo='antiga', execucao='e0', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
                  revisor='legado', modelo='r0', itens=2)])
+        acrescentar_linha_aninhada(estado / 'revisoes' / 'validar.jsonl')
         gravar(estado, 'delegacoes.jsonl', [dict(sessao=sessao, execucao='e1', projeto='p', papel='leitor',
             destino='agy', modelo='a', segundos=9, codigo_saida=0, recusa=False, tokens_agy=12,
             tokens_retorno=10, tentativas=[dict(destino='local'), dict(destino='agy')]),
@@ -84,6 +90,8 @@ def main():
             dict(sessao=sessao, execucao='e1', projeto='p', papel='leitor', destino='codex-economico',
                  tentativas=[dict(destino='local')]),
             dict(sessao='controle', execucao='e7', projeto='p', papel='pap\x1b[31m', destino='agy')])
+        acrescentar_linha_aninhada(estado / 'validar.jsonl')
+        acrescentar_linha_aninhada(estado / 'delegacoes.jsonl')
         codex = estado / 'codex' / 'aberta' / 'sessions' / 'a'
         codex.mkdir(parents=True)
         (codex / 'rollout-1.jsonl').write_text(
@@ -154,6 +162,7 @@ def main():
         assert parcial['entrada'] == 110 and parcial['motivo'] == 'medição parcial'
         (codex / 'rollout-longo.jsonl').unlink()
         consumo_tarefa.LIMITE_JSONL = 16 * 1024 * 1024
+        acrescentar_linha_aninhada(codex / 'rollout-1.jsonl')
         c = medir(estado, 'aberta', 'codex', 'p', inicio='2026-01-01T10:00:00-03:00')
         assert (c['entrada'], c['saida'], c['cache_lido'], c['modelo']) == (100, 25, 30, 'codex-test')
         sessions = codex.parent

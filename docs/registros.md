@@ -693,9 +693,12 @@ bordas para conferir assinaturas não entra nessas contagens.
 - **Formato:** JSON Lines, uma linha por sessão e execução, acrescentada sob trava.
 - **Campos:**
   - `sessao`: nome da sessão encerrada.
-  - `projeto`: nome da pasta do repositório principal.
+  - `projeto`: nome da pasta do repositório principal; `null` quando a cópia
+    protegida da sessão está ausente ou inválida, ou quando a raiz protegida
+    é inválida.
   - `execucao`: identificador da execução; `null` sem vínculo.
-  - `autor`: provedor do agente da sessão.
+  - `autor`: provedor do agente da sessão; vazio quando a cópia protegida
+    está ausente ou inválida, ou quando o provedor não é reconhecido.
   - `modelo`: modelo encontrado nos registros do autor; `null` quando ausente.
   - `tokens`: `entrada`, `saida` e `cache_lido`, inteiros ou `null` quando não medidos.
   - `motivo`: motivo da medição ausente; `null` quando medida.

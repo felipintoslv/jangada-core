@@ -19,7 +19,7 @@ def linhas(path):
                     d = json.loads(linha)
                     if isinstance(d, dict):
                         yield d
-                except ValueError:
+                except (ValueError, RecursionError):
                     continue
     except OSError:
         return
