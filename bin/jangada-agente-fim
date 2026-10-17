@@ -584,7 +584,7 @@ registrar_consumo_tarefa() {
       medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"raiz protegida da sessão inválida"}'
     fi
   fi
-  if [[ -f "$arquivo" ]] && jq -Rn --arg sessao "$s" --arg execucao "$execucao" --arg inicio "$inicio" \
+  if [[ -f "$arquivo" ]] && jq -Rne --arg sessao "$s" --arg execucao "$execucao" --arg inicio "$inicio" \
       --arg projeto "$projeto" \
       '[inputs | fromjson? | objects | select(.sessao == $sessao and (.execucao // "") == $execucao
         and (.inicio // "") == $inicio and (.projeto // null) == (if $projeto == "" then null else $projeto end))] | length > 0' \

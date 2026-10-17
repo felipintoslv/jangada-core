@@ -179,7 +179,7 @@ conferir "encerra ($rc)" test "$rc" -eq 0
 conferir "worktree removido" test ! -d "$wts/proj/x"
 conferir "estado apagado" test ! -f "$estado/x.json"
 conferir "estado divergente não controla a duplicidade nem o projeto" \
-  jq -Rn '[inputs | fromjson? | objects] | map(select(.sessao == "x")) | length == 2 and any(.[]; .sessao == "x" and .inicio == "2026-04-01T12:00:00Z" and .execucao == "exe-1111111111111111" and .autor == "codex" and .projeto == "proj")' \
+  jq -Rne '[inputs | fromjson? | objects] | map(select(.sessao == "x")) | length == 2 and any(.[]; .sessao == "x" and .inicio == "2026-04-01T12:00:00Z" and .execucao == "exe-1111111111111111" and .autor == "codex" and .projeto == "proj")' \
   "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 conferir "ramo mantido" git -C "$proj" show-ref --quiet --verify refs/heads/agente/x
 
@@ -193,14 +193,31 @@ jq -nc '{sessao:"dup",projeto:"proj",execucao:"exe-2222222222222222",autor:"code
 fim dup
 conferir "duplicidade ignora linhas JSONL inválidas" test "$rc" -eq 0
 conferir "registro duplicado não é gravado de novo" \
-  jq -Rn '[inputs | fromjson? | objects | select(.sessao == "dup")] | length == 1' "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
+  jq -Rne '[inputs | fromjson? | objects | select(.sessao == "dup")] | length == 1' "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
+
+echo "== duas tarefas seguidas e a mesma tarefa duas vezes"
+consumo="$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
+encerrar_seq() { # sessão, execução
+  gravar "$1" "{\"raiz\": \"$proj\", \"estado\": \"concluido\"}"
+  jq -n --arg s "$1" --arg raiz "$proj" --arg e "$2" \
+    '{sessao:$s, raiz:$raiz, worktree:"", execucao:$e, agente:"codex", desde:"2026-04-05T00:00:00Z"}' \
+    >"$XDG_STATE_HOME/jangada/revisoes/$1.json"
+  fim "$1"
+}
+encerrar_seq seq1 exe-4444444444444444
+encerrar_seq seq2 exe-5555555555555555
+conferir "duas tarefas seguidas gravam duas linhas" \
+  jq -Rne '[inputs | fromjson? | objects | select(.sessao == "seq1" or .sessao == "seq2")] | length == 2' "$consumo"
+encerrar_seq seq1 exe-4444444444444444
+conferir "a mesma tarefa encerrada duas vezes grava uma linha" \
+  jq -Rne '[inputs | fromjson? | objects | select(.sessao == "seq1")] | length == 1' "$consumo"
 
 echo "== cópia protegida ausente"
 gravar sem-copia "{\"raiz\": \"$outro\", \"estado\": \"concluido\", \"execucao\": \"forjada\"}"
 fim sem-copia
 conferir "encerramento sem cópia protegida sai com 0" test "$rc" -eq 0
 conferir "sem cópia, projeto e tokens ficam nulos com motivo" \
-  jq -Rn '[inputs | fromjson? | objects] | any(.[]; .sessao == "sem-copia" and .projeto == null and .tokens.entrada == null and (.motivo | strings | length > 0))' \
+  jq -Rne '[inputs | fromjson? | objects] | any(.[]; .sessao == "sem-copia" and .projeto == null and .tokens.entrada == null and (.motivo | strings | length > 0))' \
   "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 
 echo "== estado de agente ausente, cópia protegida presente"
@@ -211,7 +228,7 @@ jq -n --arg raiz "$proj" '{sessao:"sem-estado",raiz:$raiz,worktree:"",execucao:"
 fim sem-estado
 conferir "encerramento sem estado sai com 0" test "$rc" -eq 0
 conferir "estado ausente ainda grava consumo com dados protegidos" \
-  jq -Rn '[inputs | fromjson? | objects] | any(.[]; .sessao == "sem-estado" and .projeto == "proj" and .execucao == "exe-3333333333333333")' \
+  jq -Rne '[inputs | fromjson? | objects] | any(.[]; .sessao == "sem-estado" and .projeto == "proj" and .execucao == "exe-3333333333333333")' \
   "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 : >"$tmp/mortas"
 
