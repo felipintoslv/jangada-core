@@ -67,7 +67,16 @@ git -C "$origem" commit --quiet -m $'feat(teste): migração \e[2Jnova'
 novo="$(git -C "$origem" rev-parse HEAD)"
 antes="$(git -C "$instalado" rev-parse HEAD)"
 
-atualizar() { (cd "$tmp" && "$instalado/bin/jangada-update" "$@") >"$tmp/saida" 2>&1; rc=$?; }
+# PATH sem diretório que traga o jangada-sistema-update de verdade (máquina com
+# o Shell instalado): "sem o comando no PATH" não herda o comando real.
+path_sem_sistema() {
+  local d out="" IFS=:
+  for d in $PATH; do
+    [[ -x "$d/jangada-sistema-update" ]] || out+="${out:+:}$d"
+  done
+  printf '%s' "$out"
+}
+atualizar() { (cd "$tmp" && PATH="$(path_sem_sistema)" "$instalado/bin/jangada-update" "$@") >"$tmp/saida" 2>&1; rc=$?; }
 head_instalado() { git -C "$instalado" rev-parse HEAD; }
 
 echo "== jangada-update"
