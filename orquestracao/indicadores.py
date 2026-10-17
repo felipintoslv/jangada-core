@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import statistics
 import sys
 from pathlib import Path
@@ -67,6 +68,19 @@ def montar(estado, projeto='', desde=''):
         return (registro.get('etapa') == 'revisor'
                 and registro.get('resultado') in ('aprovado', 'revisar'))
 
+    def sessao_aberta(sessao, execucao):
+        if not isinstance(sessao, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', sessao) or sessao in {'.', '..'}:
+            return False
+        copia = estado / 'revisoes' / f'{sessao}.json'
+        try:
+            if not stat.S_ISREG(copia.lstat().st_mode):
+                return False
+            with copia.open(encoding='utf-8', errors='replace') as f:
+                d = json.load(f)
+            return isinstance(d, dict) and d.get('sessao') == sessao and d.get('execucao') == execucao
+        except (OSError, ValueError):
+            return False
+
     for registro in validacoes:
         sessao = registro.get('rotulo')
         if (registro.get('origem') != 'protegida' or not isinstance(sessao, str)
@@ -75,9 +89,11 @@ def montar(estado, projeto='', desde=''):
             continue
         execucao = registro.get('execucao') if isinstance(registro.get('execucao'), str) else None
         chave = (sessao, execucao)
+        aberta = sessao_aberta(sessao, execucao)
+        motivo = ('tarefa aberta; consumo medido no encerramento' if aberta
+                  else 'consumo não registrado no encerramento')
         por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=execucao, autor=None,
-            tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None,
-                        motivo='tarefa aberta; consumo medido no encerramento'), inicio=None, fim=None))
+            tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None, motivo=motivo), inicio=None, fim=None))
 
     tarefas = {}
     for (sessao, execucao), c in por_chave.items():
@@ -89,7 +105,7 @@ def montar(estado, projeto='', desde=''):
         t = tokens(c, c.get('autor'))
         tarefas[f'{sessao}:{execucao or ""}'] = dict(sessao=sessao, autor=c.get('autor'), tokens=t,
             rodadas=len(protegidas), rodadas_sessao=len(sessao_v), ultimo_resultado=ultima.get('resultado'),
-            delegacoes=[dict(papel=x.get('papel'), destino=x.get('destino'), modelo=x.get('modelo'),
+            delegacoes=[dict(papel=x.get('papel'), destino=x.get('destino'), modelo=x.get('modelo'), origem='sessao',
                 tokens_entrada=x.get('tokens_local_entrada') if x.get('destino') == 'local' else None,
                 tokens_saida=x.get('tokens_local_saida') if x.get('destino') == 'local' else None,
                 tokens_agy=x.get('tokens_agy'))
@@ -129,14 +145,14 @@ def montar(estado, projeto='', desde=''):
         papel = d.get('papel') if isinstance(d.get('papel'), str) else '?'
         tent = d.get('tentativas') if isinstance(d.get('tentativas'), list) else []
         if destino != 'local' and any(x.get('destino') == 'local' for x in tent if isinstance(x, dict)):
-            local = destinos.setdefault((papel or '?', 'local'), dict(papel=papel or '?', destino='local',
+            local = destinos.setdefault((papel or '?', 'local'), dict(papel=papel or '?', destino='local', origem='sessao',
                 chamadas=0, sucesso=0, recusas=0, segundos=[], tokens_entrada=None, tokens_saida=None,
                 mudancas_local=0))
             local['mudancas_local'] += 1
         if destino not in {'local', 'agy'}:
             continue
         k = (papel, destino)
-        g = destinos.setdefault(k, dict(papel=papel, destino=destino, chamadas=0, sucesso=0, recusas=0,
+        g = destinos.setdefault(k, dict(papel=papel, destino=destino, origem='sessao', chamadas=0, sucesso=0, recusas=0,
             segundos=[], tokens_entrada=None, tokens_saida=None, mudancas_local=0))
         g['chamadas'] += 1
         g['sucesso'] += int(d.get('codigo_saida') == 0 and not d.get('recusa'))
@@ -174,7 +190,7 @@ def main():
                   f"{r['procedentes']} procedentes, {r['rejeitados']} rejeitados, taxa {taxa}")
         print('Local e agy:')
         for d in dados['local_vs_agy']:
-            print(f"  {texto_terminal(d['destino'])} / {texto_terminal(d['papel'])}: "
+            print(f"  {texto_terminal(d['destino'])} / {texto_terminal(d['papel'])} [{d['origem']}]: "
                   f"{d['chamadas']} chamadas, {d['sucesso']} sucesso(s), "
                   f"{d['recusas']} recusa(s), mediana {d['segundos_medianos']} s, "
                   f"tokens entrada {d['tokens_entrada']}, saída {d['tokens_saida']}, local transferido {d['mudancas_local']}")

@@ -69,6 +69,8 @@ def main():
                  revisor='codex', modelo='r', itens=2, segundos=6),
             dict(rotulo='parada', execucao='e6', projeto='p', rodada=1, etapa='revisor', resultado='aprovado',
                  revisor='codex', modelo='r', itens=0, segundos=2),
+            dict(rotulo='encerrada-sem-copia', execucao='e10', projeto='p', rodada=1, etapa='revisor',
+                 resultado='revisar', revisor='extra', modelo='r', itens=0, segundos=1),
             dict(rotulo='controle', execucao='e7', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
                  revisor='rev\x1b[31m', modelo='mod\x7f', itens=1, segundos=1),
             dict(rotulo='antiga', execucao='e0', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
@@ -93,6 +95,15 @@ def main():
             json.dumps({'timestamp': '2026-01-01T14:01:00Z', 'payload': {'type': 'token_count', 'info': {
                 'total_token_usage': {'input_tokens': 100, 'output_tokens': 25,
                                       'cached_input_tokens': 30}}}}) + '\n', encoding='utf-8')
+        sys.path.insert(0, str(RAIZ / 'orquestracao'))
+        import consumo_tarefa
+        consumo_tarefa.LIMITE_JSONL = 250
+        (codex / 'rollout-longo.jsonl').write_text(
+            json.dumps({'timestamp': '2026-01-01T14:02:00Z', 'payload': {'type': 'token_count',
+                'info': {'total_token_usage': {'input_tokens': 999, 'output_tokens': 999}},
+                'nota': 'x' * 500}}) + '\n' +
+            json.dumps({'timestamp': '2026-01-01T14:03:00Z', 'payload': {'type': 'token_count', 'info': {
+                'total_token_usage': {'input_tokens': 110, 'output_tokens': 26}}}}) + '\n', encoding='utf-8')
         (estado / 'agentes' / 'aberta.json').write_text(json.dumps(dict(sessao='aberta', agente='/usr/bin/codex --flag',
             estado='trabalhando', execucao='e2', raiz='p', desde='2026-01-01T10:00:00-03:00')), encoding='utf-8')
         (estado / 'revisoes' / 'aberta.json').write_text(json.dumps(dict(sessao='aberta', agente='/usr/bin/codex --flag',
@@ -138,8 +149,11 @@ def main():
         (pasta_claude / 'link.jsonl').symlink_to(base / 'fora.jsonl')
         if hasattr(os, 'mkfifo'):
             os.mkfifo(pasta_claude / 'fifo.jsonl')
-        sys.path.insert(0, str(RAIZ / 'orquestracao'))
         from consumo_tarefa import medir
+        parcial = medir(estado, 'aberta', 'codex', 'p')
+        assert parcial['entrada'] == 110 and parcial['motivo'] == 'medição parcial'
+        (codex / 'rollout-longo.jsonl').unlink()
+        consumo_tarefa.LIMITE_JSONL = 16 * 1024 * 1024
         c = medir(estado, 'aberta', 'codex', 'p', inicio='2026-01-01T10:00:00-03:00')
         assert (c['entrada'], c['saida'], c['cache_lido'], c['modelo']) == (100, 25, 30, 'codex-test')
         sessions = codex.parent
@@ -175,6 +189,8 @@ def main():
         assert parada['rodadas'] == 1 and parada['ultimo_resultado'] == 'aprovado'
         assert parada['tokens']['entrada'] is None
         assert parada['tokens']['motivo'] == 'tarefa aberta; consumo medido no encerramento'
+        encerrada_sem_copia = next(x for x in d['tarefas'] if x['sessao'] == 'encerrada-sem-copia')
+        assert encerrada_sem_copia['tokens']['motivo'] == 'consumo não registrado no encerramento'
         assert not any(x['sessao'] == '../controle' for x in d['tarefas'])
         assert not any(x['sessao'] == '..' for x in d['tarefas'])
         forjado = next(x for x in d['revisores'] if x['revisor'] == 'forjado')
@@ -194,9 +210,11 @@ def main():
         agy = next(x for x in d['local_vs_agy'] if x['destino'] == 'agy')
         assert (local['chamadas'], local['recusas'], local['mudancas_local']) == (1, 1, 2)
         assert (agy['chamadas'], agy['sucesso'], agy['tokens_entrada'], agy['tokens_saida']) == (1, 1, None, None)
+        assert agy['origem'] == 'sessao' and local['origem'] == 'sessao'
         pap = next(x for x in d['local_vs_agy'] if x['papel'] == 'pap\x1b[31m')
         assert pap['segundos_medianos'] is None and 'segundos' not in pap
         assert t['delegacoes'][0]['tokens_agy'] == 12
+        assert t['delegacoes'][0]['origem'] == 'sessao'
         filtrado = json.loads(subprocess.check_output([str(RAIZ / 'bin/jangada-indicadores'), '--json',
             '--projeto', 'ausente'], env=env, text=True))
         assert not filtrado['tarefas'] and not filtrado['revisores'] and not filtrado['local_vs_agy']
@@ -207,6 +225,7 @@ def main():
         assert all(rotulo in texto for rotulo in ('Tarefas:', 'Revisores:', 'Local e agy:', 'taxa'))
         assert 'forjado / hostil [sessao]' in texto
         assert 'rodadas sessão 1' in texto
+        assert 'agy / leitor [sessao]' in texto
         assert not any((ord(c) < 32 and c != '\n') or ord(c) == 127 for c in texto)
         print('indicadores: ok')
 

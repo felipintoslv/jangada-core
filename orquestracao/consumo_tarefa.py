@@ -12,16 +12,27 @@ LIMITE_JSONL = 16 * 1024 * 1024
 
 
 def ler_jsonl(arquivo):
+    linhas = []
+    parcial = False
     try:
         fd = os.open(arquivo, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, 'rb') as f:
-            info = os.fstat(f.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_size > LIMITE_JSONL:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
                 return None
-            conteudo = f.read(LIMITE_JSONL + 1)
-        if len(conteudo) > LIMITE_JSONL:
-            return None
-        return conteudo.decode('utf-8', errors='replace').splitlines()
+            while True:
+                linha = f.readline(LIMITE_JSONL + 1)
+                if not linha:
+                    break
+                if len(linha) > LIMITE_JSONL and not linha.endswith(b'\n'):
+                    parcial = True
+                    while linha and not linha.endswith(b'\n'):
+                        linha = f.readline(LIMITE_JSONL + 1)
+                    continue
+                if len(linha) > LIMITE_JSONL:
+                    parcial = True
+                    continue
+                linhas.append(linha.decode('utf-8', errors='replace').rstrip('\r\n'))
+        return linhas, parcial
     except OSError:
         return None
 
@@ -96,10 +107,13 @@ def codex(estado, sessao, inicio):
     arquivos.sort(key=instante_arquivo)
     ultimo = None
     modelo = None
+    parcial = False
     for arquivo in arquivos:
-        linhas = ler_jsonl(arquivo)
-        if linhas is None:
+        lidas = ler_jsonl(arquivo)
+        if lidas is None:
             continue
+        linhas, descartou = lidas
+        parcial = parcial or descartou
         try:
             for linha in linhas:
                 try:
@@ -123,14 +137,14 @@ def codex(estado, sessao, inicio):
         except OSError:
             continue
     if not ultimo:
-        return vazio('registro Codex ausente')
+        return vazio('medição parcial' if parcial else 'registro Codex ausente')
     t = ultimo.get('info') if isinstance(ultimo.get('info'), dict) else ultimo
     atual = t.get('total_token_usage') or t.get('last_token_usage') or t
     if not isinstance(atual, dict):
         return vazio('registro Codex inválido')
     return dict(entrada=numero(atual.get('input_tokens')), saida=numero(atual.get('output_tokens')),
                 cache_lido=numero(atual.get('cached_input_tokens')), modelo=modelo,
-                motivo=None)
+                motivo='medição parcial' if parcial else None)
 
 
 def claude(home, projeto, inicio):
@@ -145,12 +159,15 @@ def claude(home, projeto, inicio):
             or not diretorio_sem_link(pasta)):
         return vazio('pasta do projeto Claude ausente ou inválida')
     vistos, respostas = set(), []
+    parcial = False
     try:
         arquivos = arquivos_dentro(pasta, '', '.jsonl')
         for arquivo in arquivos:
-            linhas = ler_jsonl(arquivo)
-            if linhas is None:
+            lidas = ler_jsonl(arquivo)
+            if lidas is None:
                 continue
+            linhas, descartou = lidas
+            parcial = parcial or descartou
             try:
                 for linha in linhas:
                     if '"usage"' not in linha:
@@ -181,12 +198,13 @@ def claude(home, projeto, inicio):
     except OSError:
         return vazio('não foi possível ler registros Claude')
     if not respostas:
-        return vazio('registro Claude ausente')
+        return vazio('medição parcial' if parcial else 'registro Claude ausente')
     respostas.sort(key=lambda x: x[0])
     return dict(entrada=sum(numero(x[1].get('input_tokens')) for x in respostas),
                 saida=sum(numero(x[1].get('output_tokens')) for x in respostas),
                 cache_lido=sum(numero(x[1].get('cache_read_input_tokens')) for x in respostas),
-                modelo=next((x[2] for x in reversed(respostas) if x[2]), None), motivo=None)
+                modelo=next((x[2] for x in reversed(respostas) if x[2]), None),
+                motivo='medição parcial' if parcial else None)
 
 
 def vazio(motivo):

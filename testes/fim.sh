@@ -202,6 +202,17 @@ conferir "encerramento sem cópia protegida sai com 0" test "$rc" -eq 0
 conferir "sem cópia, projeto e tokens ficam nulos com motivo" \
   jq -Rn '[inputs | fromjson? | objects] | any(.[]; .sessao == "sem-copia" and .projeto == null and .tokens.entrada == null and (.motivo | strings | length > 0))' \
   "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
+
+echo "== estado de agente ausente, cópia protegida presente"
+mkdir -p "$XDG_STATE_HOME/jangada/revisoes"
+printf '%s\n' 'sem-estado' >>"$tmp/sessoes"
+jq -n --arg raiz "$proj" '{sessao:"sem-estado",raiz:$raiz,worktree:"",execucao:"exe-3333333333333333",agente:"codex",desde:"2026-04-04T00:00:00Z"}' \
+  >"$XDG_STATE_HOME/jangada/revisoes/sem-estado.json"
+fim sem-estado
+conferir "encerramento sem estado sai com 0" test "$rc" -eq 0
+conferir "estado ausente ainda grava consumo com dados protegidos" \
+  jq -Rn '[inputs | fromjson? | objects] | any(.[]; .sessao == "sem-estado" and .projeto == "proj" and .execucao == "exe-3333333333333333")' \
+  "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 : >"$tmp/mortas"
 
 echo "== --integrar: avanço rápido com parecer de fora, suíte e confirmação"

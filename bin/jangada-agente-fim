@@ -562,7 +562,6 @@ limpar() {
 registrar_consumo_tarefa() {
   local autor projeto execucao inicio fim medicao linha raiz_medicao worktree_medicao
   local copia="$JANGADA_ESTADO/revisoes/$s.json" arquivo="$JANGADA_ESTADO/consumo-tarefas.jsonl"
-  [[ -f "$arq" ]] || return 0
   if [[ ! -f "$copia" || -L "$copia" ]] \
       || ! jq -e --arg sessao "$s" 'type == "object" and .sessao == $sessao' "$copia" >/dev/null 2>&1; then
     inicio=""

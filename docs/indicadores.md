@@ -18,10 +18,12 @@ O objeto JSON tem `versao: 1` e três listas:
   `null` indica que não há casos classificados. Linhas antigas sem `resposta`
   não entram nos totais de classificação.
 - `local_vs_agy`: uma entrada por papel e destino, com `chamadas`, `sucesso`,
-  `recusas`, `segundos_medianos`, `tokens_entrada`, `tokens_saida` e
-  `mudancas_local`. Tokens sem divisão por entrada e saída ficam `null`; o total
-  conhecido do agy aparece como `tokens_agy` nas delegações da tarefa. A mudança
-  conta tentativas que passaram pelo destino local e terminaram em outro destino.
+  `recusas`, `segundos_medianos`, `tokens_entrada`, `tokens_saida`,
+  `mudancas_local` e `origem: "sessao"`. Tokens sem divisão por entrada e saída
+  ficam `null`; o total conhecido do agy aparece como `tokens_agy` nas delegações
+  da tarefa. A mudança conta tentativas que passaram pelo destino local e
+  terminaram em outro destino. As delegações da tarefa também têm
+  `origem: "sessao"`, pois vêm de registro gravável pelo agente.
 
 O medidor usa o último total do Codex e respostas únicas do Claude, identificadas
 por mensagem e pedido. Uma medição ausente retorna tokens e modelo nulos com
@@ -37,9 +39,11 @@ para `revisoes/validar.jsonl`. `revisores` agrupa por revisor, modelo e origem.
 Nas tarefas, `rodadas`, `ultimo_resultado` e `segundos_revisao` usam somente a
 origem protegida; `rodadas_sessao` mostra à parte as rodadas graváveis pelo
 agente. Tarefas abertas aparecem apenas com rodadas protegidas e têm tokens
-nulos, com motivo de medição no encerramento. Tarefas encerradas usam somente
-`consumo-tarefas.jsonl`, gravado com dados de `revisoes/SESSAO.json`; sem cópia
-protegida, o projeto e os tokens ficam nulos com o motivo. O indicador não lê
+nulos enquanto a cópia protegida confirma a mesma sessão e execução; caso
+contrário, usam o motivo `consumo não registrado no encerramento`. Tarefas
+encerradas usam somente `consumo-tarefas.jsonl`, gravado com dados de
+`revisoes/SESSAO.json`; sem cópia protegida, o projeto e os tokens ficam nulos
+com o motivo. O indicador não lê
 `agentes/` nem chama o medidor para tarefas abertas. Nomes de sessão são
 conferidos antes de formar caminhos. A leitura de JSONL tolera bytes inválidos
 e ignora linhas inválidas ou que não sejam objetos.
