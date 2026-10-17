@@ -17,7 +17,8 @@ REGISTROS_MAX = 4096
 LINHA_MAX = 200
 ESTADOS = ('iniciado', 'trabalhando', 'aguardando', 'concluido', 'encerrado')
 PROVEDORES = ('claude', 'codex')
-CONTROLE = re.compile('[\x00-\x1f\x7f-\x9f‎‏‪-‮⁦-⁩]')
+ANSI = re.compile('\x1b\\[[0-?]*[ -/]*[@-~]')
+CONTROLE = re.compile('[\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]')
 
 
 def texto(dados, nome, limite=4096):
@@ -40,7 +41,7 @@ def ultima_linha(dados):
     valor = dados.get('ultima_linha')
     if not isinstance(valor, str):
         return None
-    return CONTROLE.sub(' ', valor).strip()[:LINHA_MAX]
+    return CONTROLE.sub(' ', ANSI.sub('', valor)).strip()[:LINHA_MAX]
 
 
 def arquivos(fd, sufixo='.json'):

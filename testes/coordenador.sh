@@ -112,11 +112,11 @@ hook trabalhando '{"prompt":"sem variável"}'
 conferir "sem JANGADA_COORDENADOR o hook não grava" [ "$(cat "$reg/projeto--coordenador.json")" = "$antes" ]
 hook trabalhando '{"prompt":"sem variável"}' JANGADA_COORDENADOR=projeto--coordenador JANGADA_ISOLADO=1
 conferir "isolado o hook não grava" [ "$(cat "$reg/projeto--coordenador.json")" = "$antes" ]
-hook aguardando '{"message":"Claude precisa de permissão\u001b[31m‮ para Bash","notification_type":"permission_prompt"}' \
+hook aguardando '{"message":"Claude precisa\u200b de permissão\u001b[31m\u202e para\u0007 Bash","notification_type":"permission_prompt"}' \
   JANGADA_COORDENADOR=projeto--coordenador
 conferir "o hook grava aguardando" [ "$(campo .estado)" = aguardando ]
-conferir "a última linha sai sem caracteres de controle" \
-  [ "$(campo .ultima_linha)" = "Claude precisa de permissão [31m  para Bash" ]
+conferir "a última linha sai sem ANSI, controles nem invisíveis" \
+  [ "$(campo .ultima_linha)" = "Claude precisa  de permissão  para  Bash" ]
 conferir "o hook grava atualizado" [ -n "$(campo .atualizado)" ]
 longa="$(printf 'x%.0s' {1..300})"
 hook concluido "{\"last_assistant_message\":\"$longa\"}" JANGADA_COORDENADOR=projeto--coordenador

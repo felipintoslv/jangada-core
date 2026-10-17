@@ -87,14 +87,15 @@ focar() {
 }
 
 # Uso interno dos hooks. A linha chega pela entrada e vira dado: sem
-# caracteres de controle nem marcas de direção, até 200 caracteres.
+# sequências ANSI, caracteres de controle nem invisíveis, até 200 caracteres.
 registrar() {
   local estado="$1" nome="${JANGADA_COORDENADOR:-}" linha arq agora
   [[ -z "${JANGADA_SESSAO:-}" && -z "${JANGADA_ISOLADO:-}" ]] || return 0
   nome_valido "$nome" || return 0
   case "$estado" in iniciado|trabalhando|aguardando|concluido|encerrado|"") ;; *) return 0 ;; esac
   linha="$(head -c 4096 | jq -Rrs '
-    gsub("[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]"; " ")
+    gsub("\u001b\\[[0-?]*[ -/]*[@-~]"; "")
+    | gsub("[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]"; " ")
     | gsub("^ +| +$"; "") | .[0:200]' 2>/dev/null || true)"
   [[ -n "$estado$linha" ]] || return 0
   arq="$(registro "$nome")" || return 0
@@ -230,7 +231,7 @@ try:
     texto = bruto.decode('utf-8')
 except UnicodeDecodeError:
     sys.exit('texto não é UTF-8')
-if re.search('[\x00-\x09\x0b-\x1f\x7f-\x9f‎‏‪-‮⁦-⁩]', texto):
+if re.search('[\x00-\x09\x0b-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]', texto):
     sys.exit('texto com caractere de controle; só a quebra de linha é aceita')
 texto = texto.rstrip('\n')
 if not texto.strip():
