@@ -50,9 +50,10 @@ e de figura do dono quando ele grava num projeto de pesquisa. Vale com e sem
 - **Uma vez por conversa e por tipo:** a marca do aviso dado é uma pasta
   vazia `$JANGADA_ESTADO/agentes/avisos-pesquisa/<session_id>.<tipo>`, a
   única pasta do estado gravável no isolamento. Pastas com mais de 7 dias são
-  apagadas na gravação seguinte num projeto de pesquisa. Se `agentes/` ou
-  `avisos-pesquisa` for link, a marca não é gravada. Sem `session_id` no
-  evento, ou sem poder gravar a marca, o lembrete vai a cada gravação.
+  apagadas na gravação seguinte num projeto de pesquisa. Se algum componente
+  do caminho até `avisos-pesquisa` for link (inclusive um `~/.local/state`
+  ligado a outro disco), a marca não é gravada. Sem `session_id` no evento,
+  ou sem poder gravar a marca, o lembrete vai a cada gravação.
 - **Texto:** sai das seções `## Escrita` e `## Figuras` de
   `agentes/regras-pesquisa.md`, a fonte única. O lembrete não traz nome nem
   conteúdo do arquivo gravado.

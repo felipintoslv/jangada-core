@@ -252,6 +252,12 @@ ln -s "$alheia" "$tmp/estado-link2/agentes"
 pesquisa "$pesq/texto.md" c-link2 JANGADA_ESTADO="$tmp/estado-link2" >/dev/null
 conferir "pesquisa: agentes/ que é link não é seguido" \
   [ "$(find "$alheia" -mindepth 1 -printf '%f\n')" = velha.escrita ]
+mkdir -p "$tmp/estado-alheio/agentes/avisos-pesquisa/velha.escrita"
+touch -d '30 days ago' "$tmp/estado-alheio/agentes/avisos-pesquisa/velha.escrita"
+ln -s "$tmp/estado-alheio" "$tmp/estado-link3"
+pesquisa "$pesq/texto.md" c-link3 JANGADA_ESTADO="$tmp/estado-link3" >/dev/null
+conferir "pesquisa: estado que é link não é seguido" \
+  [ "$(find "$tmp/estado-alheio/agentes/avisos-pesquisa" -mindepth 1 -printf '%f\n')" = velha.escrita ]
 mkdir -p "$estado_pesq/agentes/avisos-pesquisa/velha.escrita"
 touch -d '30 days ago' "$estado_pesq/agentes/avisos-pesquisa/velha.escrita"
 pesquisa "$pesq/texto.md" c-limpeza >/dev/null

@@ -105,8 +105,8 @@ tipo_pesquisa() { # caminho absoluto; escreve escrita, figuras ou nada
 
 # Lembrete de cada tipo ainda não dado nesta conversa. A marca é uma pasta
 # vazia em agentes/avisos-pesquisa, porque agentes/ é a única pasta do estado
-# gravável no isolamento. Nem agentes/ nem avisos-pesquisa podem ser link: o
-# agente grava em agentes/. Quem cria a marca com mkdir dá o aviso, e a
+# gravável no isolamento. Nenhum componente do caminho até avisos-pesquisa
+# pode ser link: o agente grava em agentes/. Quem cria a marca com mkdir dá o aviso, e a
 # limpeza só remove pasta vazia.
 lembrete_pesquisa() { # tipos, um por linha
   local tipos="$1" conversa base avisos marca tipo secao texto="" marcas=0
@@ -115,7 +115,9 @@ lembrete_pesquisa() { # tipos, um por linha
   [[ "$conversa" =~ ^[A-Za-z0-9_-]{1,128}$ ]] || conversa=""
   base="${JANGADA_ESTADO:-${XDG_STATE_HOME:-$HOME/.local/state}/jangada}/agentes"
   avisos="$base/avisos-pesquisa"
-  if [[ -n "$conversa" && -d "$base" && ! -L "$base" ]]; then
+  # O caminho resolvido igual ao só normalizado: nenhum componente é link.
+  if [[ -n "$conversa" && -d "$base" \
+        && "$(realpath -e -- "$base" 2>/dev/null)" == "$(realpath -s -m -- "$base" 2>/dev/null)" ]]; then
     [[ -e "$avisos" || -L "$avisos" ]] || (umask 077; mkdir -- "$avisos" 2>/dev/null) || true
     [[ -d "$avisos" && ! -L "$avisos" ]] && marcas=1
   fi
