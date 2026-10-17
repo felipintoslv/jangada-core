@@ -563,13 +563,18 @@ registrar_consumo_tarefa() {
   local autor projeto execucao inicio fim medicao linha arquivo="$JANGADA_ESTADO/consumo-tarefas.jsonl"
   [[ -f "$arq" ]] || return 0
   execucao="$(jq -r '.execucao // ""' "$arq" 2>/dev/null || true)"
-  if [[ -f "$arquivo" ]] && jq -e --arg sessao "$s" --arg execucao "$execucao" \
+  [[ "$execucao" =~ ^exe-[0-9a-f]{16}$ ]] || execucao=""
+  if [[ -n "$execucao" && -f "$arquivo" ]] && jq -e --arg sessao "$s" --arg execucao "$execucao" \
       'select(.sessao == $sessao and (.execucao // "") == $execucao)' "$arquivo" >/dev/null 2>&1; then return 0; fi
   autor="$(jq -r '.agente // ""' "$arq" 2>/dev/null | awk '{print $1}')"
-  projeto="$(basename "$(jq -r '.raiz // .dir // ""' "$arq" 2>/dev/null)")"
+  if ! jangada_provedor "$autor"; then autor=""; fi
+  projeto="$(basename "$raiz")"
   inicio="$(jq -r '.desde // ""' "$arq" 2>/dev/null)"
   fim="$(jangada_data_iso)"
-  medicao="$(python3 "$JANGADA_CORE_PATH/orquestracao/consumo_tarefa.py" "$JANGADA_ESTADO" "$s" "$autor" --projeto "${worktree:-$raiz}" 2>/dev/null)" \
+  local -a args=(python3 "$JANGADA_CORE_PATH/orquestracao/consumo_tarefa.py" "$JANGADA_ESTADO" "$s" "$autor"
+    --projeto "${worktree:-$raiz}" --inicio "$inicio")
+  [[ -n "$worktree" ]] || args+=(--sem-worktree)
+  medicao="$(timeout 10s "${args[@]}" 2>/dev/null)" \
     || medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"falha na medição"}'
   linha="$(jq -nc --arg sessao "$s" --arg projeto "$projeto" --arg execucao "$execucao" \
     --arg autor "$autor" --arg inicio "$inicio" --arg fim "$fim" --argjson tokens "$medicao" \

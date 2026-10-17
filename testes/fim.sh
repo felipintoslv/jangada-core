@@ -158,7 +158,7 @@ recusado "base --output" b
 conferir "base --output: nada gravado" test ! -e "$tmp/escrito"
 
 echo "== estado válido"
-gravar x "{\"raiz\": \"$proj\", \"worktree\": \"$wts/proj/x\", \"ramo\": \"agente/x\", \"base\": \"main\", \"estado\": \"concluido\"}"
+gravar x "{\"raiz\": \"$proj\", \"worktree\": \"$wts/proj/x\", \"ramo\": \"agente/x\", \"base\": \"main\", \"estado\": \"concluido\", \"execucao\": \"forjada\", \"agente\": \"intruso\"}"
 # Pareceres da sessão x e da vizinha x-rotas, com o mesmo prefixo.
 printf 'STATUS: APROVADO\n' >"$estado/validacao-x-r1.md"
 printf 'STATUS: APROVADO\n' >"$estado/validacao-x-rotas-r1.md"
@@ -171,6 +171,9 @@ conferir "worktree removido" test ! -d "$wts/proj/x"
 conferir "estado apagado" test ! -f "$estado/x.json"
 conferir "consumo gravado mesmo sem provedor" \
   jq -e 'select(.sessao == "x") | .tokens.entrada == null and .tokens.saida == null and (.motivo | strings | length > 0)' \
+  "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
+conferir "execução e autor sem validação não são registrados" \
+  jq -e 'select(.sessao == "x") | .execucao == null and .autor == ""' \
   "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 conferir "ramo mantido" git -C "$proj" show-ref --quiet --verify refs/heads/agente/x
 : >"$tmp/mortas"

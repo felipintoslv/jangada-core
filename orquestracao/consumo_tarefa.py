@@ -4,7 +4,24 @@ import argparse
 import json
 import os
 import re
+import stat
 from pathlib import Path
+
+LIMITE_JSONL = 16 * 1024 * 1024
+
+
+def ler_jsonl(arquivo):
+    try:
+        info = arquivo.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size > LIMITE_JSONL:
+            return None
+        with arquivo.open('rb') as f:
+            conteudo = f.read(LIMITE_JSONL + 1)
+        if len(conteudo) > LIMITE_JSONL:
+            return None
+        return conteudo.decode('utf-8', errors='replace').splitlines()
+    except OSError:
+        return None
 
 
 def numero(v):
@@ -17,8 +34,11 @@ def codex(estado, sessao):
     ultimo = None
     modelo = None
     for arquivo in arquivos:
+        linhas = ler_jsonl(arquivo)
+        if linhas is None:
+            continue
         try:
-            for linha in arquivo.read_text(encoding='utf-8', errors='replace').splitlines():
+            for linha in linhas:
                 try:
                     d = json.loads(linha)
                 except ValueError:
@@ -43,7 +63,7 @@ def codex(estado, sessao):
                 motivo=None)
 
 
-def claude(home, projeto):
+def claude(home, projeto, inicio):
     projetos = home / '.claude' / 'projects'
     chave = re.sub(r'[^A-Za-z0-9]', '-', str(Path(projeto).resolve()))
     pasta = projetos / chave
@@ -51,24 +71,29 @@ def claude(home, projeto):
     try:
         arquivos = pasta.rglob('*.jsonl')
         for arquivo in arquivos:
+            linhas = ler_jsonl(arquivo)
+            if linhas is None:
+                continue
             try:
-                with arquivo.open(encoding='utf-8', errors='replace') as f:
-                    for linha in f:
-                        if '"usage"' not in linha:
-                            continue
-                        try:
-                            d = json.loads(linha)
-                        except ValueError:
-                            continue
-                        msg = d.get('message') or {}
-                        uso = msg.get('usage')
-                        if not isinstance(uso, dict):
-                            continue
-                        chave_msg = (msg.get('id'), d.get('requestId'))
-                        if chave_msg in vistos:
-                            continue
-                        vistos.add(chave_msg)
-                        respostas.append((d.get('timestamp') or '', uso, msg.get('model')))
+                for linha in linhas:
+                    if '"usage"' not in linha:
+                        continue
+                    try:
+                        d = json.loads(linha)
+                    except ValueError:
+                        continue
+                    msg = d.get('message') or {}
+                    uso = msg.get('usage')
+                    if not isinstance(uso, dict):
+                        continue
+                    timestamp = d.get('timestamp') or ''
+                    if inicio and (not timestamp or timestamp < inicio):
+                        continue
+                    chave_msg = (msg.get('id'), d.get('requestId'))
+                    if chave_msg in vistos:
+                        continue
+                    vistos.add(chave_msg)
+                    respostas.append((timestamp, uso, msg.get('model')))
             except OSError:
                 continue
     except OSError:
@@ -86,23 +111,27 @@ def vazio(motivo):
     return dict(entrada=None, saida=None, cache_lido=None, modelo=None, motivo=motivo)
 
 
-def medir(estado, sessao, autor, projeto, home=None):
+def medir(estado, sessao, autor, projeto, home=None, inicio=None, worktree=True):
     estado = Path(estado)
     if autor == 'codex':
         return codex(estado, sessao)
     if autor == 'claude':
         if not projeto:
             return vazio('pasta do projeto ausente')
-        return claude(Path(home or os.environ.get('HOME', '~')).expanduser(), projeto)
+        if not worktree:
+            return vazio('sem worktree para separar conversas do projeto')
+        return claude(Path(home or os.environ.get('HOME', '~')).expanduser(), projeto, inicio)
     return vazio('provedor sem medição disponível')
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('estado'); p.add_argument('sessao'); p.add_argument('autor')
-    p.add_argument('--projeto', default=''); p.add_argument('--home')
+    p.add_argument('--projeto', default=''); p.add_argument('--home'); p.add_argument('--inicio')
+    p.add_argument('--sem-worktree', action='store_true')
     a = p.parse_args()
-    print(json.dumps(medir(a.estado, a.sessao, a.autor, a.projeto, a.home), ensure_ascii=False))
+    print(json.dumps(medir(a.estado, a.sessao, a.autor, a.projeto, a.home, a.inicio,
+                           not a.sem_worktree), ensure_ascii=False))
 
 
 if __name__ == '__main__':

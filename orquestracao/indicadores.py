@@ -68,8 +68,10 @@ def montar(estado, projeto='', desde=''):
                 if desde and (m.get('desde') or '')[:10] < desde:
                     continue
                 provedor = (m.get('agente') or '').split()
+                tem_worktree = bool(m.get('worktree'))
                 medido = medir(estado, chave[0], os.path.basename(provedor[0]) if provedor else '',
-                               m.get('worktree') or m.get('dir') or m.get('raiz'))
+                               m.get('worktree') or m.get('dir') or m.get('raiz'),
+                               inicio=m.get('desde'), worktree=tem_worktree)
                 por_chave[chave] = dict(sessao=chave[0], projeto=projeto_aberto, execucao=chave[1],
                     autor=m.get('agente'), tokens=medido, inicio=m.get('desde'), fim=None)
     for (sessao, execucao), c in por_chave.items():
@@ -92,11 +94,15 @@ def montar(estado, projeto='', desde=''):
             procedentes=0, rejeitados=0, sem_classificacao=0, casos=0))
         g['pareceres'] += 1; g['apontamentos'] += v.get('itens') or 0
         r = v.get('resposta')
-        if isinstance(r, dict):
-            g['procedentes'] += r.get('corrigidos') or 0
-            g['rejeitados'] += r.get('rejeitados') or 0
-            g['sem_classificacao'] += r.get('sem_classificar') or 0
-            g['casos'] += sum(r.get(x) or 0 for x in ('corrigidos', 'rejeitados', 'sem_classificar'))
+        responde_a = v.get('responde_a')
+        if isinstance(r, dict) and isinstance(responde_a, dict):
+            alvo = (responde_a.get('revisor') or '?', responde_a.get('modelo') or '?')
+            classificado = grupos.setdefault(alvo, dict(revisor=alvo[0], modelo=alvo[1], pareceres=0,
+                apontamentos=0, procedentes=0, rejeitados=0, sem_classificacao=0, casos=0))
+            classificado['procedentes'] += r.get('corrigidos') or 0
+            classificado['rejeitados'] += r.get('rejeitados') or 0
+            classificado['sem_classificacao'] += r.get('sem_classificar') or 0
+            classificado['casos'] += sum(r.get(x) or 0 for x in ('corrigidos', 'rejeitados', 'sem_classificar'))
     revisores = []
     for g in grupos.values():
         n = g['procedentes'] + g['rejeitados']
