@@ -140,7 +140,7 @@ try:
     with open(caminho, encoding='utf-8', errors='replace') as f:
         for linha in f:
             try: d = json.loads(linha)
-            except ValueError: continue
+            except (ValueError, RecursionError): continue
             if not isinstance(d, dict): continue
             if (d.get('rotulo') == sessao and d.get('execucao') == (execucao or None)
                     and d.get('rodada') == int(rodada) - 1
