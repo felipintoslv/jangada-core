@@ -174,7 +174,8 @@ carregador_boot() {
 # relatorio-academico) em <pasta>/<nome>, apontando para o repositório
 # instalado: uma atualização do repositório as atualiza junto com o resto. Um link antigo do
 # jangada (outro JANGADA_CORE_PATH) é trocado; uma pasta ou link alheio com o mesmo
-# nome fica como está, com aviso. O filtro so:<nome> liga só essa skill e
+# nome fica como está, com aviso. Também é do jangada o link do layout antigo
+# (versão anterior à divisão), que termina em /default/claude/skills/<nome>. O filtro so:<nome> liga só essa skill e
 # menos:<nome> liga todas as outras.
 # Uso: ligar_skills <pasta> <agente> [filtro].
 ligar_skills() {
@@ -194,7 +195,7 @@ ligar_skills() {
         ok "skill $nome do $agente já ligada: $destino"
         continue
       fi
-      if [[ "$atual" != */agentes/claude/skills/"$nome" ]]; then
+      if [[ "$atual" != */agentes/claude/skills/"$nome" && "$atual" != */default/claude/skills/"$nome" ]]; then
         aviso "$destino aponta para $atual, que não é do jangada; mantido"
         continue
       fi
@@ -224,7 +225,8 @@ ligar_skill_codex() { ligar_skills "${CODEX_HOME:-$HOME/.codex}/skills" "Codex" 
 
 # Liga os papéis de subagente do Claude Code (agentes/claude/agents/*.md) em
 # ~/.claude/agents/<papel>.md, com as mesmas regras de ligar_skills: link
-# antigo do jangada é trocado, arquivo alheio com o mesmo nome fica.
+# antigo do jangada é trocado (inclusive o do layout antigo default/, da versão
+# anterior à divisão), arquivo alheio com o mesmo nome fica.
 ligar_agentes_claude() {
   local pasta="$HOME/.claude/agents" origem nome destino atual
   for origem in "$JANGADA_CORE_PATH"/agentes/claude/agents/*.md; do
@@ -237,7 +239,7 @@ ligar_agentes_claude() {
         ok "subagente ${nome%.md} do Claude Code já ligado: $destino"
         continue
       fi
-      if [[ "$atual" != */agentes/claude/agents/"$nome" ]]; then
+      if [[ "$atual" != */agentes/claude/agents/"$nome" && "$atual" != */default/claude/agents/"$nome" ]]; then
         aviso "$destino aponta para $atual, que não é do jangada; mantido"
         continue
       fi
@@ -255,7 +257,8 @@ ligar_agentes_claude() {
 # em ~/.gemini/config/agents.json, como uma entrada de pasta: o agy lê os
 # agentes direto do repositório instalado, sem nada em .agents/ dos projetos.
 # Uma entrada antiga do jangada (outro JANGADA_CORE_PATH) é trocada; as demais
-# ficam como estão.
+# ficam como estão. A entrada do layout antigo default/ (versão anterior à
+# divisão), que termina em /default/agy/agents, também é trocada.
 mesclar_agentes_agy() {
   local cfg="$HOME/.gemini/config/agents.json" pasta="$JANGADA_CORE_PATH/agentes/agy/agents" tmp existia=0
   if simulando; then
@@ -266,7 +269,7 @@ mesclar_agentes_agy() {
   if [[ -f "$cfg" ]]; then existia=1; else echo '{}' >"$cfg"; fi
   tmp="$(mktemp)"
   if ! jq --arg p "$pasta" '
-      .entries = ([(.entries // [])[] | select((.path // "") | endswith("/agentes/agy/agents") | not)]
+      .entries = ([(.entries // [])[] | select((.path // "") | (endswith("/agentes/agy/agents") or endswith("/default/agy/agents")) | not)]
                   + [{path: $p}])' "$cfg" >"$tmp"; then
     rm -f "$tmp"
     aviso "não consegui ler $cfg; subagentes do agy não registrados"

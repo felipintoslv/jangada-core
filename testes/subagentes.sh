@@ -176,6 +176,27 @@ conferir "rodar de novo não muda nada" \
   bash -c '[ "$1" = "$(cat "$2")" ] && [ "$3" = "$(find "$4" -name "*.bak" | wc -l)" ] && grep -q "já registrados" "$5"' \
   _ "$antes" "$agentes_json" "$n_bak" "$tmp/home/.gemini/config" "$tmp/saida.log"
 
+# Links do layout antigo (default/) são trocados; links alheios ficam.
+mkdir -p "$HOME/.cache"
+th="$(mktemp -d "$HOME/.cache/teste-links.XXXX")"
+mkdir -p "$th/.claude/skills" "$th/.claude/agents" "$th/.gemini/config"
+ln -s /x/.local/share/jangada/default/claude/skills/jangada "$th/.claude/skills/jangada"
+ln -s /outro/lugar/relatorio-tecnico "$th/.claude/skills/relatorio-tecnico"
+ln -s /x/.local/share/jangada/default/claude/agents/explorador.md "$th/.claude/agents/explorador.md"
+ln -s /outro/lugar/leitor.md "$th/.claude/agents/leitor.md"
+echo '{"entries":[{"path":"/x/.local/share/jangada/default/agy/agents"},{"path":"/outro/agents"}]}' >"$th/.gemini/config/agents.json"
+env HOME="$th" JANGADA_CORE_PATH="$repo_jangada" \
+  bash -c 'source install/lib.sh; ligar_skill_claude; ligar_agentes_claude; mesclar_agentes_agy' >"$th/saida.log" 2>&1
+conferir "link antigo default/claude/skills é trocado" \
+  [ "$(readlink "$th/.claude/skills/jangada")" = "$repo_jangada/agentes/claude/skills/jangada" ]
+conferir "link antigo default/claude/agents é trocado" \
+  [ "$(readlink "$th/.claude/agents/explorador.md")" = "$repo_jangada/agentes/claude/agents/explorador.md" ]
+conferir "link de skill alheio fica" [ "$(readlink "$th/.claude/skills/relatorio-tecnico")" = /outro/lugar/relatorio-tecnico ]
+conferir "link de subagente alheio fica" [ "$(readlink "$th/.claude/agents/leitor.md")" = /outro/lugar/leitor.md ]
+conferir "entrada default/agy/agents some e a nova entra" \
+  jqok -e --arg p "$repo_jangada/agentes/agy/agents" '[.entries[].path] == ["/outro/agents", $p]' "$th/.gemini/config/agents.json"
+rm -rf "$th"
+
 echo
 if ((falhas)); then
   echo "$falhas teste(s) falharam"
