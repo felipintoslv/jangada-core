@@ -81,6 +81,13 @@ substituem a marca protegida que autoriza integração.
   - `itens`: linhas do parecer que começam por `N.`. É 0 no `limite` e no
     `erro`, que não têm parecer.
   - `segundos`: `$SECONDS` do script, do início ao registro.
+  - `resposta` (opcional): classificação de `--resposta`, gravada apenas com
+    parecer `aprovado` ou `revisar` na etapa `revisor`. Contém os inteiros
+    `corrigidos`, `rejeitados` e `sem_classificar`. Registros antigos sem esse
+    campo não têm classificação conhecida.
+  - `responde_a` (opcional): `rodada`, `revisor` e `modelo` do último parecer
+    registrado na rodada imediatamente anterior, com o mesmo `rotulo` e
+    `execucao`. Ignora erros e outras etapas; vale `null` quando não encontrado.
   - `subagentes` (opcional, a partir de 27/09/2026): resumo dos subagentes
     e delegações da entrega, dado por `jangada-subagentes --entrega`, comando opcional, fora do Core por ora. Conta
     o que rodou na pasta desde a última aprovação (mtime do
@@ -677,6 +684,26 @@ conteúdo externo. Nas fontes Codex, `arquivos_lidos`, `bytes_lidos` e
 Os bytes incluem o trecho final incompleto, relido até receber a quebra de
 linha. A contagem de linhas inclui apenas registros completos. A leitura das
 bordas para conferir assinaturas não entra nessas contagens.
+
+## 11. consumo-tarefas.jsonl
+
+- **Caminho:** `$JANGADA_ESTADO/consumo-tarefas.jsonl`.
+- **Quem escreve:** `bin/jangada-agente-fim`, função `registrar_consumo_tarefa`,
+  após parar a sessão e preservar as evidências, antes de remover a pasta de trabalho.
+- **Formato:** JSON Lines, uma linha por sessão e execução, acrescentada sob trava.
+- **Campos:**
+  - `sessao`: nome da sessão encerrada.
+  - `projeto`: nome da pasta do repositório principal.
+  - `execucao`: identificador da execução; `null` sem vínculo.
+  - `autor`: provedor do agente da sessão.
+  - `modelo`: modelo encontrado nos registros do autor; `null` quando ausente.
+  - `tokens`: `entrada`, `saida` e `cache_lido`, inteiros ou `null` quando não medidos.
+  - `motivo`: motivo da medição ausente; `null` quando medida.
+  - `inicio`: data de criação da sessão, com fuso; `null` quando ausente.
+  - `fim`: data da medição após parar o agente, com fuso.
+- **Acúmulo e limpeza:** não é sobrescrito nem apagado no encerramento.
+  Uma medição ausente não bloqueia a limpeza da sessão. O consumo do revisor
+  fica fora deste registro. Consulte o [contrato dos indicadores](indicadores.md).
 
 ## Indicadores e registros
 

@@ -48,6 +48,16 @@
       "menos": {"tipo": ["inteiro"], "obrigatorio": true},
       "itens": {"tipo": ["inteiro"], "obrigatorio": true},
       "segundos": {"tipo": ["inteiro"], "obrigatorio": true},
+      "resposta": {"tipo": ["objeto"], "obrigatorio": false, "campos": {
+        "corrigidos": {"tipo": ["inteiro"], "obrigatorio": true},
+        "rejeitados": {"tipo": ["inteiro"], "obrigatorio": true},
+        "sem_classificar": {"tipo": ["inteiro"], "obrigatorio": true}
+      }},
+      "responde_a": {"tipo": ["objeto", "nulo"], "obrigatorio": false, "campos": {
+        "rodada": {"tipo": ["inteiro"], "obrigatorio": true},
+        "revisor": {"tipo": ["texto"], "obrigatorio": true},
+        "modelo": {"tipo": ["texto"], "obrigatorio": true}
+      }},
       "subagentes": {"tipo": ["objeto"], "obrigatorio": false, "campos": {
         "n": {"tipo": ["inteiro"], "obrigatorio": true},
         "claude": {"tipo": ["objeto"], "obrigatorio": true, "campos": {

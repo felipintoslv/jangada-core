@@ -15,10 +15,10 @@ def gravar(pasta, nome, objetos):
     (pasta / nome).write_text(''.join(json.dumps(x) + '\n' for x in objetos), encoding='utf-8')
 
 
-def classificar_resposta(texto):
+def classificar_resposta(texto, caminho='/nao-existe'):
     validar = (RAIZ / 'bin/jangada-validar').read_text(encoding='utf-8')
     bloco = validar.split('resposta_json="$(python3 - "$resposta"', 1)[1].split("<<'PY'\n", 1)[1].split('\nPY', 1)[0]
-    saida = subprocess.check_output(['python3', '-', texto, '/nao-existe', 'sessao', 'execucao'],
+    saida = subprocess.check_output(['python3', '-', texto, str(caminho), 'sessao', 'execucao', '2'],
                                     input=bloco, text=True)
     return json.loads(saida)
 
@@ -29,6 +29,15 @@ def main():
             classificacao['sem_classificar']) == (1, 1, 1)
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
+        anteriores = [dict(rotulo='sessao', execucao='execucao', rodada=1, etapa='revisor',
+                           resultado='revisar', revisor=revisor, modelo=modelo)
+                      for revisor, modelo in [('claude', 'opus'), ('codex', 'm'), ('agy', 'a')]]
+        gravar(base, 'rodadas.jsonl', anteriores + [
+            dict(anteriores[0], rodada=2), dict(anteriores[0], rodada=3),
+            dict(anteriores[0], execucao='outra'), dict(anteriores[0], rotulo='outra'),
+            dict(anteriores[0], resultado='erro')])
+        respondida = classificar_resposta('1 corrigido', base / 'rodadas.jsonl')['responde_a']
+        assert respondida == dict(rodada=1, revisor='agy', modelo='a')
         estado = base / 'state' / 'jangada'
         home = base / 'home'
         (estado / 'agentes').mkdir(parents=True)

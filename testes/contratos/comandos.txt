@@ -21,6 +21,7 @@ jangada-hook-agy
 jangada-hook-claude
 jangada-hook-codex
 jangada-hook-leitor
+jangada-indicadores
 jangada-isolar
 jangada-mapa
 jangada-migrar

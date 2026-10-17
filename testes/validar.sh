@@ -172,9 +172,10 @@ echo "linha 2" >>"$tmp/projeto/arquivo.txt"
 git -C "$tmp/projeto" add arquivo.txt
 git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "commit 2"
 sessao_de claude agy
+validar 'STATUS: REVISAR\n1. arquivo.txt:1: conferir'; rc=$?
 validar 'STATUS: APROVADO' --resposta "1: corrigido; 2. rejeitado: motivo; 3 talvez"; rc=$?
 conferir "caso 2b: resposta pontuada e item sem classe" jq -e \
-  'select(.resposta.corrigidos == 1 and .resposta.rejeitados == 1 and .resposta.sem_classificar == 1 and .responde_a.rodada == 2)' \
+  'select(.resposta.corrigidos == 1 and .resposta.rejeitados == 1 and .resposta.sem_classificar == 1 and .responde_a.rodada == 1 and .responde_a.revisor == "agy")' \
   "$tmp/estado/jangada/validar.jsonl"
 
 # Caso 3: sessão do agy, o revisor é o Claude; status com Markdown.
