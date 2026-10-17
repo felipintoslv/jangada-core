@@ -1,8 +1,15 @@
 # Indicadores
 
 `jangada-indicadores` lê os registros em `$JANGADA_ESTADO` e não altera arquivos.
-Use `--projeto NOME` e `--desde AAAA-MM-DD` para filtrar. Sem opções, mostra
-um resumo em texto por grupo; `--json` imprime o contrato consumido pela Central.
+Use `--projeto NOME` e `--desde AAAA-MM-DD` para filtrar. `--json` imprime o
+contrato consumido pela Central.
+
+Sem `--json`, a saída é um resumo em texto. Cada bloco começa pelos totais:
+tokens, rodadas e tempo de revisão das tarefas; pareceres, procedentes,
+rejeitados e taxa dos revisores, separados por origem; chamadas, sucessos e
+recusas do local e do agy. Depois vêm as linhas de cada grupo. Das tarefas, só
+as 10 mais recentes, pela data de encerramento ou da última rodada protegida;
+`--todas` lista todas. Valor nulo aparece como "sem dado".
 
 O objeto JSON tem `versao: 1` e três listas:
 

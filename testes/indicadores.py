@@ -41,6 +41,7 @@ def main():
             dict(anteriores[0], rodada=2), dict(anteriores[0], rodada=3),
             dict(anteriores[0], execucao='outra'), dict(anteriores[0], rotulo='outra'),
             dict(anteriores[0], resultado='erro')])
+        acrescentar_linha_aninhada(base / 'rodadas.jsonl')
         respondida = classificar_resposta('1 corrigido', base / 'rodadas.jsonl')['responde_a']
         assert respondida == dict(rodada=1, revisor='agy', modelo='a')
         estado = base / 'state' / 'jangada'
@@ -151,7 +152,9 @@ def main():
                           input_tokens=1000, output_tokens=1000, cache_read_input_tokens=1000)))
         (pasta_claude / 'a.jsonl').write_text(json.dumps(antiga) + '\n' + json.dumps(resposta) + '\n' +
             json.dumps(dict(resposta, timestamp='nao-e-data', requestId='data-invalida')) + '\n' +
-            json.dumps(dict(resposta, requestId='msg-invalida', message='x')) + '\n', encoding='utf-8')
+            json.dumps(dict(resposta, requestId='msg-invalida', message='x')) + '\n' +
+            # Contém "usage": passa pelo filtro e chega ao json.loads.
+            '{"usage": ' + '[' * 100000 + '\n', encoding='utf-8')
         (pasta_claude / 'b.jsonl').write_text(json.dumps(resposta) + '\n', encoding='utf-8')
         (base / 'fora.jsonl').write_text(json.dumps(dict(resposta, requestId='link')) + '\n', encoding='utf-8')
         (pasta_claude / 'link.jsonl').symlink_to(base / 'fora.jsonl')
@@ -230,8 +233,28 @@ def main():
         recente = json.loads(subprocess.check_output([str(RAIZ / 'bin/jangada-indicadores'), '--json',
             '--desde', '2027-01-01'], env=env, text=True))
         assert not recente['tarefas'] and not recente['revisores'] and not recente['local_vs_agy']
+        with (estado / 'consumo-tarefas.jsonl').open('a', encoding='utf-8') as f:
+            for i in range(12):
+                f.write(json.dumps(dict(sessao=f'antiga-{i:02}', projeto='p', execucao=f'x{i}', autor='codex',
+                    tokens=dict(entrada=1, saida=None, cache_lido=None), motivo=None,
+                    inicio='2025-01-01', fim=f'2025-01-{i + 1:02}')) + '\n')
+        total = len(json.loads(subprocess.check_output([str(RAIZ / 'bin/jangada-indicadores'), '--json'],
+            env=env, text=True))['tarefas'])
         texto = subprocess.check_output([str(RAIZ / 'bin/jangada-indicadores')], env=env, text=True)
+        assert 'None' not in texto and 'sem dado' in texto
+        tarefas = texto[:texto.index('Revisores:')].splitlines()
+        assert tarefas[0] == f'Tarefas: {total} (as 10 mais recentes; --todas lista todas)'
+        assert tarefas[1].startswith('  total: entrada 62, saída 20, cache lido 5, sem medição')
+        assert len(tarefas) == 12
+        assert f'  {sessao}: entrada 50,' in texto and 'antiga-11:' in texto and 'antiga-04:' in texto
+        assert 'antiga-03:' not in texto and 'parada:' not in texto
+        todas = subprocess.check_output([str(RAIZ / 'bin/jangada-indicadores'), '--todas'], env=env, text=True)
+        assert 'None' not in todas and 'parada:' in todas and 'antiga-00:' in todas
+        assert len(todas[:todas.index('Revisores:')].splitlines()) == total + 2
         assert all(rotulo in texto for rotulo in ('Tarefas:', 'Revisores:', 'Local e agy:', 'taxa'))
+        assert 'mediana sem dado' in texto
+        assert '  total protegida: 7 pareceres, 1 procedentes, 1 rejeitados, taxa 50% (2 casos)' in texto
+        assert '  total sessao: 3 pareceres, 99 procedentes, 0 rejeitados' in texto
         assert 'forjado / hostil [sessao]' in texto
         assert 'rodadas sessão 1' in texto
         assert 'agy / leitor [sessao]' in texto

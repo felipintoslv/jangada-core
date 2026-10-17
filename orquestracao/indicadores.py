@@ -58,6 +58,11 @@ def carregar(estado, projeto, desde):
 
 
 def montar(estado, projeto='', desde=''):
+    return montar_com_datas(estado, projeto, desde)[0]
+
+
+def montar_com_datas(estado, projeto='', desde=''):
+    """Devolve também a data mais recente de cada tarefa, na ordem de `tarefas`."""
     estado = Path(estado)
     consumos, validacoes, delegacoes = carregar(estado, projeto, desde)
     por_chave = {}
@@ -95,7 +100,7 @@ def montar(estado, projeto='', desde=''):
         por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=execucao, autor=None,
             tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None, motivo=motivo), inicio=None, fim=None))
 
-    tarefas = {}
+    tarefas, datas = {}, {}
     for (sessao, execucao), c in por_chave.items():
         relacionadas = [x for x in validacoes if x.get('rotulo') == sessao and x.get('execucao') == execucao]
         protegidas = [x for x in relacionadas if x.get('origem') == 'protegida' and rodada_valida(x)]
@@ -103,6 +108,9 @@ def montar(estado, projeto='', desde=''):
         ds = [x for x in delegacoes if x.get('sessao') == sessao and x.get('execucao') == execucao]
         ultima = protegidas[-1] if protegidas else {}
         t = tokens(c, c.get('autor'))
+        datas[f'{sessao}:{execucao or ""}'] = max(
+            [x for x in [c.get('fim')] + [v.get('data') for v in relacionadas if v.get('origem') == 'protegida'] if isinstance(x, str)],
+            default='')
         tarefas[f'{sessao}:{execucao or ""}'] = dict(sessao=sessao, autor=c.get('autor'), tokens=t,
             rodadas=len(protegidas), rodadas_sessao=len(sessao_v), ultimo_resultado=ultima.get('resultado'),
             delegacoes=[dict(papel=x.get('papel'), destino=x.get('destino'), modelo=x.get('modelo'), origem='sessao',
@@ -165,35 +173,77 @@ def montar(estado, projeto='', desde=''):
     for g in destinos.values():
         segundos = g.pop('segundos')
         g['segundos_medianos'] = statistics.median(segundos) if segundos else None
-    return dict(versao=1, tarefas=list(tarefas.values()), revisores=revisores, local_vs_agy=list(destinos.values()))
+    dados = dict(versao=1, tarefas=list(tarefas.values()), revisores=revisores, local_vs_agy=list(destinos.values()))
+    return dados, [datas[k] for k in tarefas]
+
+
+def valor(v, unidade=''):
+    return 'sem dado' if v is None else f'{texto_terminal(v)}{unidade}'
+
+
+def soma(valores):
+    return sum(v for v in valores if type(v) is int)
+
+
+def texto(dados, datas, todas=False, limite=10):
+    tarefas = dados['tarefas']
+    ordem = sorted(range(len(tarefas)), key=lambda i: datas[i], reverse=True)
+    if not todas:
+        ordem = ordem[:limite]
+    sem_medicao = sum(1 for t in tarefas if type(t['tokens'].get('entrada')) is not int)
+    linhas = [f"Tarefas: {len(tarefas)}"
+              + (f" (as {len(ordem)} mais recentes; --todas lista todas)" if len(ordem) < len(tarefas) else ''),
+              f"  total: entrada {soma(t['tokens'].get('entrada') for t in tarefas)}, "
+              f"saída {soma(t['tokens'].get('saida') for t in tarefas)}, "
+              f"cache lido {soma(t['tokens'].get('cache_lido') for t in tarefas)}, sem medição {sem_medicao}, "
+              f"rodadas {sum(t['rodadas'] for t in tarefas)}, "
+              f"rodadas sessão {sum(t['rodadas_sessao'] for t in tarefas)}, "
+              f"revisão {sum(t['segundos_revisao'] for t in tarefas)} s"]
+    for i in ordem:
+        t = tarefas[i]
+        tk = t['tokens']
+        linhas.append(f"  {texto_terminal(t['sessao'])}: entrada {valor(tk.get('entrada'))}, "
+                      f"saída {valor(tk.get('saida'))}, cache lido {valor(tk.get('cache_lido'))}, "
+                      f"rodadas {t['rodadas']}, rodadas sessão {t['rodadas_sessao']}, "
+                      f"revisão {t['segundos_revisao']} s")
+    revisores = dados['revisores']
+    totais = []
+    for origem in ('protegida', 'sessao'):
+        grupo = [r for r in revisores if r['origem'] == origem]
+        procedentes = sum(r['procedentes'] for r in grupo)
+        casos = procedentes + sum(r['rejeitados'] for r in grupo)
+        totais.append(f"{origem}: {sum(r['pareceres'] for r in grupo)} pareceres, {procedentes} procedentes, "
+                      f"{casos - procedentes} rejeitados, "
+                      f"taxa {f'{procedentes / casos:.0%} ({casos} casos)' if casos else 'sem casos'}")
+    linhas.append(f"Revisores: {len(revisores)}")
+    linhas.extend(f"  total {t}" for t in totais)
+    for r in revisores:
+        taxa = 'sem casos' if r['taxa_procedencia'] is None else f"{r['taxa_procedencia']:.0%} ({r['casos_taxa']} casos)"
+        linhas.append(f"  {texto_terminal(r['revisor'])} / {texto_terminal(r['modelo'])} [{r['origem']}]: "
+                      f"{r['procedentes']} procedentes, {r['rejeitados']} rejeitados, taxa {taxa}")
+    destinos = dados['local_vs_agy']
+    linhas.append(f"Local e agy: {len(destinos)}; total: {sum(d['chamadas'] for d in destinos)} chamadas, "
+                  f"{sum(d['sucesso'] for d in destinos)} sucesso(s), {sum(d['recusas'] for d in destinos)} recusa(s)")
+    for d in destinos:
+        linhas.append(f"  {texto_terminal(d['destino'])} / {texto_terminal(d['papel'])} [{d['origem']}]: "
+                      f"{d['chamadas']} chamadas, {d['sucesso']} sucesso(s), "
+                      f"{d['recusas']} recusa(s), mediana {valor(d['segundos_medianos'], ' s')}, "
+                      f"tokens entrada {valor(d['tokens_entrada'])}, saída {valor(d['tokens_saida'])}, "
+                      f"local transferido {d['mudancas_local']}")
+    return '\n'.join(linhas)
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--estado', default=os.environ.get('JANGADA_ESTADO', str(Path.home() / '.local/state/jangada')))
     p.add_argument('--json', action='store_true'); p.add_argument('--projeto', default=''); p.add_argument('--desde', default='')
+    p.add_argument('--todas', action='store_true')
     a = p.parse_args()
-    dados = montar(a.estado, a.projeto, a.desde)
+    dados, datas = montar_com_datas(a.estado, a.projeto, a.desde)
     if a.json:
         print(json.dumps(dados, ensure_ascii=False))
     else:
-        print(f"Tarefas: {len(dados['tarefas'])}")
-        for t in dados['tarefas']:
-            tokens = t['tokens']
-            print(f"  {texto_terminal(t['sessao'])}: entrada {tokens.get('entrada')}, saída {tokens.get('saida')}, "
-                  f"cache lido {tokens.get('cache_lido')}, rodadas {t['rodadas']}, "
-                  f"rodadas sessão {t['rodadas_sessao']}, revisão {t['segundos_revisao']} s")
-        print(f"Revisores: {len(dados['revisores'])}")
-        for r in dados['revisores']:
-            taxa = 'sem casos' if r['taxa_procedencia'] is None else f"{r['taxa_procedencia']:.0%} ({r['casos_taxa']} casos)"
-            print(f"  {texto_terminal(r['revisor'])} / {texto_terminal(r['modelo'])} [{r['origem']}]: "
-                  f"{r['procedentes']} procedentes, {r['rejeitados']} rejeitados, taxa {taxa}")
-        print('Local e agy:')
-        for d in dados['local_vs_agy']:
-            print(f"  {texto_terminal(d['destino'])} / {texto_terminal(d['papel'])} [{d['origem']}]: "
-                  f"{d['chamadas']} chamadas, {d['sucesso']} sucesso(s), "
-                  f"{d['recusas']} recusa(s), mediana {d['segundos_medianos']} s, "
-                  f"tokens entrada {d['tokens_entrada']}, saída {d['tokens_saida']}, local transferido {d['mudancas_local']}")
+        print(texto(dados, datas, a.todas))
 
 
 if __name__ == '__main__': main()
