@@ -29,6 +29,7 @@ O Monitor recebe filas, consumos, métricas e provedores por
 O [contrato M1.2](coordenacao-central/11-consultas-modulos.md) define campos,
 limites, seleção e erros. Os registros abaixo permanecem inalterados.
 Texto repassado não é autorização; a consulta nunca inclui `revisoes/`.
+`jangada-agentes --rodadas-json` lista as rodadas da seção 1 por sessão e só abre `revisoes/validar.jsonl`.
 
 ## 1. validar.jsonl
 

@@ -11,6 +11,7 @@
 #   jangada-agentes --lista-json  consulta pública versionada, com campos de apresentação
 #   jangada-agentes --sessao-worktree-json CAMINHO  sessão por worktree exato, sem retenção
 #   jangada-agentes --contexto-json S  tarefa e último parecer público, por sessão
+#   jangada-agentes --rodadas-json S  rodadas de revisão da execução atual da sessão S
 #   jangada-agentes --observacao-json  caminhos públicos para avisos de mudança
 #   jangada-agentes --lista    lista simples: estado, sessão, diretório
 #   jangada-agentes --lista-atualizada  o mesmo que --lista; não limpa órfãos
@@ -37,7 +38,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
 
 estado_dir="$JANGADA_ESTADO/agentes"
 case "${1:-}" in
-  --lista|--lista-atualizada|--lista-json|--observacao-json|--sessao-worktree-json|--contexto-json|--waybar) ;;
+  --lista|--lista-atualizada|--lista-json|--observacao-json|--sessao-worktree-json|--contexto-json|--rodadas-json|--waybar) ;;
   *) mkdir -p "$estado_dir" ;;
 esac
 
@@ -640,6 +641,10 @@ icone() {
 case "${1:-}" in
   --sessao-worktree-json|--contexto-json)
     exec python3 "$JANGADA_CORE_PY/nucleo/contexto.py" "$1" "$JANGADA_ESTADO" "${2:?informe o argumento da consulta}"
+    ;;
+  --rodadas-json)
+    (($# == 2)) || { echo "uso: jangada-agentes --rodadas-json SESSAO" >&2; exit 2; }
+    exec python3 "$JANGADA_CORE_PY/nucleo/rodadas.py" "$JANGADA_ESTADO" "$2"
     ;;
   --lista-json)
     listar json

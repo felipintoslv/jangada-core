@@ -55,6 +55,63 @@ O comando não dá acesso a pareceres protegidos por ligações simbólicas ou
 adicionais. Ausência de registro e parecer produz contexto vazio identificado,
 como antes. Um erro impede criar ou abrir a nova tarefa.
 
+## Rodadas por sessão
+
+`bin/jangada-agentes --rodadas-json SESSAO` lista as rodadas de revisão da
+sessão, sem o texto dos pareceres. O texto do último continua no
+`--contexto-json`. A resposta é
+`{"versao":1,"sessao":"...","execucao":...,"rodadas":[...]}`.
+
+| Campo | Tipo e significado |
+|---|---|
+| `versao` | Inteiro 1 |
+| `sessao` | Nome solicitado |
+| `execucao` | Execução escolhida, texto ou nulo |
+| `rodadas` | Lista em ordem de `data`, da mais antiga à mais recente |
+
+Cada rodada tem:
+
+| Campo | Tipo e significado |
+|---|---|
+| `rodada` | Inteiro do registro, a partir de 1; recomeça depois de um APROVADO; nulo se inválido |
+| `origem` | `sessao` (`validar.jsonl`) ou `protegida` (`revisoes/validar.jsonl`) |
+| `resultado` | `aprovado` ou `revisar` |
+| `etapa` | `revisor` |
+| `revisor`, `modelo` | Texto do registro; vazio quando não gravado; nulo fora de `[A-Za-z0-9_.:/@+[]-]`, até 128 caracteres |
+| `data` | Hora do registro, ISO com fuso; nulo se ilegível. O registro não tem início separado |
+| `segundos` | Número do registro, duração do `jangada-validar` até o registro; nulo se inválido |
+| `apontamentos` | Inteiro do campo `itens`; nulo se inválido |
+| `parecer_origem` | Nome de `validacao-SESSAO-rN.md` no topo de `agentes/`, ou nulo |
+
+A fonte é o `validar.jsonl` da [seção 1 dos registros](../registros.md),
+pelas regras do `jangada-indicadores`: mesmo `rotulo` e rodada válida
+(`etapa` `revisor` e resultado `aprovado` ou `revisar`, função
+`rodada_valida`). Erro, limite e barragem local não entram. Com
+`agentes/SESSAO.json` presente, vale o campo `execucao` dele, inclusive
+nulo. Sem esse registro, a sessão está encerrada e vale a execução da
+rodada válida mais recente.
+
+Esta é a única leitura em `revisoes/`: a consulta abre só
+`revisoes/validar.jsonl`, sem listar a pasta nem abrir pareceres ou cópias
+de sessão. Sem esse arquivo, as rodadas protegidas não aparecem. Por isso
+`parecer_origem` é sempre nulo na origem `protegida`. Na origem `sessao`,
+o parecer é o arquivo regular do topo de `agentes/` cujo horário de
+modificação fica a até 60 segundos de `data`, o mais próximo, cada arquivo
+usado uma vez. A consulta só confere `stat`, sem abrir o arquivo. O N do
+nome não é a rodada; depois de `jangada-agente-fim`, os pareceres somem e o
+campo fica nulo.
+
+Cada `validar.jsonl` é lido nos últimos 8 MiB e nas últimas 5.000 linhas.
+Linha acima de 64 KiB, JSON inválido ou valor que não é objeto são
+ignorados. Arquivo ausente dá lista vazia; link ou arquivo não regular
+recusa a consulta. São devolvidas as 50 rodadas mais recentes. Rodada sem
+`data` legível fica antes das datadas. A saída não tem `NaN` nem texto
+`None`; valor inválido vira nulo.
+
+Nome de sessão inválido ou número errado de argumentos sai com 2 e mensagem
+curta. Outra falha sai com 1, diagnóstico e stdout vazio. A consulta não
+cria, move nem apaga nada. `testes/rodadas.py` confere esses casos.
+
 ## Limites do terminal
 
 Nomes seguem `[A-Za-z0-9_.-]+`, até 255 caracteres, exceto `.` e `..`.

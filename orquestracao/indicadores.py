@@ -57,6 +57,11 @@ def carregar(estado, projeto, desde):
     return consumos, validacoes, delegacoes
 
 
+def rodada_valida(registro):
+    return (registro.get('etapa') == 'revisor'
+            and registro.get('resultado') in ('aprovado', 'revisar'))
+
+
 def montar(estado, projeto='', desde=''):
     return montar_com_datas(estado, projeto, desde)[0]
 
@@ -69,10 +74,6 @@ def montar_com_datas(estado, projeto='', desde=''):
     for c in consumos:
         chave = (c.get('sessao'), c.get('execucao'))
         por_chave[chave] = c
-    def rodada_valida(registro):
-        return (registro.get('etapa') == 'revisor'
-                and registro.get('resultado') in ('aprovado', 'revisar'))
-
     def sessao_aberta(sessao, execucao):
         if not isinstance(sessao, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', sessao) or sessao in {'.', '..'}:
             return False
