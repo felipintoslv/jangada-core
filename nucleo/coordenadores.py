@@ -43,13 +43,13 @@ def ultima_linha(dados):
     return CONTROLE.sub(' ', valor).strip()[:LINHA_MAX]
 
 
-def arquivos(fd):
+def arquivos(fd, sufixo='.json'):
     """Nomes SESSAO.json de arquivos regulares, sem seguir links."""
     nomes = []
     with os.scandir(fd) as entradas:
         for entrada in entradas:
             nome = entrada.name
-            if not eh_sessao(nome) or not nome_valido(nome[:-5]):
+            if not nome.endswith(sufixo) or not eh_sessao(nome) or not nome_valido(nome[:-5]):
                 continue
             try:
                 info = os.stat(nome, dir_fd=fd, follow_symlinks=False)
@@ -86,7 +86,8 @@ def coordenadores(estado, vivas):
     lista = []
     with pasta_leitura(Path(estado) / 'coordenadores') as fd:
         if fd is not None:
-            for nome in arquivos(fd):
+            # A pasta guarda também a aprovação dos hooks do Codex.
+            for nome in arquivos(fd, '--coordenador.json'):
                 try:
                     dados = objeto(fd, nome)
                 except FileNotFoundError:

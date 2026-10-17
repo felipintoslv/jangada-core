@@ -131,7 +131,7 @@ coordenador tem:
 | `viva` | Booleano: sessão tmux existe e o registro não foi encerrado pelo `--fim` |
 | `tarefas` | Lista de `{"sessao":"...","viva":bool}` em ordem de nome |
 
-A fonte é `$JANGADA_ESTADO/coordenadores/*.json`, da
+A fonte é `$JANGADA_ESTADO/coordenadores/*--coordenador.json`, da
 [seção 7 dos registros](../registros.md). As tarefas vêm das cópias
 `revisoes/SESSAO.json` cujo `coordenador_sessao` é o coordenador: a cópia
 fica fora do alcance do agente isolado, ao contrário de

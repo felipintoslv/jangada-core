@@ -15,7 +15,7 @@ conferir() {
   local nome="$1"; shift
   if "$@"; then printf 'ok    %s\n' "$nome"; else printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
 }
-mkdir -p "$tmp/bin" "$tmp/home" "$tmp/config" "$tmp/state" "$tmp/sock" "$tmp/projeto/sub"
+mkdir -p "$tmp/bin" "$tmp/home" "$tmp/config" "$tmp/state" "$tmp/sock" "$tmp/projeto/sub" "$tmp/outro" "$tmp/codex"
 estado="$tmp/state/jangada"
 reg="$estado/coordenadores"
 
@@ -37,6 +37,16 @@ with open(caminho, 'ab', buffering=0) as log:
             break
         log.write(dados)
 EOF
+# Codex falso: o app-server responde pelo falso-codex-hooks.py; a chamada
+# principal grava os argumentos e espera.
+cat >"$tmp/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [[ "$arg" == app-server ]] && exec python3 "$JANGADA_CORE_PATH/testes/falso-codex-hooks.py" "$@"
+done
+printf '%s\0' "$@" >"$FALSO_DIR/codex.args"
+exec cat >/dev/null
+EOF
 for c in notify-send pkill hyprctl; do
   printf '#!/bin/sh\nexit 0\n' >"$tmp/bin/$c"
 done
@@ -46,7 +56,7 @@ rodar() {
   env -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_COORDENADOR -u TMUX -u WAYLAND_DISPLAY \
     -u HYPRLAND_INSTANCE_SIGNATURE -u DISPLAY \
     PATH="$tmp/bin:$PATH" HOME="$tmp/home" SHELL=/bin/sh TMUX_TMPDIR="$tmp/sock" FALSO_DIR="$tmp" \
-    JANGADA_CORE_PATH="$repo_jangada" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
+    CODEX_HOME="$tmp/codex" JANGADA_CORE_PATH="$repo_jangada" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
 }
 tm() { rodar tmux -L jangada "$@"; }
 trap 'tm kill-server >/dev/null 2>&1; if [[ -n "${MANTER:-}" ]]; then echo "$tmp"; else rm -rf "$tmp"; fi' EXIT
@@ -83,6 +93,18 @@ saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" 
 conferir "o segundo pedido sai com 0 e avisa" [ "$rc" = 0 ]
 conferir "o aviso diz que já está aberto" grep -q "já está aberto" <<<"$saida"
 conferir "continua uma sessão só" [ "$(tm list-sessions -F '#S' | grep -c coordenador)" = 1 ]
+
+# Codex: os hooks do jangada vão na chamada, com a aprovação no estado.
+saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/outro" --provedor codex 2>&1)"
+conferir "a abertura com Codex cria a sessão" [ "$saida" = outro--coordenador ]
+conferir "o Codex abre com os hooks do coordenador" esperar test -s "$tmp/codex.args"
+args_codex="$(tr '\0' '\n' <"$tmp/codex.args" 2>/dev/null)"
+conferir "o Stop do Codex chama o jangada-hook-codex" grep -q "^hooks.Stop=.*jangada-hook-codex' concluido" <<<"$args_codex"
+conferir "a aprovação dos hooks vai na chamada" grep -q "^hooks.state=" <<<"$args_codex"
+conferir "a aprovação fica na pasta dos coordenadores" test -f "$reg/codex-hooks-confianca.json"
+conferir "o registro do Codex diz o provedor" [ "$(jq -r .provedor "$reg/outro--coordenador.json")" = codex ]
+tm kill-session -t =outro--coordenador
+rm -f "$reg/outro--coordenador.json"
 
 # Hooks: sem JANGADA_COORDENADOR nada muda; com ele, estado e última linha.
 antes="$(cat "$reg/projeto--coordenador.json")"
