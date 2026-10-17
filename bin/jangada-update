@@ -165,6 +165,20 @@ if ((codigo_ok)); then
   echo "==> migrações"
   "$JANGADA_CORE_PATH/bin/jangada-migrar" || { codigo_ok=0; echo "!! migrações não aplicadas; corrija e rode jangada-migrar de novo"; }
 fi
+# Comando novo em bin/ só é achado no PATH com o invólucro em ~/.local/bin.
+# A etapa 20 da instalação grava os que faltam e mantém arquivo alheio.
+if ((codigo_ok)) && [[ -r "$JANGADA_CORE_PATH/install/20-comandos.sh" ]]; then
+  echo "==> comandos em ~/.local/bin"
+  # As linhas de invólucro já gravado, uma por comando, ficam de fora.
+  if ! JANGADA_SIMULAR=0 bash -c 'set -euo pipefail
+      source "$1/install/lib.sh"
+      eval "$(declare -f ok | sed "1s/^ok/_ok_lib/")"
+      ok() { [[ "$*" == "invólucro já gravado: "* ]] || _ok_lib "$@"; }
+      source "$1/install/20-comandos.sh"' _ "$JANGADA_CORE_PATH"; then
+    codigo_ok=0
+    echo "!! invólucros não gravados; confira os avisos e rode install.sh 20"
+  fi
+fi
 
 rc=0
 ((codigo_ok)) || rc=1

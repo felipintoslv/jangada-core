@@ -50,7 +50,7 @@ export PATH="$falsos:$PATH"
 origem="$tmp/origem"; instalado="$tmp/instalado"
 mkdir -p "$origem/migrations"
 cp -r "$repo_jangada/bin" "$origem/"
-cp -r "$repo_jangada/agentes" "$origem/"
+cp -r "$repo_jangada/agentes" "$repo_jangada/install" "$origem/"
 echo "migrações" >"$origem/migrations/README.md"
 git -C "$origem" init --quiet -b main
 git -C "$origem" add -A
@@ -162,6 +162,31 @@ git -C "$origem" commit --quiet -m "feat(teste): s4"
 conferir "código recusado: o sistema roda e o código de saída é de erro ($rc)" \
   bash -c '[ "$1" -ne 0 ] && [ -s "$2" ]' _ "$rc" "$registro"
 atualizar --so-core <<<s
+
+echo "== invólucros em ~/.local/bin"
+
+# Comando novo na origem ganha invólucro; arquivo alheio com o mesmo nome de
+# outro comando novo fica como está, com aviso e erro no fim.
+mkdir -p "$HOME/.local/bin"
+echo "meu script" >"$HOME/.local/bin/jangada-alheio"
+for c in jangada-novo jangada-alheio; do
+  printf '#!/bin/sh\necho %s\n' "$c" >"$origem/bin/$c"
+  chmod +x "$origem/bin/$c"
+done
+git -C "$origem" add bin
+git -C "$origem" commit --quiet -m "feat(teste): comandos novos"
+atualizar --so-core <<<s
+conferir "comando novo: o invólucro é gravado" \
+  bash -c 'grep -qxF "# gerado pelo jangada-core; não edite" "$1" && [ "$("$1")" = jangada-novo ]' \
+  _ "$HOME/.local/bin/jangada-novo"
+conferir "arquivo alheio fica intocado" test "$(cat "$HOME/.local/bin/jangada-alheio")" = "meu script"
+conferir "arquivo alheio: aviso na saída" grep -q 'jangada-alheio já existe e não é invólucro' "$tmp/saida"
+conferir "arquivo alheio: termina com erro ($rc)" test "$rc" -ne 0
+conferir "não lista os invólucros já gravados" bash -c '! grep -q "invólucro já gravado" "$1"' _ "$tmp/saida"
+rm "$HOME/.local/bin/jangada-alheio"
+atualizar --so-core <<<s
+conferir "sem o conflito: o invólucro que faltava é gravado ($rc)" \
+  bash -c '[ "$1" -eq 0 ] && [ "$("$2")" = jangada-alheio ]' _ "$rc" "$HOME/.local/bin/jangada-alheio"
 
 echo "== migrações"
 
