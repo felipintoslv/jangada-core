@@ -55,7 +55,7 @@ cat >"$tmp/bin/tmux" <<EOF
 #!/usr/bin/env bash
 cmd=""
 for a in "\$@"; do
-  case "\$a" in load-buffer|paste-buffer) cmd="\$a"; break ;; esac
+  case "\$a" in display-message|load-buffer|paste-buffer) cmd="\$a"; break ;; esac
 done
 [[ -z "\$cmd" || ! -f "\$FALSO_DIR/gancho-\$cmd" ]] || bash "\$FALSO_DIR/gancho-\$cmd" </dev/null
 "$tmux_real" "\$@"; rc=\$?
@@ -214,6 +214,14 @@ hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto
 # Corridas: um hook grava entre a conferência e a colagem, ou entre a
 # colagem e o Enter.
 mudar='JANGADA_COORDENADOR=projeto--coordenador "$JANGADA_CORE_PATH/bin/jangada-coordenador" --registrar aguardando <<<"pedido de permissão"'
+printf '%s\n' "$mudar" >"$tmp/gancho-display-message"
+rodar "$repo_jangada/bin/jangada-coordenador" --mensagem projeto--coordenador --arquivo "$tmp/msg" >"$tmp/saida" 2>&1
+conferir "estado mudado durante a leitura do painel sai com 3" [ "$?" = 3 ]
+conferir "a recusa da leitura do painel é antes da colagem" grep -q "antes da colagem" "$tmp/saida"
+sleep 0.2
+conferir "nada é colado quando o estado muda na leitura do painel" [ ! -s "$tmp/claude.bytes" ]
+rm -f "$tmp/gancho-display-message"
+hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
 printf '%s\n' "$mudar" >"$tmp/gancho-load-buffer"
 rodar "$repo_jangada/bin/jangada-coordenador" --mensagem projeto--coordenador --arquivo "$tmp/msg" >"$tmp/saida" 2>&1
 conferir "estado mudado antes da colagem sai com 3" [ "$?" = 3 ]

@@ -250,11 +250,12 @@ sys.stdout.write(texto)
 PY
 }
 
-# Motivo da recusa, ou nada se o estado permite o envio.
+# Motivo da recusa, ou nada se o estado permite o envio. Recebe o retrato
+# [estado, atualizado, ultima_linha, encerrado] do registro.
 motivo_estado() {
-  local arq="$1"
-  [[ -z "$(campo "$arq" .encerrado)" ]] || { echo "o coordenador foi encerrado"; return; }
-  case "$(campo "$arq" .estado)" in
+  local retrato="$1"
+  [[ -z "$(jq -r '.[3] // "" | strings' <<<"$retrato" 2>/dev/null)" ]] || { echo "o coordenador foi encerrado"; return; }
+  case "$(jq -r '.[0] // "" | strings' <<<"$retrato" 2>/dev/null)" in
     concluido) ;;
     aguardando) echo "o coordenador espera resposta a uma permissão ou pergunta; responda no terminal" ;;
     trabalhando) echo "o coordenador está no meio de um turno; espere a conclusão" ;;
@@ -288,7 +289,10 @@ mensagem() {
     tmx has-session -t "=$sessao" 2>/dev/null || echo "a sessão $sessao fechou"
   }
 
-  motivo="$(motivo_estado "$arq")"
+  # Uma leitura só: o estado conferido é o do retrato que as conferências
+  # seguintes comparam.
+  antes="$(retrato)" || erro "registro ilegível" 1
+  motivo="$(motivo_estado "$antes")"
   [[ -z "$motivo" ]] || erro "mensagem recusada: $motivo" 3
   tmx has-session -t "=$sessao" 2>/dev/null || erro "mensagem recusada: a sessão $sessao não está aberta" 3
   # Painel em modo de cópia engole a colagem; num shell o texto viraria
@@ -299,7 +303,6 @@ mensagem() {
   case "${painel#* }" in
     bash|zsh|sh|dash|fish|ksh|tcsh|csh) erro "mensagem recusada: o agente não está em execução na sessão" 3 ;;
   esac
-  antes="$(retrato)" || erro "registro ilegível" 1
   buffer="jangada-mensagem-$$"
   printf '%s' "$texto" | tmx load-buffer -b "$buffer" - \
     || erro "não foi possível preparar a mensagem" 1
