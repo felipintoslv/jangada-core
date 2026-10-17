@@ -164,8 +164,10 @@ abrir() {
   fi
   # Conferência e criação sob a trava: dois pedidos juntos não abrem duas.
   # A trava roda em subshell: a sessão já existente volta pelo código 10.
+  # O tmux recebe o descritor 9 fechado: o servidor nascido aqui herdaria a
+  # trava e a seguraria enquanto vivesse.
   _abrir() {
-    if "${JANGADA_TMUX[@]}" has-session -t "=$sessao" 2>/dev/null; then
+    if "${JANGADA_TMUX[@]}" has-session -t "=$sessao" 2>/dev/null 9<&-; then
       return 10
     fi
     local agora tmp
@@ -178,11 +180,11 @@ abrir() {
       rm -f "$tmp"
       return 1
     fi
-    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao"; then
+    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" 9<&-; then
       rm -f "$arq"
       return 1
     fi
-    "${JANGADA_TMUX[@]}" send-keys -t "=$sessao:" "$cmd" Enter
+    "${JANGADA_TMUX[@]}" send-keys -t "=$sessao:" "$cmd" Enter 9<&-
   }
   rc=0
   jangada_com_trava_dir "$reg_dir" _abrir || rc=$?
