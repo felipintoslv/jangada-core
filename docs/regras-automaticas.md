@@ -2,12 +2,14 @@
 
 O jangada confere algumas regras de texto e de código em dois momentos: ao
 gravar um arquivo numa sessão de agente (aviso) e no `jangada-validar`
-(reprovação). Também lembra o coordenador de registrar decisões.
+(reprovação). Também lembra o coordenador de registrar decisões e, nos
+projetos de pesquisa, as regras de escrita e de figura.
 
 ## Aviso ao gravar
 
-`bin/jangada-hook-regras gravacao` roda depois de cada gravação, só quando
-`JANGADA_SESSAO` está definida. Fora de sessão de agente não faz nada. O aviso
+`bin/jangada-hook-regras gravacao` roda depois de cada gravação. A
+conferência desta seção só age quando `JANGADA_SESSAO` está definida; fora de
+sessão de agente, só o lembrete de pesquisa (seção seguinte) age. O aviso
 volta ao modelo como `additionalContext` e não bloqueia a ferramenta.
 
 | Arquivo | Regra |
@@ -28,6 +30,33 @@ Cada conferência tem 5 segundos; o hook lê até 4 MiB de entrada, confere até
   linhas `*** Add File:`, `*** Update File:` e `*** Move to:` do
   `apply_patch`. A configuração dos hooks do Codex não muda, então a
   confiança gravada por hash continua válida.
+
+## Regras dos projetos de pesquisa
+
+O mesmo `jangada-hook-regras gravacao` lembra ao agente as regras de escrita
+e de figura do dono quando ele grava num projeto de pesquisa. Vale com e sem
+`JANGADA_SESSAO`: o dono escreve nesses projetos também com o Claude comum.
+
+- **Marca:** um arquivo `.jangada/pesquisa`, que pode ser vazio, na pasta do
+  projeto. O hook procura a marca na pasta do arquivo gravado e nas de cima,
+  até a raiz do Git. Sem a marca, nada acontece.
+- **Repositório do jangada:** a pasta que tem `bin/jangada-hook-regras` (a
+  cópia instalada, a de desenvolvimento e os worktrees) fica de fora, com ou
+  sem marca.
+- **Escrita:** ao gravar `.md`, `.qmd`, `.Rmd`, `.tex` ou `.docx`.
+- **Figura:** ao gravar `.R` ou `.py` que gera gráfico (ggplot2, matplotlib,
+  seaborn, plotly, `savefig`, `salvar_figura`, `plot(`, `png(` e afins).
+- **Uma vez por conversa e por tipo:** a marca do aviso dado é uma pasta
+  vazia `$JANGADA_ESTADO/agentes/avisos-pesquisa/<session_id>.<tipo>`, a
+  única pasta do estado gravável no isolamento. Pastas com mais de 7 dias são
+  apagadas na gravação seguinte num projeto de pesquisa. Sem `session_id` no
+  evento, ou sem poder gravar a marca, o lembrete vai a cada gravação.
+- **Texto:** sai das seções `## Escrita` e `## Figuras` de
+  `agentes/regras-pesquisa.md`, a fonte única. O lembrete não traz nome nem
+  conteúdo do arquivo gravado.
+
+As skills `relatorio-academico`, `graficos`, `conferir-citacao`,
+`conferir-referencias` e `fichamento` detalham essas regras.
 
 ## Reprovação no jangada-validar
 
@@ -55,6 +84,8 @@ não).
 
 ## Instalação
 
-`install/50-agentes.sh` mescla os novos hooks no `settings.json` do Claude.
-O `jangada-update` não roda esse passo; uma instalação existente precisa
-rodá-lo de novo ou de uma migração. O Codex não precisa de mudança.
+`install/50-agentes.sh` mescla os novos hooks no `settings.json` do Claude e
+liga as skills. O `jangada-update` não roda esse passo; numa instalação
+existente, a migração `202610171200-ligar-hooks-e-skills-do-claude.sh`
+reaplica as duas ligações com as mesmas funções de `install/lib.sh`. O Codex
+não precisa de mudança.
