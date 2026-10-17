@@ -493,4 +493,6 @@ else:
 
 
 if __name__ == '__main__':
+    import isolamento
+    isolamento.instalar()
     unittest.main(verbosity=2)

@@ -619,4 +619,6 @@ print(json.dumps({'status':'SUCCESS','conversation_id':'sup','response':json.dum
 
 
 if __name__ == '__main__':
+    import isolamento
+    isolamento.instalar()
     unittest.main()

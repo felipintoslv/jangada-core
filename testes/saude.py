@@ -254,4 +254,6 @@ class Disponibilidade(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    import isolamento
+    isolamento.instalar()
     unittest.main()

@@ -228,4 +228,6 @@ class Seletor(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    import isolamento
+    isolamento.instalar('o jangada-agente registra o início e exige o controlador de fora')
     unittest.main()

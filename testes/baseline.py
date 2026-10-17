@@ -100,7 +100,7 @@ class Baseline(unittest.TestCase):
     def test_verificacao_pulada_nao_aprova(self):
         self.mudar()
         resultado = self.validar('--pular-local')
-        self.assertEqual(resultado.returncode, 3)
+        self.assertEqual(resultado.returncode, 3, resultado.stderr)
         self.assertFalse(self.marca().exists())
         self.assertIn('STATUS: REVISAR', resultado.stdout)
 
@@ -125,14 +125,14 @@ class Baseline(unittest.TestCase):
         self.metadados('claude')
         self.mudar()
         resultado = self.validar()
-        self.assertEqual(resultado.returncode, 3)
+        self.assertEqual(resultado.returncode, 3, resultado.stderr)
         self.assertFalse(self.marca().exists())
 
     def test_autoria_sem_metadados_protegidos_nao_aprova(self):
         self.mudar()
         (self.estado / 'revisoes/teste.json').unlink()
         resultado = self.validar()
-        self.assertEqual(resultado.returncode, 3)
+        self.assertEqual(resultado.returncode, 3, resultado.stderr)
         self.assertFalse(self.marca().exists())
         self.assertIn('independência comprovada', resultado.stdout)
 
@@ -276,4 +276,6 @@ class Baseline(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    import isolamento
+    isolamento.instalar()
     unittest.main(verbosity=2)
