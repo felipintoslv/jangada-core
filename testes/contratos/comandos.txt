@@ -12,6 +12,7 @@ jangada-codex
 jangada-codex-hooks
 jangada-config
 jangada-consumo
+jangada-coordenador
 jangada-delegar
 jangada-executar
 jangada-fila
