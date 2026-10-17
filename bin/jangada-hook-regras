@@ -75,8 +75,9 @@ except (ValueError, OSError) as e:
 
 # 0 quando o arquivo está num projeto de pesquisa: a marca .jangada/pesquisa
 # na pasta dele ou numa acima, até a raiz do Git. A pasta com
-# bin/jangada-hook-regras é o repositório do jangada e fica de fora.
-em_pesquisa() { # caminho absoluto
+# bin/jangada-hook-regras é o repositório do jangada e fica de fora. Recebe o
+# caminho já resolvido, para um link ou um .. não esconder o jangada.
+em_pesquisa() { # caminho absoluto resolvido
   local d="${1%/*}" marcado=0 i
   for ((i = 0; i < 40; i++)); do
     [[ -n "$d" ]] || d=/
@@ -89,11 +90,12 @@ em_pesquisa() { # caminho absoluto
 }
 
 tipo_pesquisa() { # caminho absoluto; escreve escrita, figuras ou nada
-  local f="$1"
+  local f
+  f="$(realpath -m -- "$1" 2>/dev/null)" || return 0
   case "${f,,}" in
     *.md|*.qmd|*.rmd|*.tex|*.docx) em_pesquisa "$f" && echo escrita ;;
     *.r|*.py)
-      [[ -f "$f" && ! -L "$f" && -r "$f" ]] || return 0
+      [[ -f "$f" && -r "$f" ]] || return 0
       (( $(stat -c %s -- "$f" 2>/dev/null || echo "$LIMITE_ARQUIVO") < LIMITE_ARQUIVO )) || return 0
       em_pesquisa "$f" || return 0
       LC_ALL=C timeout 5 grep -I -q -E -- "$PADRAO_GRAFICO" "$f" 2>/dev/null && echo figuras ;;
@@ -102,25 +104,33 @@ tipo_pesquisa() { # caminho absoluto; escreve escrita, figuras ou nada
 }
 
 # Lembrete de cada tipo ainda não dado nesta conversa. A marca é uma pasta
-# vazia em agentes/, a única pasta do estado gravável no isolamento: mkdir não
-# segue link simbólico, e a limpeza só remove pasta vazia.
+# vazia em agentes/avisos-pesquisa, porque agentes/ é a única pasta do estado
+# gravável no isolamento. Nem agentes/ nem avisos-pesquisa podem ser link: o
+# agente grava em agentes/. Quem cria a marca com mkdir dá o aviso, e a
+# limpeza só remove pasta vazia.
 lembrete_pesquisa() { # tipos, um por linha
-  local tipos="$1" conversa avisos tipo secao texto=""
+  local tipos="$1" conversa base avisos marca tipo secao texto="" marcas=0
   [[ -n "${tipos//$'\n'/}" && -f "$REGRAS_PESQUISA" ]] || return 0
   conversa="$(jq -r '.session_id // "" | strings' <<<"$entrada" 2>/dev/null)"
   [[ "$conversa" =~ ^[A-Za-z0-9_-]{1,128}$ ]] || conversa=""
-  avisos="${JANGADA_ESTADO:-${XDG_STATE_HOME:-$HOME/.local/state}/jangada}/agentes/avisos-pesquisa"
-  if [[ -n "$conversa" && ! -L "$avisos" ]]; then
-    (umask 077; mkdir -p "$avisos" 2>/dev/null) || true
+  base="${JANGADA_ESTADO:-${XDG_STATE_HOME:-$HOME/.local/state}/jangada}/agentes"
+  avisos="$base/avisos-pesquisa"
+  if [[ -n "$conversa" && -d "$base" && ! -L "$base" ]]; then
+    [[ -e "$avisos" || -L "$avisos" ]] || (umask 077; mkdir -- "$avisos" 2>/dev/null) || true
+    [[ -d "$avisos" && ! -L "$avisos" ]] && marcas=1
+  fi
+  if ((marcas)); then
     timeout 5 find -P "$avisos" -mindepth 1 -maxdepth 1 -type d -empty -mtime +7 \
       \( -name '*.escrita' -o -name '*.figuras' \) -delete 2>/dev/null
   fi
   for tipo in escrita figuras; do
     grep -qx "$tipo" <<<"$tipos" || continue
-    # Sem conversa ou sem a pasta, o lembrete vai a cada gravação.
-    if [[ -n "$conversa" && -d "$avisos" && ! -L "$avisos" ]]; then
-      [[ -e "$avisos/$conversa.$tipo" || -L "$avisos/$conversa.$tipo" ]] && continue
-      mkdir -- "$avisos/$conversa.$tipo" 2>/dev/null || true
+    # Sem conversa ou sem onde gravar a marca, o lembrete vai a cada gravação.
+    if ((marcas)); then
+      marca="$avisos/$conversa.$tipo"
+      if ! mkdir -- "$marca" 2>/dev/null; then
+        [[ -e "$marca" || -L "$marca" ]] && continue
+      fi
     fi
     case "$tipo" in
       escrita) secao=Escrita; texto+=$'Regras de escrita (.md, .qmd, .Rmd, .tex, .docx):\n' ;;

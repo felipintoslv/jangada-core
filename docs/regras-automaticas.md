@@ -38,8 +38,9 @@ e de figura do dono quando ele grava num projeto de pesquisa. Vale com e sem
 `JANGADA_SESSAO`: o dono escreve nesses projetos também com o Claude comum.
 
 - **Marca:** um arquivo `.jangada/pesquisa`, que pode ser vazio, na pasta do
-  projeto. O hook procura a marca na pasta do arquivo gravado e nas de cima,
-  até a raiz do Git. Sem a marca, nada acontece.
+  projeto. O hook resolve links e `..` do caminho gravado e procura a marca
+  na pasta do arquivo e nas de cima, até a raiz do Git. Sem a marca, nada
+  acontece.
 - **Repositório do jangada:** a pasta que tem `bin/jangada-hook-regras` (a
   cópia instalada, a de desenvolvimento e os worktrees) fica de fora, com ou
   sem marca.
@@ -49,7 +50,8 @@ e de figura do dono quando ele grava num projeto de pesquisa. Vale com e sem
 - **Uma vez por conversa e por tipo:** a marca do aviso dado é uma pasta
   vazia `$JANGADA_ESTADO/agentes/avisos-pesquisa/<session_id>.<tipo>`, a
   única pasta do estado gravável no isolamento. Pastas com mais de 7 dias são
-  apagadas na gravação seguinte num projeto de pesquisa. Sem `session_id` no
+  apagadas na gravação seguinte num projeto de pesquisa. Se `agentes/` ou
+  `avisos-pesquisa` for link, a marca não é gravada. Sem `session_id` no
   evento, ou sem poder gravar a marca, o lembrete vai a cada gravação.
 - **Texto:** sai das seções `## Escrita` e `## Figuras` de
   `agentes/regras-pesquisa.md`, a fonte única. O lembrete não traz nome nem

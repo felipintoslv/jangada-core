@@ -193,6 +193,7 @@ cp "$pesq/grafico.R" "$tmp/sem-marca/"
 : >"$tmp/sem-marca/texto.md"
 : >"$tmp/jangada-falso/texto.md"
 estado_pesq="$tmp/estado-pesquisa"
+mkdir -p "$estado_pesq/agentes"
 gravou_em() { # arquivo absoluto, conversa
   jq -cn --arg c "$pesq" --arg f "$1" --arg s "$2" \
     '{hook_event_name: "PostToolUse", cwd: $c, session_id: $s, tool_name: "Write", tool_input: {file_path: $f}}'
@@ -230,11 +231,31 @@ printf 'um %s dois\n' "$travessao" >"$pesq/travessao.md"
 saida_sessao="$(regras "$(gravou_em "$pesq/travessao.md" c-sessao)" JANGADA_SESSAO=t JANGADA_ESTADO="$estado_pesq" | contexto)"
 conferir "pesquisa: em sessão de agente, aviso e lembrete vão juntos" \
   bash -c 'grep -q "travessao.md: travessão" <<<"$1" && grep -q "Regras de escrita" <<<"$1"' _ "$saida_sessao"
+ln -s "$tmp/jangada-falso/texto.md" "$pesq/link-jangada.md"
+conferir "pesquisa: arquivo do jangada por link no projeto é ignorado" [ -z "$(pesquisa "$pesq/link-jangada.md" c-link-arq)" ]
+conferir "pesquisa: arquivo do jangada por .. é ignorado" \
+  [ -z "$(pesquisa "$pesq/cap1/../../jangada-falso/texto.md" c-pontos)" ]
+for i in 1 2 3 4 5 6; do
+  pesquisa "$pesq/texto.md" c-concorrente >"$tmp/concorrente.$i" &
+done
+wait
+conferir "pesquisa: gravações simultâneas avisam uma vez" \
+  [ "$(cat "$tmp"/concorrente.* | grep -c "Regras de escrita")" = 1 ]
 alheia="$tmp/alheia"
-mkdir -p "$alheia" "$tmp/estado-link/agentes"
+mkdir -p "$alheia/velha.escrita" "$tmp/estado-link/agentes" "$tmp/estado-link2"
+touch -d '30 days ago' "$alheia/velha.escrita"
 ln -s "$alheia" "$tmp/estado-link/agentes/avisos-pesquisa"
 pesquisa "$pesq/texto.md" c-link JANGADA_ESTADO="$tmp/estado-link" >/dev/null
-conferir "pesquisa: pasta de marcas que é link não é seguida" [ -z "$(find "$alheia" -mindepth 1 -print -quit)" ]
+conferir "pesquisa: pasta de marcas que é link não é seguida" \
+  [ "$(find "$alheia" -mindepth 1 -printf '%f\n')" = velha.escrita ]
+ln -s "$alheia" "$tmp/estado-link2/agentes"
+pesquisa "$pesq/texto.md" c-link2 JANGADA_ESTADO="$tmp/estado-link2" >/dev/null
+conferir "pesquisa: agentes/ que é link não é seguido" \
+  [ "$(find "$alheia" -mindepth 1 -printf '%f\n')" = velha.escrita ]
+mkdir -p "$estado_pesq/agentes/avisos-pesquisa/velha.escrita"
+touch -d '30 days ago' "$estado_pesq/agentes/avisos-pesquisa/velha.escrita"
+pesquisa "$pesq/texto.md" c-limpeza >/dev/null
+conferir "pesquisa: marca com mais de 7 dias é apagada" test ! -e "$estado_pesq/agentes/avisos-pesquisa/velha.escrita"
 
 echo "== lembrete de decisões ao coordenador (jangada-hook-regras coordenacao)"
 coord="$tmp/coord"
