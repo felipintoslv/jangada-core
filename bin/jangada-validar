@@ -117,8 +117,41 @@ fi
 # em mais de um write; a linha é montada antes e gravada sob a trava da pasta,
 # para rodadas simultâneas não se intercalarem.
 registrar() {
-  local itens=0 linha resumo resumo_erro
+  local itens=0 linha resumo resumo_erro resposta_json=''
   [[ -f "${saida:-}" ]] && itens="$(grep -cE '^[[:space:]]*[0-9]+\.[[:space:]]' "$saida" || true)"
+  if [[ -n "$resposta" ]]; then
+    resposta_json="$(python3 - "$resposta" "$arq_metricas" "$rotulo" "$execucao" <<'PY'
+import json, re, sys
+texto, caminho, sessao, execucao = sys.argv[1:]
+contagens = {'corrigidos': 0, 'rejeitados': 0, 'sem_classificar': 0}
+for trecho in re.split(r';|\n', texto):
+    m = re.match(r'\s*\d+\s+(.*)', trecho)
+    if not m:
+        continue
+    item = m.group(1).strip().lower()
+    if re.match(r'(corrigido|corrigida|procede)\b', item):
+        contagens['corrigidos'] += 1
+    elif re.match(r'(rejeitado|rejeitada|não procede)\b', item):
+        contagens['rejeitados'] += 1
+    else:
+        contagens['sem_classificar'] += 1
+anterior = None
+try:
+    with open(caminho, encoding='utf-8') as f:
+        for linha in f:
+            try: d = json.loads(linha)
+            except ValueError: continue
+            if d.get('rotulo') == sessao and d.get('execucao') == (execucao or None) and d.get('etapa') == 'revisor':
+                if anterior is None or (d.get('rodada') or 0) > (anterior.get('rodada') or 0):
+                    anterior = d
+except OSError:
+    pass
+if anterior:
+    contagens['responde_a'] = {k: anterior.get(k) for k in ('rodada', 'revisor', 'modelo')}
+print(json.dumps(contagens, ensure_ascii=False, separators=(',', ':')))
+PY
+)"
+  fi
   resumo_subagentes
   linha="$(jq -nc --arg data "$(date -Iseconds)" --arg projeto "$projeto" --arg rotulo "$rotulo" \
     --argjson rodada "$rodada" --arg resultado "$1" --arg etapa "$2" --arg revisor "$revisor" \
@@ -126,12 +159,15 @@ registrar() {
     --argjson mais "${mais:-0}" --argjson menos "${menos:-0}" --argjson itens "${itens:-0}" \
     --argjson segundos "$SECONDS" --arg subagentes "$resumo" --arg subagentes_erro "$resumo_erro" \
     --argjson auto "$(( ${auto_revisao:-0} || !${autoria_confiavel:-0} ))" --arg execucao "${execucao:-}" \
+    --arg resposta "$resposta_json" \
     '{data: $data, projeto: $projeto, rotulo: $rotulo, rodada: $rodada, resultado: $resultado,
       etapa: $etapa, revisor: $revisor, modelo: $modelo, autor: $autor, independente: ($auto == 0),
       execucao: (if $execucao == "" then null else $execucao end),
       arquivos: $arquivos, mais: $mais, menos: $menos, itens: $itens, segundos: $segundos}
      + (if $subagentes != "" then {subagentes: ($subagentes | fromjson)} else {} end)
-     + (if $subagentes_erro != "" then {subagentes_erro: $subagentes_erro} else {} end)' \
+     + (if $subagentes_erro != "" then {subagentes_erro: $subagentes_erro} else {} end)
+     + (if $resposta != "" then {resposta: (($resposta | fromjson) | {corrigidos, rejeitados, sem_classificar}),
+        responde_a: (($resposta | fromjson).responde_a // null)} else {} end)' \
     2>/dev/null)" || return 0
   if command -v flock >/dev/null 2>&1; then
     (

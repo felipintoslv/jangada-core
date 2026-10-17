@@ -29,6 +29,7 @@ durante toda a conversa.
      código, corrija o que for procedente, faça commit e rode de novo dizendo
      o que fez com cada item:
      `jangada-validar --resposta "1 corrigido; 2 rejeitado: motivo"`.
+     Cada item do parecer anterior recebe seu número e `corrigido` ou `rejeitado`.
      O comando recusa depois do limite de rodadas; nesse caso, pare e descreva
      o que ficou pendente ou use `reverter` no shell para reiniciar a tarefa.
 6. Não rode `jangada-validar` a cada passo: ele gasta tokens do revisor. Uma

@@ -169,6 +169,9 @@ rm -f "$estado/validacao-x-rotas-r1.md"
 conferir "encerra ($rc)" test "$rc" -eq 0
 conferir "worktree removido" test ! -d "$wts/proj/x"
 conferir "estado apagado" test ! -f "$estado/x.json"
+conferir "consumo gravado mesmo sem provedor" \
+  jq -e 'select(.sessao == "x") | .tokens.entrada == null and .tokens.saida == null and (.motivo | strings | length > 0)' \
+  "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 conferir "ramo mantido" git -C "$proj" show-ref --quiet --verify refs/heads/agente/x
 : >"$tmp/mortas"
 

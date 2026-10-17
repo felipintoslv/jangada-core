@@ -6,9 +6,9 @@ validação cruzada entre modelos, delegação a modelos locais e ao agy, fila
 persistente de tarefas e registro de provedores.
 
 O Core funciona sozinho. O [jangada-shell](https://github.com/felipintoslv/jangada-shell)
-(área de trabalho) e o painel e indicadores (comando opcional, fora do Core por ora)
-são opcionais: o Core procura os comandos deles no PATH
-e segue sem erro quando não os acha.
+(área de trabalho) e o painel da Central são opcionais: o Core procura os
+comandos deles no PATH e segue sem erro quando não os acha. Os indicadores
+locais ficam no comando `jangada-indicadores`.
 
 ## Dependências
 
@@ -40,6 +40,7 @@ Configuração em `~/.config/jangada`, estado em `~/.local/state/jangada`.
 | `jangada-agentes` | lista, abre e encerra as sessões de agentes |
 | `jangada-agente-fim` | encerra a sessão e integra a entrega após aprovação e testes |
 | `jangada-validar` | manda a entrega ao outro modelo para revisão |
+| `jangada-indicadores` | resume consumo, procedência dos revisores e destinos de delegação |
 | `jangada-isolar` | roda um comando no bubblewrap |
 | `jangada-delegar` | delega leitura a um modelo local ou ao agy |
 | `jangada-fila`, `jangada-executar`, `jangada-task` | fila persistente de tarefas |
@@ -62,6 +63,7 @@ Leia as regras do [AGENTS.md](AGENTS.md) e o guia do assunto da tarefa.
 | Papéis, Ollama, agy e fila | [Subagentes e delegação](docs/subagentes-e-delegacao.md) |
 | Codex como executor e revisor | [Codex](docs/codex.md) |
 | Registro de provedores | [Provedores](docs/provedores.md) |
+| Indicadores de tarefas | [Indicadores](docs/indicadores.md) |
 | Atualização e migrações | [Atualização e migrações](docs/atualizacao-e-migracoes.md) |
 | Campos e limites dos registros | [Registros](docs/registros.md) |
 | Código, testes, textos e commits | [Boas práticas](docs/boas-praticas.md) |

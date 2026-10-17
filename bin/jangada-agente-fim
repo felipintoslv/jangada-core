@@ -501,6 +501,7 @@ limpar() {
   local trava_revisoes
   exec {trava_revisoes}<"$JANGADA_ESTADO/revisoes/travas/$s"
   flock -w 15 "$trava_revisoes" || { echo "revisão ocupada; encerramento adiado" >&2; return 1; }
+  registrar_consumo_tarefa || true
   # Parar o agente não apaga os documentos nem o trabalho produzido.
   "${JANGADA_TMUX[@]}" kill-session -t "=$s" 2>/dev/null || true
   # O histórico protegido é publicado e conferido antes de qualquer remoção.
@@ -558,6 +559,26 @@ limpar() {
   "$JANGADA_CORE_PATH/bin/jangada-gancho" pos-agente-fim "$s" "$raiz" "$integrado"
 }
 
+registrar_consumo_tarefa() {
+  local autor projeto execucao inicio fim medicao linha arquivo="$JANGADA_ESTADO/consumo-tarefas.jsonl"
+  [[ -f "$arq" ]] || return 0
+  execucao="$(jq -r '.execucao // ""' "$arq" 2>/dev/null || true)"
+  if grep -Fq "\"sessao\":\"$s\"" "$arquivo" 2>/dev/null && \
+      { [[ -z "$execucao" ]] || grep -Fq "\"execucao\":\"$execucao\"" "$arquivo"; }; then return 0; fi
+  autor="$(jq -r '.agente // ""' "$arq" 2>/dev/null | awk '{print $1}')"
+  projeto="$(basename "$(jq -r '.raiz // .dir // ""' "$arq" 2>/dev/null)")"
+  inicio="$(jq -r '.desde // ""' "$arq" 2>/dev/null)"
+  fim="$(jangada_data_iso)"
+  medicao="$(python3 "$JANGADA_CORE_PATH/orquestracao/consumo_tarefa.py" "$JANGADA_ESTADO" "$s" "$autor" --projeto "${worktree:-$raiz}" 2>/dev/null)" \
+    || medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"falha na medição"}'
+  linha="$(jq -nc --arg sessao "$s" --arg projeto "$projeto" --arg execucao "$execucao" \
+    --arg autor "$autor" --arg inicio "$inicio" --arg fim "$fim" --argjson tokens "$medicao" \
+    '{sessao:$sessao,projeto:$projeto,execucao:(if $execucao == "" then null else $execucao end),autor:$autor,
+      modelo:$tokens.modelo,tokens:{entrada:$tokens.entrada,saida:$tokens.saida,cache_lido:$tokens.cache_lido},
+      motivo:$tokens.motivo,inicio:(if $inicio == "" then null else $inicio end),fim:$fim}')" || return 0
+  jangada_anexar_linha "$arquivo" "$linha" || true
+}
+
 if [[ "${JANGADA_SESSAO:-}" == "$s" ]]; then
   registro="$JANGADA_ESTADO/agentes/fim-$s.log"
   echo "encerrando a partir da própria sessão; registro em $registro"
@@ -567,7 +588,7 @@ if [[ "${JANGADA_SESSAO:-}" == "$s" ]]; then
     assinar=0
   fi
   export s worktree ramo raiz arq forcar apagar_ramo integrado assinar
-  export -f limpar
+  export -f limpar registrar_consumo_tarefa
   if command -v setsid >/dev/null 2>&1; then
     # shellcheck disable=SC1090,SC2016
     setsid -f bash -c 'sleep 0.5; source "$1"; limpar' _ "$JANGADA_CORE_PATH/bin/jangada-config" >"$registro" 2>&1
