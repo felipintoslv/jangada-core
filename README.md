@@ -67,6 +67,7 @@ Leia as regras do [AGENTS.md](AGENTS.md) e o guia do assunto da tarefa.
 | Atualização e migrações | [Atualização e migrações](docs/atualizacao-e-migracoes.md) |
 | Campos e limites dos registros | [Registros](docs/registros.md) |
 | Código, testes, textos e commits | [Boas práticas](docs/boas-praticas.md) |
+| Avisos ao gravar e regras do validar | [Regras automáticas](docs/regras-automaticas.md) |
 | Divisão em módulos e contratos (histórico) | [Modularização 3.0](docs/modularizacao-3.0/README.md) |
 | Coordenação e consultas entre módulos | [Coordenação central](docs/coordenacao-central/README.md) |
 | Estabilização (histórico) | [Estabilização](docs/estabilizacao/README.md) |
