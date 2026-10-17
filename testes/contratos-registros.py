@@ -200,8 +200,11 @@ class Gerador:
             executavel(tmp / 'bin' / nome, FALSOS[nome])
         for nome in ('claude', 'notify-send', 'setsid', 'pkill'):
             executavel(tmp / 'bin' / nome, '#!/bin/sh\nexit 0\n')
-        # Nenhum jogo aberto, qualquer que seja a máquina.
+        # Nenhum jogo aberto e memória de vídeo de sobra, qualquer que seja a
+        # máquina: com o nvidia-smi real, outra carga na placa fazia a
+        # delegação local sair com 4.
         executavel(tmp / 'bin/pgrep', '#!/bin/sh\nexit 1\n')
+        executavel(tmp / 'bin/nvidia-smi', '#!/bin/sh\necho 24000\n')
         (tmp / 'config/jangada/jangada.conf').write_text(f'JANGADA_WORKTREES={tmp}/worktrees\n')
         (self.casa / '.gemini/antigravity-cli/settings.json').write_text(
             json.dumps({'trustedWorkspaces': [str(self.projeto.resolve())]}))
