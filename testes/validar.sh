@@ -20,6 +20,9 @@ if ! awk -v m="$marca" '$5 == m { a = 1 } END { exit !a }' /proc/self/mountinfo;
   exit "$rc"
 fi
 unset JANGADA_VALIDAR_REVISOR JANGADA_DELEGAR
+# Os casos conferem a revisão completa dentro do isolamento, sem o atendente
+# de fora; o pedido pelo atendente fica em testes/atendente.sh.
+export JANGADA_VALIDAR_SEM_ATENDENTE=1
 # Sem o gitleaks, o portão reprovaria todos os casos; o 16e liga de novo.
 command -v gitleaks >/dev/null 2>&1 || export JANGADA_VALIDAR_SEM_GITLEAKS=1
 falhas=0

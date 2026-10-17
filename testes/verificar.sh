@@ -82,6 +82,7 @@ passo "jangada-validar com claude e agy falsos"
 python3 testes/agente-seletor.py || falha "testes/agente-seletor.py"
 if command -v git >/dev/null && command -v jq >/dev/null; then
   testes/validar.sh || falha "testes/validar.sh"
+  testes/atendente.sh || falha "testes/atendente.sh"
   testes/core-independente.sh
   rc_core=$?
   if ((rc_core == 77)); then

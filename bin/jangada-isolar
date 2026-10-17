@@ -44,6 +44,13 @@
 # Na correção P0 o isolamento é obrigatório; já isolado (variável e a marca
 # que só o bwrap monta), o perfil agente roda direto; os de verificação
 # sempre criam outro isolamento. Sem o bwrap, recusa.
+#
+# Numa sessão de agente (JANGADA_SESSAO com cópia em revisoes/), fica aqui
+# fora um atendente da revisão, num soquete que aparece dentro em
+# /tmp/.jangada-atendente/soquete (JANGADA_VALIDAR_SOQUETE). O
+# jangada-validar de dentro manda por ele só o sha da cabeça; a revisão roda
+# fora, com os metadados e o limite de rodadas de fora, e só fora se grava.
+# O atendente acaba com a sessão.
 set -euo pipefail
 # shellcheck source=bin/jangada-config
 source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
@@ -52,7 +59,7 @@ mostrar=0
 while (($#)); do
   case "$1" in
     --mostrar) mostrar=1; shift ;;
-    -h|--ajuda|--help) sed -n '2,45s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    -h|--ajuda|--help) sed -n '2,53s/^# \{0,1\}//p' "$0"; exit 0 ;;
     --) shift; break ;;
     *) break ;;
   esac
@@ -565,6 +572,125 @@ if [[ -n "${JANGADA_ISOLAR_FOTO:-}" ]]; then
 fi
 args+=(--ro-bind /dev/null /tmp/.jangada-sem-autoridade)
 
+# Atendente da revisão: numa sessão de agente com cópia protegida em
+# revisoes/, um processo aqui fora atende pelo soquete os pedidos do
+# jangada-validar de dentro. Do pedido só se aproveita um sha de 40
+# caracteres hexadecimais, repassado a "jangada-validar --atendido", que
+# confere se é a cabeça do ramo da sessão e grava em revisoes/. Um pedido por
+# vez; o outro recebe OCUPADO. A pasta do soquete entra somente leitura: o
+# agente conecta, mas não troca nem apaga o soquete. O atendente sai quando
+# este script acaba, e mata a revisão em curso.
+atendente_pid=""; atendente_pasta=""
+atendente_sessao="${JANGADA_SESSAO:-}"
+if ((!mostrar)) && [[ "$perfil" == agente && -z "${JANGADA_ISOLAR_FOTO:-}" ]] \
+   && [[ "$atendente_sessao" =~ ^[A-Za-z0-9_.-]+$ && "$atendente_sessao" != . && "$atendente_sessao" != .. ]] \
+   && [[ -f "$JANGADA_ESTADO/revisoes/$atendente_sessao.json" && ! -L "$JANGADA_ESTADO/revisoes/$atendente_sessao.json" ]]; then
+  if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]] \
+     && { [[ -d "$XDG_RUNTIME_DIR/jangada-isolar" ]] || mkdir -m 0700 "$XDG_RUNTIME_DIR/jangada-isolar" 2>/dev/null; }; then
+    atendente_pasta="$(mktemp -d "$XDG_RUNTIME_DIR/jangada-isolar/atendente-XXXXXX" 2>/dev/null)" || atendente_pasta=""
+  fi
+  [[ -n "$atendente_pasta" ]] || atendente_pasta="$(mktemp -d "${TMPDIR:-/tmp}/jangada-atendente-XXXXXX" 2>/dev/null)" || atendente_pasta=""
+fi
+if [[ -n "$atendente_pasta" ]]; then
+  exec {atendente_fd}< <(exec env -u JANGADA_ISOLADO python3 -c 'import json, os, re, signal, socket, subprocess, sys, threading
+pasta, sessao, validar, pai = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+for nome in os.listdir("/proc/self/fd"):
+    if int(nome) > 2:
+        try: os.close(int(nome))
+        except OSError: pass
+caminho = os.path.join(pasta, "soquete")
+servidor = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+servidor.bind(caminho)
+servidor.listen(8)
+servidor.settimeout(1)
+revisao = threading.Lock()
+conexoes = threading.BoundedSemaphore(8)
+filho = []
+TETO = 512 * 1024
+
+def encerrar(*_):
+    for p in filho:
+        try: os.killpg(p.pid, signal.SIGTERM)
+        except OSError: pass
+    for f in (lambda: os.unlink(caminho), lambda: os.rmdir(pasta)):
+        try: f()
+        except OSError: pass
+    os._exit(0)
+
+def enviar(con, texto):
+    try: con.sendall(texto.encode())
+    except OSError: pass
+
+def atender(con):
+    try:
+        con.settimeout(5)
+        dados = b""
+        try:
+            while len(dados) <= 1024:
+                parte = con.recv(1025 - len(dados))
+                if not parte: break
+                dados += parte
+        except OSError:
+            return enviar(con, "RECUSADO pedido incompleto em 5 s\n")
+        if len(dados) > 1024:
+            enviar(con, "RECUSADO pedido maior que 1 KiB\n")
+            # Fechar com bytes por ler manda RST, e a recusa se perde no cliente.
+            try:
+                for _ in range(64):
+                    if not con.recv(1024): break
+            except OSError:
+                pass
+            return
+        if not re.fullmatch(rb"[0-9a-f]{40}\n?", dados):
+            return enviar(con, "RECUSADO o pedido não é um sha de 40 caracteres hexadecimais\n")
+        if not revisao.acquire(blocking=False):
+            return enviar(con, "OCUPADO\n")
+        try:
+            enviar(con, "ACEITO\n")
+            ambiente = dict(os.environ, JANGADA_SESSAO=sessao)
+            p = subprocess.Popen([validar, "--atendido", dados[:40].decode()], stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ambiente, cwd="/",
+                                 start_new_session=True)
+            filho.append(p)
+            saida, erros = p.communicate()
+            filho.remove(p)
+        finally:
+            revisao.release()
+        codigo = p.returncode if 0 <= p.returncode <= 255 else 1
+        enviar(con, json.dumps({"codigo": codigo, "saida": saida[:TETO].decode("utf-8", "replace"),
+                                "erros": erros[-TETO:].decode("utf-8", "replace")}, ensure_ascii=False) + "\n")
+    finally:
+        con.close()
+        conexoes.release()
+
+signal.signal(signal.SIGTERM, encerrar)
+signal.signal(signal.SIGHUP, encerrar)
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+print("pronto", flush=True)
+sys.stdout.close()
+while os.getppid() == pai:
+    try:
+        con, _ = servidor.accept()
+    except (socket.timeout, InterruptedError):
+        continue
+    if not conexoes.acquire(blocking=False):
+        con.close()
+        continue
+    threading.Thread(target=atender, args=(con,), daemon=True).start()
+encerrar()' "$atendente_pasta" "$atendente_sessao" "$JANGADA_CORE_PATH/bin/jangada-validar" "$$" </dev/null 2>/dev/null)
+  atendente_pid=$!
+  if read -r -t 5 -u "$atendente_fd" pronto && [[ "$pronto" == pronto && -S "$atendente_pasta/soquete" ]]; then
+    args+=(--ro-bind "$atendente_pasta" /tmp/.jangada-atendente
+           --setenv JANGADA_VALIDAR_SOQUETE /tmp/.jangada-atendente/soquete)
+  else
+    echo "jangada-isolar: o atendente da revisão não abriu; o jangada-validar de dentro vai pedir ao coordenador" >&2
+    kill "$atendente_pid" 2>/dev/null || true
+    rm -rf "$atendente_pasta"
+    atendente_pid=""; atendente_pasta=""
+  fi
+  exec {atendente_fd}<&-
+fi
+
 # Ambiente mínimo: sai toda variável exportada que não está na lista. Vai por
 # nome (--unsetenv) e não por --clearenv com --setenv, que poria os valores na
 # linha de comando do bwrap e na saída do --mostrar.
@@ -625,6 +751,11 @@ fi
 monitor_pid=""
 monitor_estado_pid=""
 limpar_monitor() {
+  if [[ -n "$atendente_pid" ]]; then
+    kill "$atendente_pid" 2>/dev/null || true
+    atendente_pid=""
+  fi
+  [[ -z "$atendente_pasta" ]] || rm -rf "$atendente_pasta"
   if [[ -n "$monitor_estado_pid" ]]; then
     kill "$monitor_estado_pid" 2>/dev/null || true
     wait "$monitor_estado_pid" 2>/dev/null || true

@@ -21,6 +21,9 @@
 #   --pular-local     pula a verificação determinística local antes do revisor
 #   --reverter-se-limite preserva o worktree ao atingir o limite (reversão bloqueada)
 #   --metricas        resume as rodadas registradas e sai
+#   --atendido SHA    uso do atendente do jangada-isolar: revisa a sessão de
+#                     JANGADA_SESSAO se SHA for a cabeça do ramo dela, sem
+#                     outras opções; o sha já revisado devolve o parecer gravado
 #
 # A revisão pelo agy leva alguns minutos. Quem chama por uma ferramenta com
 # tempo limite deve dar pelo menos 10 minutos. Cada chamada ao revisor tem
@@ -41,6 +44,11 @@
 # e métricas vão para ~/.local/state/jangada/revisoes, que o isolamento oculta:
 # o agente não forja o que está ali. Os metadados da sessão (base, tarefa,
 # autor, revisor) vêm da cópia que o jangada-agente grava ali ao criá-la.
+#
+# Dentro do isolamento o validar não revisa: manda o sha da cabeça ao
+# atendente que o jangada-isolar mantém fora, por um soquete, e imprime o
+# parecer e o código de saída que ele devolve. As opções acima, menos
+# --metricas, são recusadas ali. Sem atendente, sai com 1 e não grava nada.
 set -euo pipefail
 # shellcheck source=bin/jangada-config
 source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
@@ -49,8 +57,12 @@ base=""; modelo="${JANGADA_VALIDAR_MODELO:-}"; resposta=""; forcar=0
 revisor=""; revisor_dado=0
 esforco="${JANGADA_VALIDAR_ESFORCO:-}"; modelo_dado=0; esforco_dado=0
 pular_local="${JANGADA_VALIDAR_PULAR_LOCAL:-0}"
-reverter_se_limite=0; metricas=0
+reverter_se_limite=0; metricas=0; atendido=""; restritas=()
 while (($#)); do
+  case "$1" in
+    --revisor|--base|--modelo|--esforco|--resposta|--forcar|--pular-local|--reverter-se-limite)
+      restritas+=("$1") ;;
+  esac
   case "$1" in
     --revisor) revisor="$2"; revisor_dado=1; shift 2 ;;
     --base) base="$2"; shift 2 ;;
@@ -61,7 +73,8 @@ while (($#)); do
     --pular-local) pular_local=1; shift ;;
     --reverter-se-limite) reverter_se_limite=1; shift ;;
     --metricas) metricas=1; shift ;;
-    -h|--ajuda|--help) sed -n '2,34s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    --atendido) atendido="$2"; shift 2 ;;
+    -h|--ajuda|--help) sed -n '2,52s/^# \{0,1\}//p' "$0"; exit 0 ;;
     --) shift; break ;;
     -*) echo "opção desconhecida: $1" >&2; exit 1 ;;
     *) break ;;
@@ -82,6 +95,85 @@ if ((fora)); then
 else
   arq_metricas="$JANGADA_ESTADO/validar.jsonl"
 fi
+
+# Dentro do isolamento o validar só pede a revisão ao atendente que o
+# jangada-isolar mantém fora: vai o sha da cabeça e mais nada. Sessão, base,
+# revisor, modelo, esforço e limite de rodadas são os de fora, e só lá se
+# grava. JANGADA_VALIDAR_SEM_ATENDENTE=1 roda aqui dentro como antes (os
+# testes do validar); o que essa rodada grava não entra nas somas nem integra.
+if ((!fora)) && [[ "${JANGADA_VALIDAR_SEM_ATENDENTE:-0}" != 1 ]]; then
+  if ((${#restritas[@]})) || [[ -n "$atendido" ]]; then
+    ((${#restritas[@]})) || restritas=(--atendido)
+    echo "jangada-validar: dentro do isolamento ${restritas[*]} não vale: o atendente fora dele usa a base, o revisor, o modelo, o esforço e o limite de rodadas da sessão. Rode sem opções ou peça ao coordenador." >&2
+    exit 1
+  fi
+  if ((!metricas)); then
+    pasta_pedido="${1:-$PWD}"
+    cabeca_pedido="$(git -C "$pasta_pedido" rev-parse --verify --quiet 'HEAD^{commit}')" \
+      || { echo "jangada-validar: $pasta_pedido não tem commit para revisar" >&2; exit 1; }
+    exec python3 -c 'import json, socket, sys
+caminho, sha = sys.argv[1:]
+indisponivel = "revisão fora do isolamento indisponível; peça ao coordenador"
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(10)
+    s.connect(caminho)
+    s.sendall(sha.encode() + b"\n")
+    s.shutdown(socket.SHUT_WR)
+    f = s.makefile("rb")
+    primeira = f.readline(4096).decode("utf-8", "replace").strip()
+except OSError:
+    primeira = ""
+if primeira == "OCUPADO":
+    sys.exit("jangada-validar: o atendente já revisa outro pedido desta sessão; espere e peça de novo")
+if primeira.startswith("RECUSADO"):
+    sys.exit("jangada-validar: pedido recusado pelo atendente: " + primeira[len("RECUSADO"):].strip())
+if primeira != "ACEITO":
+    sys.exit(indisponivel)
+try:
+    s.settimeout(3600)
+    resposta = json.loads(f.readline(8 << 20))
+    codigo, saida, erros = resposta["codigo"], resposta["saida"], resposta["erros"]
+    assert type(codigo) is int and isinstance(saida, str) and isinstance(erros, str)
+except (OSError, ValueError, KeyError, TypeError, AssertionError):
+    sys.exit(indisponivel)
+sys.stdout.write(saida)
+sys.stderr.write(erros)
+sys.exit(codigo if 0 <= codigo <= 255 else 1)' "${JANGADA_VALIDAR_SOQUETE:-/tmp/.jangada-atendente/soquete}" "$cabeca_pedido"
+  fi
+fi
+
+# --atendido SHA: o pedido que o atendente repassa. Só o sha vem de dentro,
+# conferido como a cabeça do ramo da sessão; pasta e metadados vêm da cópia
+# protegida em revisoes/.
+if [[ -n "$atendido" ]]; then
+  ((fora)) || { echo "jangada-validar: --atendido só roda fora do isolamento" >&2; exit 1; }
+  ((${#restritas[@]} == 0 && !metricas && $# == 0)) \
+    || { echo "jangada-validar: --atendido não aceita outras opções nem pasta" >&2; exit 1; }
+  [[ "$atendido" =~ ^[0-9a-f]{40}$ ]] || { echo "jangada-validar: --atendido espera um sha de 40 caracteres hexadecimais" >&2; exit 1; }
+  sessao_atendida="${JANGADA_SESSAO:-}"
+  [[ "$sessao_atendida" =~ ^[A-Za-z0-9_.-]+$ && "$sessao_atendida" != . && "$sessao_atendida" != .. ]] \
+    || { echo "jangada-validar: --atendido sem sessão válida em JANGADA_SESSAO" >&2; exit 1; }
+  meta_atendida="$revisoes_dir/$sessao_atendida.json"
+  [[ -f "$meta_atendida" && ! -L "$meta_atendida" ]] \
+    || { echo "jangada-validar: sem cópia protegida da sessão $sessao_atendida em $revisoes_dir" >&2; exit 1; }
+  raiz_atendida="$(jq -r '.raiz | strings' "$meta_atendida")" && ramo_atendido="$(jq -r '.ramo | strings' "$meta_atendida")" \
+    && worktree_atendido="$(jq -r '.worktree // "" | strings' "$meta_atendida")" \
+    || { echo "jangada-validar: cópia protegida da sessão ilegível" >&2; exit 1; }
+  pasta_atendida="${worktree_atendido:-$raiz_atendida}"
+  [[ "$pasta_atendida" == /* && -n "$ramo_atendido" ]] && git check-ref-format --branch "$ramo_atendido" >/dev/null 2>&1 \
+    || { echo "jangada-validar: a cópia protegida da sessão não traz pasta e ramo válidos" >&2; exit 1; }
+  if [[ "$(jangada_git_seguro -C "$raiz_atendida" rev-parse --verify --quiet "refs/heads/$ramo_atendido^{commit}" 2>/dev/null)" != "$atendido" ]]; then
+    echo "jangada-validar: pedido recusado: $atendido não é a cabeça do ramo $ramo_atendido da sessão" >&2
+    exit 1
+  fi
+  if [[ "$(jangada_git_seguro -C "$pasta_atendida" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null)" != "$atendido" ]]; then
+    echo "jangada-validar: pedido recusado: a pasta da sessão não está na cabeça do ramo $ramo_atendido" >&2
+    exit 1
+  fi
+  set -- "$pasta_atendida"
+fi
+
 if ((metricas)); then
   # O resumo junta as duas origens; a de revisoes/ é contada à parte.
   fontes=()
@@ -492,6 +584,30 @@ if ! congelar; then
   exit 1
 fi
 dir="$foto"
+
+if [[ -n "$atendido" ]]; then
+  if [[ "$candidato" != "$atendido" ]]; then
+    echo "jangada-validar: pedido recusado: a pasta da sessão tem alterações sem commit ou arquivos novos fora do .gitignore; faça commit e peça de novo" >&2
+    exit 1
+  fi
+  # O mesmo sha contra a mesma base já revisado: vale o parecer gravado, sem
+  # chamar o revisor e sem gastar rodada.
+  gravado=""
+  for f in "$pareceres_dir/validacao-$rotulo-r"[0-9]*.md; do
+    [[ -e "$f" && "${f#"$pareceres_dir/validacao-$rotulo-r"}" =~ ^[0-9]+\.md$ ]] && gravado+="$f"$'\n'
+  done
+  gravado="$(printf '%s' "$gravado" | sort -V | tail -n1)"
+  if [[ -f "$gravado" && ! -L "$gravado" ]] \
+     && jq -e --arg c "$candidato" --arg b "$base_sha" '.candidate_sha == $c and .base_sha == $b' \
+          "${gravado%.md}.contexto.json" >/dev/null 2>&1; then
+    cat "$gravado"
+    echo >&2
+    echo "jangada-validar: $atendido já revisado; parecer gravado em $gravado, sem chamar o revisor" >&2
+    primeira="$(grep -m1 -v '^[[:space:]]*$' "$gravado" || true)"
+    [[ "$primeira" =~ ^[#[:space:]*]*STATUS:[[:space:]*]*APROVADO[[:space:]*]*$ ]] && exit 0
+    exit 3
+  fi
+fi
 
 diff_arquivo="$foto/.git/entrega.diff"
 git -C "$dir" diff "$ponto" >"$diff_arquivo" || exit 1
