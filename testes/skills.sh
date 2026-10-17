@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Testa a instalação das skills (agentes/claude/skills) num HOME temporário:
-# Claude Code com todas, agy sem a coordenador e Codex só com a coordenador.
+# Claude Code com todas, agy sem a coordenador e Codex só com a coordenador;
+# e a migração que reaplica hooks e skills do Claude Code numa instalação antiga.
 #
 # Uso: testes/skills.sh
 set -uo pipefail
@@ -33,6 +34,12 @@ instalar() {
 }
 nomes() { find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | sort | paste -sd,; }
 todas="$(find "$origem/" -mindepth 2 -maxdepth 2 -name SKILL.md -printf '%h\n' | sed 's#.*/##' | sort | paste -sd,)"
+
+for s in conferir-citacao conferir-referencias fichamento; do
+  conferir "$s: SKILL.md com name igual à pasta" grep -qx "name: $s" "$origem/$s/SKILL.md"
+  conferir "$s: description diz quando não usar" grep -q 'Não use' "$origem/$s/SKILL.md"
+  conferir "$s: revisao-academica diz onde entra" grep -q "\`$s\`" "$origem/revisao-academica/SKILL.md"
+done
 
 conferir "coordenador: no máximo 130 linhas" [ "$(wc -l <"$origem/coordenador/SKILL.md")" -le 130 ]
 conferir "coordenador: o comando de abertura declara quem coordena" \
@@ -78,6 +85,45 @@ conferir "Codex: pasta alheia com o mesmo nome fica" [ "$(cat "$casa/.codex/skil
 
 instalar CODEX_HOME="$tmp/codex" -- ligar_skill_codex
 conferir "Codex: CODEX_HOME muda a pasta" [ "$(readlink "$tmp/codex/skills/coordenador")" = "$origem/coordenador" ]
+
+# Migração que reaplica hooks e skills do Claude Code, num HOME falso à parte.
+migracao="$(find migrations -maxdepth 1 -name '*-ligar-hooks-e-skills-do-claude.sh' | head -n 1)"
+casa2="$tmp/home2"
+bin2="$tmp/bin2"
+mkdir -p "$bin2" "$casa2/.claude/skills/conferir-citacao"
+for c in bash dirname readlink realpath ln mkdir date cp jq sed mktemp cat chmod mv rm; do
+  ln -s "$(command -v "$c")" "$bin2/$c"
+done
+echo alheia >"$casa2/.claude/skills/conferir-citacao/SKILL.md"
+ln -s /outra/origem/fichamento "$casa2/.claude/skills/fichamento"
+echo '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/alheio/meu-hook"}]}]}}' >"$casa2/.claude/settings.json"
+migrar() { # [VAR=valor ...]
+  env -u CODEX_HOME HOME="$casa2" PATH="$bin2" JANGADA_CORE_PATH="$repo_jangada" JANGADA_SIMULAR=0 \
+    "$@" bash "$migracao" >"$tmp/migracao.log" 2>&1
+}
+retrato() { find "$1" -printf '%p %y %l\n' | sort; find "$1" -type f -exec cat {} + | md5sum; }
+conferir "migração: existe em migrations/" [ -n "$migracao" ]
+antes="$(retrato "$casa2")"
+migrar JANGADA_SIMULAR=1
+conferir "migração: simulação sai com 0" [ "$?" = 0 ]
+conferir "migração: simulação não altera nada" [ "$(retrato "$casa2")" = "$antes" ]
+migrar
+conferir "migração: sai com 0" [ "$?" = 0 ]
+conferir "migração: liga a skill que falta" \
+  [ "$(readlink "$casa2/.claude/skills/conferir-referencias")" = "$origem/conferir-referencias" ]
+conferir "migração: pasta alheia com o mesmo nome fica" [ "$(cat "$casa2/.claude/skills/conferir-citacao/SKILL.md")" = alheia ]
+conferir "migração: link alheio fica" [ "$(readlink "$casa2/.claude/skills/fichamento")" = /outra/origem/fichamento ]
+conferir "migração: mescla os hooks do jangada-hook-regras" \
+  grep -q "$repo_jangada/bin/jangada-hook-regras gravacao" "$casa2/.claude/settings.json"
+conferir "migração: hook alheio fica" grep -q /alheio/meu-hook "$casa2/.claude/settings.json"
+conferir "migração: guarda cópia do settings.json" \
+  [ -n "$(find "$casa2/.claude" -maxdepth 1 -name 'settings.json.jangada-*.bak' -print -quit)" ]
+depois="$(retrato "$casa2")"
+migrar
+conferir "migração: rodar de novo não altera nada" [ "$(retrato "$casa2")" = "$depois" ]
+rm -rf "$casa2" && mkdir -p "$casa2"
+migrar
+conferir "migração: sem Claude Code não cria nada" [ -z "$(find "$casa2" -mindepth 1 -print -quit)" ]
 
 if ((falhas)); then
   echo "$falhas teste(s) das skills falharam"
