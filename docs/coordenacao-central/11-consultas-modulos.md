@@ -77,7 +77,7 @@ Cada rodada tem:
 | `origem` | `sessao` (`validar.jsonl`) ou `protegida` (`revisoes/validar.jsonl`) |
 | `resultado` | `aprovado` ou `revisar` |
 | `etapa` | `revisor` |
-| `revisor`, `modelo` | Texto do registro; vazio quando não gravado; nulo fora de `[A-Za-z0-9_.:/@+[]-]`, até 128 caracteres |
+| `revisor`, `modelo` | Texto do registro, vazio se gravado vazio; nulo se ausente ou fora de `[A-Za-z0-9_.:/@+[]-]`, até 128 caracteres |
 | `data` | Hora do registro, ISO com fuso; nulo se ilegível. O registro não tem início separado |
 | `segundos` | Número do registro, duração do `jangada-validar` até o registro; nulo se inválido |
 | `apontamentos` | Inteiro do campo `itens`; nulo se inválido |
