@@ -20,6 +20,10 @@ durante toda a conversa.
    técnico (por padrão o outro modelo, ou o revisor configurado para a sessão)
    e imprime o parecer. A revisão pode levar alguns minutos: se a ferramenta de comando
    tiver tempo limite, dê 10 minutos.
+   No Codex, rode `jangada-validar` pedindo execução fora da proteção do Codex
+   (`sandbox_permissions: "require_escalated"`, com justificativa curta): dentro
+   dela os revisores não gravam as próprias pastas e falham. O dono aprova na
+   janela.
    - `STATUS: APROVADO`: resuma o que foi feito e pare.
    - `STATUS: REVISAR`: o revisor pode errar. Confira cada apontamento no
      código, corrija o que for procedente, faça commit e rode de novo dizendo

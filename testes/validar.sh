@@ -283,6 +283,25 @@ for _ in 1 2; do validar 'STATUS: REVISAR\n1. x' >/dev/null; done
 JANGADA_VALIDAR_RODADAS=2 validar 'STATUS: REVISAR\n1. x'; rc=$?
 conferir "caso 4: acima do limite sai com 4" [ "$rc" = 4 ]
 
+# Caso 4b: pasta do revisor somente leitura (proteção do Codex): sai com 5, com
+# a mensagem, sem contar rodada nem gravar parecer.
+sessao_de codex claude
+mkdir -p "$tmp/home-ro/.claude"
+chmod 555 "$tmp/home-ro/.claude"
+linhas_antes="$(cat "$tmp/estado/jangada"/validar.jsonl "$tmp/estado/jangada"/revisoes/validar.jsonl 2>/dev/null | wc -l)"
+HOME="$tmp/home-ro" validar 'STATUS: APROVADO' --revisor claude; rc=$?
+linhas_depois="$(cat "$tmp/estado/jangada"/validar.jsonl "$tmp/estado/jangada"/revisoes/validar.jsonl 2>/dev/null | wc -l)"
+chmod 755 "$tmp/home-ro/.claude"
+if [[ "$(id -u)" == 0 ]]; then
+  ok "caso 4b: ignorado como root (root grava em pasta 555)"
+else
+  conferir "caso 4b: pasta do revisor somente leitura sai com 5" [ "$rc" = 5 ]
+  conferir "caso 4b: a mensagem pede o escalonamento" grep -q 'somente leitura.*escalonamento' "$tmp/saida.log"
+  conferir "caso 4b: nenhuma rodada registrada" [ "$linhas_antes" = "$linhas_depois" ]
+  conferir "caso 4b: nenhum parecer gravado nem revisor chamado" \
+    bash -c '! compgen -G "$1/validacao-s-r*" >/dev/null && ! test -e "$2"' _ "$estado" "$tmp/falso/claude.pedido"
+fi
+
 # Caso 5: pedido acima do limite de argumento do agy. O diff sai do pedido e
 # vai para um arquivo que o agy lê.
 sessao_de claude agy

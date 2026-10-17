@@ -64,6 +64,13 @@ interna dele não libera a rede nem escrita fora da pasta de trabalho, do
 Aprovado o pedido, o comando roda só com as montagens do bubblewrap, que já
 liberam esses caminhos.
 
+Por isso o Codex deve rodar `jangada-validar` e `jangada-delegar` com
+`sandbox_permissions: "require_escalated"` e uma justificativa curta; o dono
+aprova na janela. Dentro da proteção do Codex, `~/.claude`, `~/.gemini` e o
+`CODEX_HOME` são somente leitura e o revisor falharia sem parecer. O
+`jangada-validar` confere isso antes de contar a rodada e, se a pasta do
+revisor não for gravável, para com código 5 e uma mensagem que pede o escalonamento.
+
 O Codex exige isolamento, inclusive com `--sem-isolar` ou
 `JANGADA_AGENTE_ISOLAR=0`. A chamada direta ao adaptador sem isolamento é
 recusada antes de executar o CLI.

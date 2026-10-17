@@ -33,7 +33,8 @@
 # fica gravado em ~/.local/state/jangada/agentes/validacao-SESSAO-rN.md.
 # A revisão lê uma foto da entrega, tirada no início, e não a pasta do agente.
 # Aprovação dada pelo modelo do próprio autor sai como APROVADO_AUTORREVISAO.
-# Código de saída: 0 aprovado, 3 revisar, 4 limite de rodadas, 1 erro.
+# Código de saída: 0 aprovado, 3 revisar, 4 limite de rodadas, 5 pasta do
+# revisor somente leitura (proteção do Codex; nada é registrado), 1 erro.
 # Cada rodada acrescenta uma linha JSON a ~/.local/state/jangada/validar.jsonl.
 #
 # Fora do jangada-isolar (sem JANGADA_ISOLADO), pareceres, marca de aprovação
@@ -314,6 +315,18 @@ case "$autor" in
     ;;
 esac
 command -v "$revisor" >/dev/null 2>&1 || { echo "jangada-validar: $revisor não encontrado" >&2; exit 1; }
+# O revisor grava o próprio login. Dentro da proteção do Codex essas pastas são
+# somente leitura e a rodada seria gasta sem parecer: para antes de contá-la.
+case "$revisor" in
+  claude) pasta_revisor="$HOME/.claude" ;;
+  codex) pasta_revisor="${CODEX_HOME:-$HOME/.codex}" ;;
+  agy) pasta_revisor="$HOME/.gemini" ;;
+  *) pasta_revisor="" ;;
+esac
+if [[ -n "$pasta_revisor" && -d "$pasta_revisor" && ! -w "$pasta_revisor" ]]; then
+  echo "jangada-validar: a pasta $pasta_revisor do revisor está somente leitura (proteção do Codex?); rode jangada-validar fora da proteção, pedindo escalonamento (sandbox_permissions: require_escalated)" >&2
+  exit 5
+fi
 if [[ -z "$base" ]]; then
   for r in main master; do
     git -C "$dir" rev-parse --verify --quiet "$r" >/dev/null && { base="$r"; break; }

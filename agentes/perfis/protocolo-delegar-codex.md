@@ -1,4 +1,7 @@
 8. Delegação no Codex (leitor e redator no Ollama, demais papéis no agy):
+   - Rode `jangada-delegar` pedindo execução fora da proteção do Codex
+     (`sandbox_permissions: "require_escalated"`, com justificativa curta); dentro
+     dela ele não grava o que precisa e o dono aprova na janela.
    - Todos os papéis de apoio, inclusive leitor e redator, têm destino
      explícito. Passe sempre `--destino`; o padrão do comando não decide.
    - `leitor` e `redator`, sobre texto ou PDF que caiba nas fatias:
