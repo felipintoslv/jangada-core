@@ -53,7 +53,9 @@ def main():
             etapa='revisor', resultado='aprovado', revisor='forjado', modelo='hostil', itens=99,
             segundos=999, resposta=dict(corrigidos=99), responde_a=dict(revisor='codex', modelo='r')),
             dict(rotulo='aberta', execucao='e2', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
-                 revisor='codex', modelo='sessao', itens=4, segundos=7)])
+                 revisor='codex', modelo='sessao', itens=4, segundos=7),
+            dict(rotulo='sem-copia', execucao='e9', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
+                 revisor='codex', modelo='sessao', itens=2, segundos=5)])
         gravar(estado / 'revisoes', 'validar.jsonl', [
             dict(rotulo=sessao, execucao='e1', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
                  revisor='codex', modelo='r', itens=3, segundos=8),
@@ -105,6 +107,10 @@ def main():
             desde='2026-01-01T00:00:00Z')), encoding='utf-8')
         (estado / 'agentes' / 'parada.json').write_text(json.dumps(dict(sessao='parada', agente='codex',
             estado='concluido', execucao='e6', raiz='p')), encoding='utf-8')
+        (estado / 'revisoes' / 'parada.json').write_text(json.dumps(dict(sessao='parada', agente='codex',
+            execucao='e6', raiz='p', worktree='p')), encoding='utf-8')
+        (estado / 'agentes' / 'sem-copia.json').write_text(json.dumps(dict(sessao='sem-copia',
+            agente='claude', estado='trabalhando', execucao='forjada', raiz='fora')), encoding='utf-8')
         (estado / 'agentes' / 'controle.json').write_text(json.dumps(dict(sessao='../controle', agente='codex',
             estado='trabalhando', execucao='e7', raiz='p')), encoding='utf-8')
         (estado / 'agentes' / '...json').write_text(json.dumps(dict(sessao='..', agente='codex',
@@ -164,6 +170,10 @@ def main():
         assert 'worktree' in claude_sem_worktree['tokens']['motivo']
         parada = next(x for x in d['tarefas'] if x['sessao'] == 'parada')
         assert parada['rodadas'] == 1 and parada['ultimo_resultado'] == 'aprovado'
+        assert parada['origem_rodadas'] == 'protegida'
+        sem_copia = next(x for x in d['tarefas'] if x['sessao'] == 'sem-copia')
+        assert sem_copia['rodadas'] == 1 and sem_copia['origem_rodadas'] == 'sessao'
+        assert sem_copia['tokens']['entrada'] is None and 'cópia protegida' in sem_copia['tokens']['motivo']
         assert not any(x['sessao'] == '../controle' for x in d['tarefas'])
         assert not any(x['sessao'] == '..' for x in d['tarefas'])
         forjado = next(x for x in d['revisores'] if x['revisor'] == 'forjado')

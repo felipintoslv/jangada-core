@@ -64,6 +64,23 @@ def montar(estado, projeto='', desde=''):
     consumos, validacoes, delegacoes = carregar(estado, projeto, desde)
     tarefas = {}
     por_chave = {}
+
+    def sem_medicao_aberta(sessao, motivo):
+        execucoes = []
+        for registro in validacoes:
+            if registro.get('rotulo') != sessao or registro.get('origem') != 'sessao':
+                continue
+            execucao = registro.get('execucao') if isinstance(registro.get('execucao'), str) else None
+            if execucao not in execucoes:
+                execucoes.append(execucao)
+        if not execucoes and (projeto or desde):
+            return
+        for execucao in execucoes or [None]:
+            chave = (sessao, execucao)
+            por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=execucao, autor=None,
+                tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None, motivo=motivo),
+                inicio=None, fim=None))
+
     for c in consumos:
         chave = (c.get('sessao'), c.get('execucao'))
         por_chave[chave] = c
@@ -79,19 +96,13 @@ def montar(estado, projeto='', desde=''):
             protegido = estado / 'revisoes' / f'{sessao}.json'
             try:
                 if protegido.is_symlink() or not protegido.is_file():
-                    chave = (sessao, None)
-                    por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=None, autor=None,
-                        tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None,
-                                    motivo='cópia protegida da sessão ausente'), inicio=None, fim=None))
+                    sem_medicao_aberta(sessao, 'cópia protegida da sessão ausente')
                     continue
                 seguro = json.loads(protegido.read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 seguro = None
             if not isinstance(seguro, dict) or seguro.get('sessao') != sessao:
-                chave = (sessao, None)
-                por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=None, autor=None,
-                    tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None,
-                                motivo='cópia protegida da sessão ausente ou inválida'), inicio=None, fim=None))
+                sem_medicao_aberta(sessao, 'cópia protegida da sessão ausente ou inválida')
                 continue
             execucao = seguro.get('execucao') if isinstance(seguro.get('execucao'), str) else None
             chave = (sessao, execucao)
