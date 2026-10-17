@@ -1000,6 +1000,39 @@ verificar_local() {
   fi
   antes="$erros"
 
+  # 4b. Regras de texto, as mesmas do jangada-hook-regras, só nas linhas
+  # acrescentadas: caminho pessoal (o valor de $HOME) em arquivo de texto e
+  # travessão em .md. O CHANGELOG.md é gerado e fica de fora. ENVIRON no lugar
+  # de awk -v, que interpretaria as barras invertidas do valor.
+  local texto_achados=""
+  while IFS= read -r arq; do
+    [[ -n "$arq" && -f "$dir/$arq" ]] || continue
+    [[ "$(basename -- "$arq")" == CHANGELOG.md ]] && continue
+    grep -Iq '' "$dir/$arq" 2>/dev/null || continue
+    local todas=0 md=0
+    grep -qxF -- "$arq" <<<"$novos" && todas=1
+    [[ "$arq" == *.md ]] && md=1
+    texto_achados+="$(TEXTO_HOME="${HOME:-}" TEXTO_ARQ="$arq" TEXTO_TRAVESSAO=$'\xe2\x80\x94' \
+      awk -v todas="$todas" -v md="$md" '
+        FILENAME == ARGV[1] { ok[$1] = 1; next }
+        todas || (FNR in ok) {
+          h = ENVIRON["TEXTO_HOME"]
+          if (h != "" && h != "/" && index($0, h))
+            print ENVIRON["TEXTO_ARQ"] ":" FNR ": caminho pessoal (o valor de $HOME)"
+          if (md && index($0, ENVIRON["TEXTO_TRAVESSAO"]))
+            print ENVIRON["TEXTO_ARQ"] ":" FNR ": travessão em Markdown"
+        }' <(((todas)) || linhas_novas "$arq") "$dir/$arq")"$'\n'
+  done <<<"$alterados"
+  texto_achados="$(sed '/^$/d' <<<"$texto_achados" | head -n 20)"
+  [[ -z "$texto_achados" ]] || erros+="regras de texto nas linhas acrescentadas (use ~ ou caminho relativo; troque o travessão por vírgula, dois-pontos ou frase nova):"$'\n'"$texto_achados"$'\n'
+
+  if [[ "$erros" == "$antes" ]]; then
+    registrar_verificacao texto PASSED
+  else
+    registrar_verificacao texto FAILED
+  fi
+  antes="$erros"
+
   # 5. Commit com Co-Authored-By, que o protocolo dos agentes proíbe. Checagem
   # exata, então fica aqui e não no revisor. Só avisa: corrigir exige
   # reescrever o histórico do ramo, e o agente decide.

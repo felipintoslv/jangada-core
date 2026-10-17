@@ -848,6 +848,45 @@ JANGADA_VALIDAR_SEM_GITLEAKS=0 PATH="$tmp/glquebrado:$PATH" validar 'STATUS: APR
 conferir "caso 16e: relatório que não é JSON reprova" [ "$rc" = 3 ]
 git -C "$tmp/projeto" checkout -q -- rastreado.txt
 
+# Caso 16j: regras de texto só nas linhas acrescentadas: caminho pessoal em
+# qualquer arquivo de texto e travessão em .md. O CHANGELOG.md fica de fora.
+travessao=$'\xe2\x80\x94'
+# HOME falso: o teste não depende da pasta pessoal real.
+casa="$tmp/casa"
+mkdir -p "$casa"
+git -C "$tmp/projeto" checkout -q main
+printf 'antigo %s/x\nantigo %s\n' "$casa" "$travessao" >"$tmp/projeto/antigo.md"
+printf 'gerado %s\n' "$travessao" >"$tmp/projeto/CHANGELOG.md"
+git -C "$tmp/projeto" add antigo.md CHANGELOG.md
+git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "texto legado"
+git -C "$tmp/projeto" checkout -q agente/x
+git -C "$tmp/projeto" -c user.name=t -c user.email=t@t merge -q main -m "traz o texto legado"
+sessao_de claude agy
+echo "linha nova" >>"$tmp/projeto/antigo.md"
+printf 'novo %s %s/z\n' "$travessao" "$casa" >>"$tmp/projeto/CHANGELOG.md"
+printf 'texto %s\n' "$travessao" >>"$tmp/projeto/rastreado.txt"
+HOME="$casa" validar 'STATUS: APROVADO'; rc=$?
+conferir "caso 16j: linha antiga, CHANGELOG.md e travessão fora de .md passam ($rc)" [ "$rc" = 0 ]
+conferir "caso 16j: verificação texto registrada" grep -q $'^texto\tPASSED' "$estado/validacao-s-r1.verificacoes.tsv"
+git -C "$tmp/projeto" checkout -q -- antigo.md CHANGELOG.md rastreado.txt
+sessao_de claude agy
+printf 'a\ncaminho %s/y\n' "$casa" >>"$tmp/projeto/rastreado.txt"
+printf 'nova %s\n' "$travessao" >>"$tmp/projeto/antigo.md"
+HOME="$casa" validar 'STATUS: APROVADO'; rc=$?
+conferir "caso 16j: caminho pessoal e travessão novos reprovam" [ "$rc" = 3 ]
+conferir "caso 16j: o revisor não foi chamado" test ! -e "$tmp/falso/agy.pedido"
+conferir "caso 16j: aponta o caminho pessoal" \
+  grep -q "rastreado.txt:$(grep -c '' "$tmp/projeto/rastreado.txt"): caminho pessoal" "$estado/validacao-s-r1.md"
+conferir "caso 16j: aponta o travessão" grep -q "antigo.md:3: travessão" "$estado/validacao-s-r1.md"
+conferir "caso 16j: verificação texto reprovada" grep -q $'^texto\tFAILED' "$estado/validacao-s-r1.verificacoes.tsv"
+git -C "$tmp/projeto" checkout -q -- antigo.md rastreado.txt
+sessao_de claude agy
+printf 'novo %s\n' "$travessao" >"$tmp/projeto/novo.md"
+HOME="$casa" validar 'STATUS: APROVADO'; rc=$?
+conferir "caso 16j: arquivo novo com travessão reprova" \
+  bash -c '[ "$1" = 3 ] && grep -q "novo.md:1: travessão" "$2"' _ "$rc" "$estado/validacao-s-r1.md"
+rm -f "$tmp/projeto/novo.md"
+
 # Caso 17: métricas de uma entrega a partir de base sintética explícita.
 # Marcas graváveis pelo agente não podem encurtar a revisão.
 git -C "$tmp/projeto" branch -f main HEAD
