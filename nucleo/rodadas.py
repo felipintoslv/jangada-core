@@ -160,6 +160,8 @@ def rodadas_sessao(raiz, sessao):
         rodadas.append(dict(
             rodada=inteiro(registro.get('rodada'), 1),
             origem=registro['origem'],
+            # Só a protegida foi gravada fora do isolamento e entra nas somas.
+            protegida=registro['origem'] == 'protegida',
             resultado=registro['resultado'],
             etapa=registro['etapa'],
             revisor=texto(registro.get('revisor')),

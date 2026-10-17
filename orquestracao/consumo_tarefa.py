@@ -322,34 +322,37 @@ def tokens_revisor(revisor, resposta=None, log=None, saida=''):
 
 
 def somar_revisor(estado, sessao, execucao=None, inicio=None):
-    """Soma campo a campo os tokens_revisor das rodadas da sessão e execução."""
+    """Soma campo a campo os tokens_revisor das rodadas da sessão e execução.
+
+    Só conta revisoes/validar.jsonl, gravado fora do isolamento por quem rodou
+    a revisão; o validar.jsonl do estado é gravável pelo agente.
+    """
     estado = Path(estado)
     limite = instante(inicio) if inicio else None
     somas = dict.fromkeys(CAMPOS_REVISOR)
     rodadas = medidas = 0
-    for arquivo in (estado / 'validar.jsonl', estado / 'revisoes' / 'validar.jsonl'):
-        lidas = ler_jsonl(arquivo)
-        for linha in (lidas[0] if lidas else []):
-            try:
-                d = json.loads(linha)
-            except (ValueError, RecursionError):
+    lidas = ler_jsonl(estado / 'revisoes' / 'validar.jsonl')
+    for linha in (lidas[0] if lidas else []):
+        try:
+            d = json.loads(linha)
+        except (ValueError, RecursionError):
+            continue
+        if (not isinstance(d, dict) or d.get('rotulo') != sessao
+                or (d.get('execucao') or None) != (execucao or None)
+                or d.get('etapa') != 'revisor' or d.get('resultado') not in {'aprovado', 'revisar'}):
+            continue
+        if inicio:
+            data = instante(d.get('data'))
+            if limite is None or data is None or data < limite:
                 continue
-            if (not isinstance(d, dict) or d.get('rotulo') != sessao
-                    or (d.get('execucao') or None) != (execucao or None)
-                    or d.get('etapa') != 'revisor' or d.get('resultado') not in {'aprovado', 'revisar'}):
-                continue
-            if inicio:
-                data = instante(d.get('data'))
-                if limite is None or data is None or data < limite:
-                    continue
-            rodadas += 1
-            tokens = d.get('tokens_revisor') if isinstance(d.get('tokens_revisor'), dict) else {}
-            valores = {c: contagem(tokens.get(c)) for c in CAMPOS_REVISOR}
-            if any(v is not None for v in valores.values()):
-                medidas += 1
-            for campo, valor in valores.items():
-                if valor is not None:
-                    somas[campo] = (somas[campo] or 0) + valor
+        rodadas += 1
+        tokens = d.get('tokens_revisor') if isinstance(d.get('tokens_revisor'), dict) else {}
+        valores = {c: contagem(tokens.get(c)) for c in CAMPOS_REVISOR}
+        if any(v is not None for v in valores.values()):
+            medidas += 1
+        for campo, valor in valores.items():
+            if valor is not None:
+                somas[campo] = (somas[campo] or 0) + valor
     return dict(somas, rodadas_medidas=medidas, rodadas=rodadas)
 
 

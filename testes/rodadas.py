@@ -81,7 +81,7 @@ def main():
         assert [(x['rodada'], x['resultado'], x['origem']) for x in dados['rodadas']] == [
             (1, 'revisar', 'sessao'), (2, 'aprovado', 'protegida')], dados
         primeira, segunda = dados['rodadas']
-        assert set(primeira) == {'rodada', 'origem', 'resultado', 'etapa', 'revisor', 'modelo', 'data',
+        assert set(primeira) == {'rodada', 'origem', 'protegida', 'resultado', 'etapa', 'revisor', 'modelo', 'data',
                                  'segundos', 'apontamentos', 'tokens_revisor', 'parecer_origem'}, primeira
         # Linha anterior à medição não tem o campo; valor negativo e campo estranho não passam.
         assert primeira['tokens_revisor'] is None, primeira
@@ -93,6 +93,7 @@ def main():
                     'revisor', 'agy', '', 2, 30, '2026-10-17T10:00:00-03:00'), primeira
         assert segunda['parecer_origem'] is None and segunda['segundos'] == 12.5, segunda
         assert segunda['modelo'] == 'sonnet' and segunda['apontamentos'] == 0, segunda
+        assert primeira['protegida'] is False and segunda['protegida'] is True, dados
 
         gravar(estado / 'validar.jsonl', [rodada(1, 'revisar', '2026-10-17T10:00:00-03:00', execucao='e2',
                                                  segundos=10 ** 400)])

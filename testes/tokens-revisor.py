@@ -67,7 +67,8 @@ def main():
         sem = ler('novo')
         assert sem['tokens_revisor'] == NULOS and sem['motivo_tokens_revisor'], sem
 
-        # Soma por sessão e execução: duas medidas e uma sem medida.
+        # Soma por sessão e execução, só de revisoes/: as linhas do validar.jsonl
+        # do estado, graváveis pelo agente, ficam fora mesmo com tokens.
         estado = base / 'estado'
         (estado / 'revisoes').mkdir(parents=True)
 
@@ -89,8 +90,8 @@ def main():
         r = subprocess.run([sys.executable, str(MODULO), 'soma-revisor', str(estado), 's', '--execucao', 'exe-1',
                             '--inicio', '2026-10-17T00:00:00-03:00'], capture_output=True, text=True, timeout=30)
         assert r.returncode == 0, r.stderr
-        assert json.loads(r.stdout) == dict(entrada=300, saida=40, cache_lido=200, total=1560,
-                                            rodadas_medidas=2, rodadas=3), r.stdout
+        assert json.loads(r.stdout) == dict(entrada=300, saida=40, cache_lido=200, total=560,
+                                            rodadas_medidas=1, rodadas=1), r.stdout
         r = subprocess.run([sys.executable, str(MODULO), 'soma-revisor', str(base / 'vazio'), 's'],
                            capture_output=True, text=True, timeout=30)
         assert json.loads(r.stdout) == dict(NULOS, rodadas_medidas=0, rodadas=0), r.stdout
