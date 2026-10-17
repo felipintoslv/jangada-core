@@ -91,7 +91,7 @@ pelas regras do `jangada-indicadores`: mesmo `rotulo` e rodada válida
 nulo. Sem esse registro, a sessão está encerrada e vale a execução da
 rodada válida mais recente.
 
-Esta é a única leitura em `revisoes/`: a consulta abre só
+Entre as consultas por sessão, esta é a única leitura em `revisoes/`: abre só
 `revisoes/validar.jsonl`, sem listar a pasta nem abrir pareceres ou cópias
 de sessão. Sem esse arquivo, as rodadas protegidas não aparecem.
 
@@ -112,6 +112,47 @@ recusa a consulta. São devolvidas as 50 rodadas mais recentes. Rodada sem
 Nome de sessão inválido ou número errado de argumentos sai com 2 e mensagem
 curta. Outra falha sai com 1, diagnóstico e stdout vazio. A consulta não
 cria, move nem apaga nada. `testes/rodadas.py` confere esses casos.
+
+## Coordenadores
+
+`bin/jangada-agentes --coordenadores-json` lista os coordenadores abertos
+por `jangada-coordenador --projeto`, sem argumentos. A resposta é
+`{"versao":1,"coordenadores":[...]}`, em ordem de `sessao`. Cada
+coordenador tem:
+
+| Campo | Tipo e significado |
+|---|---|
+| `sessao` | Nome do registro, `PROJETO--coordenador` |
+| `projeto` | Caminho absoluto da raiz do projeto; nulo se ausente ou relativo |
+| `provedor` | `claude` ou `codex`; nulo se outro valor |
+| `estado` | `iniciado`, `trabalhando`, `aguardando`, `concluido` ou `encerrado`; nulo se outro valor |
+| `ultima_linha` | Linha curta gravada pelos hooks, até 200 caracteres, sem caracteres de controle; nula se ausente |
+| `atualizado` | Data ISO da última gravação; nula se ilegível |
+| `viva` | Booleano: sessão tmux existe e o registro não foi encerrado pelo `--fim` |
+| `tarefas` | Lista de `{"sessao":"...","viva":bool}` em ordem de nome |
+
+A fonte é `$JANGADA_ESTADO/coordenadores/*.json`, da
+[seção 7 dos registros](../registros.md). As tarefas vêm das cópias
+`revisoes/SESSAO.json` cujo `coordenador_sessao` é o coordenador: a cópia
+fica fora do alcance do agente isolado, ao contrário de
+`agentes/SESSAO.json`. Cópia ilegível ou fora do padrão fica de fora; a
+tarefa encerrada sai junto com a cópia. Registro de coordenador com JSON
+malformado, link ou acima de 1 MiB recusa a consulta. Valem os tetos de
+4.096 registros por pasta e 1 MiB de resposta. Falha sai com 1,
+diagnóstico e stdout vazio; argumento a mais sai com 2.
+
+`ultima_linha` é dado para exibição: é a mesma mensagem curta dos
+avisos, nunca conteúdo de arquivo, e a Central não a executa nem a repassa
+como pedido. A consulta não lê a tela do tmux.
+
+A mensagem do dono vai por `jangada-coordenador --mensagem SESSAO --arquivo
+ARQ`, não pela consulta. O comando cola o texto (até 8 KiB, UTF-8, sem
+caracteres de controle além da quebra de linha) e fecha com um Enter só
+com `estado` `concluido` e a sessão viva. Com `aguardando`, `trabalhando`
+ou `iniciado` sai com 3 e motivo curto, sem colar nada. Se o registro mudar
+entre a colagem e o Enter, o texto fica colado sem Enter e sai com 3.
+Permissões e leitura completa ficam no terminal. `testes/coordenador.sh`
+confere abertura, registro, consulta, mensagem e `--fim`.
 
 ## Limites do terminal
 

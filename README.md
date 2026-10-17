@@ -38,6 +38,7 @@ Configuração em `~/.config/jangada`, estado em `~/.local/state/jangada`.
 |---|---|
 | `jangada-agente` | abre um agente numa sessão tmux isolada, em worktree próprio |
 | `jangada-agentes` | lista, abre e encerra as sessões de agentes |
+| `jangada-coordenador` | abre o coordenador do projeto no tmux do jangada, sem isolamento, e leva a ele a mensagem da Central |
 | `jangada-agente-fim` | encerra a sessão e integra a entrega após aprovação e testes |
 | `jangada-validar` | manda a entrega ao outro modelo para revisão |
 | `jangada-indicadores` | resume consumo, procedência dos revisores e destinos de delegação |

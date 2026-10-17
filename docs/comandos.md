@@ -25,5 +25,6 @@ Os comandos da área de trabalho (jangada-shell) e do painel e dos indicadores
 | `jangada-worktree-preparar` | leva para um worktree novo os arquivos ignorados que o projeto precisa (chamado pelo `jangada-agente`) |
 | `jangada-validar` | confere a entrega localmente e manda o diff ao revisor configurado (Claude, agy ou Codex) e devolve `STATUS: APROVADO` ou `REVISAR`; ferramenta aplicável ausente, validação pulada e autorrevisão não aprovam; o agente chama antes de entregar |
 | `jangada-agentes` | lista as sessões de agentes, com estado, e permite abrir, integrar ou encerrar (`--proximo`, `--anterior`, `--restaurar`) |
+| `jangada-coordenador` | abre o coordenador de um projeto (`--projeto PASTA [--provedor claude\|codex]`), um por projeto, sem worktree nem isolamento; `--mensagem SESSAO --arquivo ARQ` cola o texto só com o turno concluído; `--fim SESSAO` encerra a sessão e mantém as tarefas. Consulta: `jangada-agentes --coordenadores-json` |
 | `jangada-agente-fim` | encerra uma sessão e remove o worktree após conferência; `--integrar` exige aprovação independente protegida, confirmação humana e testes; mantém sessão, ramo e worktree. Veja [ciclo da tarefa](ciclo-da-tarefa.md#fim-da-sessão) |
 | `jangada-gancho` | roda os ganchos do usuário de um evento (chamado pelos outros comandos) |
