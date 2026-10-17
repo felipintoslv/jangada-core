@@ -6,7 +6,7 @@
 #
 # Uso: jangada-delegar PAPEL "pedido" [--destino local|agy|codex-economico] [--arquivos ARQ ...] [--arquivo SAIDA]
 #   PAPEL             explorador, leitor, pesquisador, verificador,
-#                     auditor, arquiteto, otimizador, redator ou supervisor
+#                     auditor, arquiteto, designer, otimizador, redator ou supervisor
 #                     (no destino local: apenas leitor e redator)
 #   implementador     caminho separado: base, fontes, permitidos e critérios;
 #                     consulte jangada-delegar implementador --help
@@ -122,10 +122,10 @@ if ((${#campos_extracao[@]})); then
 fi
 
 case "$papel" in
-  explorador|leitor|pesquisador|verificador|auditor|arquiteto|otimizador|redator|supervisor) ;;
+  explorador|leitor|pesquisador|verificador|auditor|arquiteto|designer|otimizador|redator|supervisor) ;;
   implementador) [[ -n "$executor_contrato" && "$destino_opt" == agy && "$permitir_remoto" == 1 ]] || uso ;;
   *)
-    echo "jangada-delegar: papel desconhecido: $papel (explorador, leitor, pesquisador, verificador, auditor, arquiteto, otimizador, redator ou supervisor)" >&2
+    echo "jangada-delegar: papel desconhecido: $papel (explorador, leitor, pesquisador, verificador, auditor, arquiteto, designer, otimizador, redator ou supervisor)" >&2
     exit 2 ;;
 esac
 if [[ -n "$executor_contrato" ]]; then

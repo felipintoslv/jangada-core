@@ -73,7 +73,7 @@ exit 0
     # Responde à lista de agentes, à cota e ao pedido (revisão ou delegação).
     'agy': '''#!/usr/bin/env bash
 if [[ "$1" == agents ]]; then
-  printf '%s\\n' explorador leitor pesquisador verificador auditor arquiteto otimizador redator revisor
+  printf '%s\\n' explorador leitor pesquisador verificador auditor arquiteto designer otimizador redator revisor
   exit 0
 fi
 if [[ "$2" == /usage ]]; then

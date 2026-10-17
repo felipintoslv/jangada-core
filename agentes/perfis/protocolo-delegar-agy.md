@@ -7,10 +7,12 @@
      local roda no Ollama, sem terminal, Git nem escrita, e não envia dados
      para fora.
    - Os demais papéis (explorador, pesquisador, verificador, auditor,
-     arquiteto, otimizador, supervisor):
+     arquiteto, designer, otimizador, supervisor):
      `jangada-delegar PAPEL "pedido" --destino agy --permitir-remoto`, com
      escopo e fontes autorizados nesta tarefa em `--arquivos`. A preferência
      global não autoriza compartilhar dados confidenciais.
+   - Chame `designer` em tarefas que mexem em tela, barra, Central ou textos
+     que o usuário lê.
    - Falha local (Ollama fora, modelo ausente, jogo aberto, memória, contexto,
      fatias, vaga ou tempo): registre o motivo e informe o usuário. Continue
      nesta sessão. Não reencaminhe ao agy, ao Claude nem ao Codex por conta

@@ -12,6 +12,10 @@ falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
 conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
 # jq -e em silêncio: redirecionar a linha do conferir calaria o ok e a FALHA.
 jqok() { jq "$@" >/dev/null; }
+designer_com_referencias() {
+  grep -q 'Não crie, edite, mova nem apague arquivos' "$1" && grep -q 'caminho:linha' "$1"
+}
+designer_sem_comandos() { ! grep -qx '  - run_command' "$1"; }
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -61,6 +65,14 @@ for p in "${papeis[@]}"; do
   conferir "$p: exige citar a origem" grep -qE 'caminho:linha|URL|p\. N' "$c"
   conferir "$p: não edita" grep -q 'Não crie, edite, mova nem apague arquivos' "$c"
 done
+designer_agy=agentes/agy/agents/designer/agent.md
+conferir "designer: existe somente no agy" test -r "$designer_agy" -a ! -e agentes/claude/agents/designer.md
+conferir "designer: nome e modelo do agy" \
+  [ "$(campo "$designer_agy" name),$(campo "$designer_agy" model),$(campo "$designer_agy" subagent)" = designer,flash,true ]
+conferir "designer: ferramentas exatas de leitura no agy" \
+  [ "$(cabeca "$designer_agy" | sed -n 's/^  - //p' | sort | paste -sd,)" = find_by_name,grep_search,list_dir,view_file ]
+conferir "designer: não usa run_command no agy" designer_sem_comandos "$designer_agy"
+conferir "designer: não edita e exige referências" designer_com_referencias "$designer_agy"
 conferir "só o pesquisador busca na web (Claude)" \
   [ "$(grep -l '^tools:.*WebSearch' agentes/claude/agents/*.md | xargs -n1 basename)" = pesquisador.md ]
 # O agy roda comandos com run_command quando o Claude do mesmo papel tem Bash.

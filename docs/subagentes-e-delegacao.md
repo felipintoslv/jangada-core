@@ -2,15 +2,17 @@
 
 O agente da sessão pode passar trabalho de leitura a um subagente: explorar
 código, ler documento longo, pesquisar na web, verificar antes do
-`jangada-validar`, auditar segurança, analisar arquitetura, procurar gargalo
+`jangada-validar`, auditar segurança, analisar arquitetura, avaliar interface e uso, procurar gargalo
 ou revisar redação. O subagente só lê e devolve um relatório curto com
 `caminho:linha`; quem edita é sempre o agente da sessão, porque o worktree é
 um só. Paralelismo de implementação é outra sessão do jangada.
 
 ## Papéis
 
-São nove papéis, e cada um existe no Claude e no agy, com o mesmo nome: no Claude em
-`agentes/claude/agents/PAPEL.md`, no agy em `agentes/agy/agents/PAPEL/agent.md`.
+São dez papéis de apoio. Nove existem no Claude e no agy com o mesmo nome.
+O `designer` existe somente no agy, em `agentes/agy/agents/designer/agent.md`.
+Os demais ficam em `agentes/claude/agents/PAPEL.md` e
+`agentes/agy/agents/PAPEL/agent.md`.
 
 Desde a modularização 3.0, os caminhos de `default/` e `bin/` citados neste
 documento são links de compatibilidade e continuam sendo a forma de uso. Os
@@ -28,6 +30,7 @@ O mapa das pastas está na seção Estrutura do [README](../README.md).
 | verificador | testes, lint e regras antes do `jangada-validar` | sonnet |
 | auditor | segurança: injeção, credenciais, permissões | sonnet |
 | arquiteto | módulos, contratos e impacto de mudança | sonnet |
+| designer | hierarquia visual, consistência, acessibilidade e passos de uso | somente agy (flash) |
 | otimizador | gargalos, leituras redundantes, memória | sonnet |
 | redator | clareza e regras de texto do `AGENTS.md` | haiku |
 | supervisor | fidelidade de relatório intermediário às fontes | haiku |

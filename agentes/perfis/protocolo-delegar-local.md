@@ -6,6 +6,8 @@
    - Os demais papéis (explorador, pesquisador, verificador, auditor,
      arquiteto, otimizador, supervisor) ficam nesta sessão: com
      `JANGADA_DELEGAR=local` o agy está bloqueado e não há subagente do Claude.
+   - O papel `designer` só está disponível no agy; neste destino, faça a
+     avaliação nesta sessão.
    - Se o comando recusar (Ollama fora, modelo ausente, jogo aberto, memória,
      limite de contexto, fatias, vaga ou tempo), registre o motivo, informe o
      usuário e continue nesta sessão. Nunca reencaminhe ao agy, ao Claude nem

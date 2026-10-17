@@ -55,7 +55,7 @@ export JANGADA_ISOLAR_ESCRITA="$tmp/falso"
 cat >"$tmp/bin/agy" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$1" == agents ]]; then
-  printf '%s\n' ${FALSO_AGENTES:-explorador leitor pesquisador verificador auditor arquiteto otimizador redator}
+  printf '%s\n' ${FALSO_AGENTES:-explorador leitor pesquisador verificador auditor arquiteto designer otimizador redator}
   exit 0
 fi
 if [[ "$2" == /usage ]]; then
@@ -775,7 +775,7 @@ for falha_local in modelo fora; do
   conferir "perfis: falha local ($falha_local) fica registrada no destino local, sem tentativa remota" \
     jqok -se 'length == 1 and .[0].destino == "local" and .[0].codigo_saida == 4 and .[0].recusa == true' "$reg"
 done
-for papel_remoto in explorador pesquisador verificador auditor arquiteto otimizador supervisor; do
+for papel_remoto in explorador pesquisador verificador auditor arquiteto designer otimizador supervisor; do
   : >"$ollama_reqs"
   DELEGAR=agy OLLAMA_URL="http://127.0.0.1:$porta_ollama" delegar --destino local "$papel_remoto" "pedido" --arquivos "$tmp/projeto/doc1.txt"
   conferir "perfis: $papel_remoto não vai ao destino local" \
@@ -791,6 +791,9 @@ conferir "perfis: agy explícito sem --permitir-remoto recusa antes de enviar" \
 DELEGAR=agy delegar --destino agy --permitir-remoto explorador "mapeie" --arquivos "$tmp/projeto/doc1.txt"
 conferir "perfis: agy explícito com autorização das fontes atende" \
   bash -c '[ "$1" = 0 ] && [ -e "$2" ]' _ "$(codigo)" "$tmp/falso/agy.args"
+DELEGAR=agy delegar --destino agy --permitir-remoto designer "avalie interface" --arquivos "$tmp/projeto/doc1.txt"
+conferir "designer: agy explícito com autorização atende" \
+  bash -c '[ "$1" = 0 ] && grep -qx -- designer "$2"' _ "$(codigo)" "$tmp/falso/agy.args"
 
 # 25. Marca de jogo ativo no estado
 mkdir -p "$tmp/home/.local/state/jangada/marcas"
