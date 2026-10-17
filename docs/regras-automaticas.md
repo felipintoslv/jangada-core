@@ -47,13 +47,18 @@ e de figura do dono quando ele grava num projeto de pesquisa. Vale com e sem
 - **Escrita:** ao gravar `.md`, `.qmd`, `.Rmd`, `.tex` ou `.docx`.
 - **Figura:** ao gravar `.R` ou `.py` que gera gráfico (ggplot2, matplotlib,
   seaborn, plotly, `savefig`, `salvar_figura`, `plot(`, `png(` e afins).
-- **Uma vez por conversa e por tipo:** a marca do aviso dado é uma pasta
-  vazia `$JANGADA_ESTADO/agentes/avisos-pesquisa/<session_id>.<tipo>`, a
-  única pasta do estado gravável no isolamento. Pastas com mais de 7 dias são
-  apagadas na gravação seguinte num projeto de pesquisa. Se algum componente
-  do caminho até `avisos-pesquisa` for link (inclusive um `~/.local/state`
-  ligado a outro disco), a marca não é gravada. Sem `session_id` no evento,
-  ou sem poder gravar a marca, o lembrete vai a cada gravação.
+- **Uma vez por conversa e por tipo:** o hook não grava marca. Ele lê o fim
+  (até 4 MiB, em até 5 segundos) da transcrição da conversa, o
+  `transcript_path` do evento, e procura lembretes que ele mesmo deu: o
+  Claude Code guarda cada `additionalContext` numa linha
+  `"type": "attachment"` com `"attachment": {"type": "hook_additional_context",
+  "hookEvent": "PostToolUse"}`, e o lembrete tem um cabeçalho e uma linha por
+  tipo fixos. Um resumo da conversa (`compact_boundary`) depois do lembrete
+  faz o tipo voltar a ser avisado. A transcrição só é lida se o caminho
+  resolvido estiver dentro de `~/.claude/projects` e for arquivo comum, não
+  link; dela sai só o tipo já lembrado, nunca texto. Sem transcrição legível
+  (no Codex, por exemplo), o lembrete vai a cada gravação. Gravações em
+  paralelo podem receber o lembrete repetido.
 - **Texto:** sai das seções `## Escrita` e `## Figuras` de
   `agentes/regras-pesquisa.md`, a fonte única. O lembrete não traz nome nem
   conteúdo do arquivo gravado.
