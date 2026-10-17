@@ -30,6 +30,13 @@ exige um worktree para separar as conversas do projeto. Se o autor e o revisor
 forem Claude e usarem o mesmo worktree, os tokens da revisão podem entrar na
 conta do autor, pois os registros não permitem separá-los.
 
+Revisores, rodadas e último resultado vêm apenas de `revisoes/validar.jsonl`,
+que o agente isolado não grava. Para sessões abertas, os dados usados na medição
+vêm da cópia protegida `revisoes/SESSAO.json`; sem ela, a medição fica nula com
+o motivo. Nomes de sessão são conferidos antes de formar caminhos. A leitura
+de JSONL tolera bytes inválidos e ignora linhas inválidas ou que não sejam
+objetos.
+
 Após parar o agente e preservar as evidências, o Core mede e grava o consumo em
 `$JANGADA_ESTADO/consumo-tarefas.jsonl`, antes de remover a pasta de trabalho.
 A linha inclui sessão, projeto, execução, autor, modelo, tokens, motivo, início

@@ -41,6 +41,7 @@ def main():
         estado = base / 'state' / 'jangada'
         home = base / 'home'
         (estado / 'agentes').mkdir(parents=True)
+        (estado / 'revisoes').mkdir()
         sessao = 's1'
         gravar(estado, 'consumo-tarefas.jsonl', [dict(sessao=sessao, projeto='p', execucao='e1', autor='claude',
             modelo='m', tokens=dict(entrada=50, saida=20, cache_lido=5), motivo=None,
@@ -48,7 +49,10 @@ def main():
             dict(sessao='sem-medicao', projeto='p', execucao='e4', autor='claude', modelo=None,
                  tokens=dict(entrada=None, saida=None, cache_lido=None), motivo='registro ausente',
                  inicio='2026-01-01', fim='2026-01-02')])
-        gravar(estado, 'validar.jsonl', [
+        gravar(estado, 'validar.jsonl', [dict(rotulo=sessao, execucao='e1', projeto='p', rodada=99,
+            etapa='revisor', resultado='aprovado', revisor='forjado', modelo='hostil', itens=99,
+            segundos=999, resposta=dict(corrigidos=99), responde_a=dict(revisor='codex', modelo='r'))])
+        gravar(estado / 'revisoes', 'validar.jsonl', [
             dict(rotulo=sessao, execucao='e1', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
                  revisor='codex', modelo='r', itens=3, segundos=8),
             dict(rotulo=sessao, execucao='e1', projeto='p', rodada=2, etapa='revisor', resultado='aprovado',
@@ -87,15 +91,24 @@ def main():
                                       'cached_input_tokens': 30}}}}) + '\n', encoding='utf-8')
         (estado / 'agentes' / 'aberta.json').write_text(json.dumps(dict(sessao='aberta', agente='/usr/bin/codex --flag',
             estado='trabalhando', execucao='e2', raiz='p', desde='2026-01-01T10:00:00-03:00')), encoding='utf-8')
+        (estado / 'revisoes' / 'aberta.json').write_text(json.dumps(dict(sessao='aberta', agente='/usr/bin/codex --flag',
+            execucao='e2', raiz='p', worktree='p', desde='2026-01-01T10:00:00-03:00')), encoding='utf-8')
         (estado / 'agentes' / 'vazia.json').write_text(json.dumps(dict(sessao='vazia', agente='',
             estado='trabalhando', execucao='e3', raiz='p')), encoding='utf-8')
         (estado / 'agentes' / 'claude-sem-worktree.json').write_text(json.dumps(dict(
             sessao='claude-sem-worktree', agente='/usr/bin/claude --flag', estado='trabalhando', execucao='e5',
             raiz='p', desde='2026-01-01T00:00:00Z')), encoding='utf-8')
+        (estado / 'revisoes' / 'claude-sem-worktree.json').write_text(json.dumps(dict(
+            sessao='claude-sem-worktree', agente='/usr/bin/claude --flag', execucao='e5', raiz='p',
+            desde='2026-01-01T00:00:00Z')), encoding='utf-8')
         (estado / 'agentes' / 'parada.json').write_text(json.dumps(dict(sessao='parada', agente='codex',
             estado='concluido', execucao='e6', raiz='p')), encoding='utf-8')
-        (estado / 'agentes' / 'controle.json').write_text(json.dumps(dict(sessao='cont\x1b[31mrole', agente='codex',
+        (estado / 'agentes' / 'controle.json').write_text(json.dumps(dict(sessao='../controle', agente='codex',
             estado='trabalhando', execucao='e7', raiz='p')), encoding='utf-8')
+        (estado / 'agentes' / '...json').write_text(json.dumps(dict(sessao='..', agente='codex',
+            estado='trabalhando', execucao='e8', raiz='p')), encoding='utf-8')
+        (estado / 'revisoes' / '..json').write_text(json.dumps(dict(sessao='..', agente='codex',
+            execucao='e8', raiz='p')), encoding='utf-8')
         (estado / 'agentes' / 'lista.json').write_text('[]', encoding='utf-8')
         (estado / 'agentes' / 'sessao-invalida.json').write_text(
             json.dumps(dict(sessao=[], agente='codex', estado='trabalhando', raiz='p')), encoding='utf-8')
@@ -127,6 +140,8 @@ def main():
         sem_worktree = medir(estado, 'claude-sessao', 'claude', projeto_claude, home,
                              inicio='2026-01-01T00:00:00Z', worktree=False)
         assert sem_worktree['entrada'] is None and 'worktree' in sem_worktree['motivo']
+        sessao_invalida = medir(estado, '../fora', 'codex', 'p')
+        assert sessao_invalida['entrada'] is None and 'nome de sessão' in sessao_invalida['motivo']
         env = dict(os.environ, HOME=str(home), XDG_STATE_HOME=str(base / 'state'), JANGADA_CORE_PATH=str(RAIZ))
         saida = subprocess.check_output([str(RAIZ / 'bin/jangada-indicadores'), '--json'], env=env, text=True)
         d = json.loads(saida)
@@ -145,7 +160,9 @@ def main():
         assert 'worktree' in claude_sem_worktree['tokens']['motivo']
         parada = next(x for x in d['tarefas'] if x['sessao'] == 'parada')
         assert parada['rodadas'] == 1 and parada['ultimo_resultado'] == 'aprovado'
-        assert next(x for x in d['tarefas'] if x['sessao'] == 'cont\x1b[31mrole')
+        assert not any(x['sessao'] == '../controle' for x in d['tarefas'])
+        assert not any(x['sessao'] == '..' for x in d['tarefas'])
+        assert not any(x['revisor'] == 'forjado' for x in d['revisores'])
         sem_medicao = next(x for x in d['tarefas'] if x['sessao'] == 'sem-medicao')
         assert sem_medicao['tokens']['entrada'] is None and sem_medicao['tokens']['motivo'] == 'registro ausente'
         r = next(x for x in d['revisores'] if x['revisor'] == 'codex')

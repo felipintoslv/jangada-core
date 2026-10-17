@@ -15,7 +15,7 @@ from consumo_tarefa import medir
 
 def linhas(path):
     try:
-        with path.open(encoding='utf-8') as f:
+        with path.open(encoding='utf-8', errors='replace') as f:
             for linha in f:
                 try:
                     d = json.loads(linha)
@@ -45,7 +45,7 @@ def carregar(estado, projeto, desde):
     consumos = [x for x in linhas(estado / 'consumo-tarefas.jsonl')
                 if isinstance(x.get('sessao'), str) and x['sessao']
                 and (x.get('execucao') is None or isinstance(x.get('execucao'), str))]
-    validacoes = list(linhas(estado / 'validar.jsonl')) + list(linhas(estado / 'revisoes' / 'validar.jsonl'))
+    validacoes = list(linhas(estado / 'revisoes' / 'validar.jsonl'))
     delegacoes = list(linhas(estado / 'delegacoes.jsonl'))
     if desde:
         consumos = [x for x in consumos if isinstance(x.get('fim'), str) and x['fim'][:10] >= desde]
@@ -69,28 +69,45 @@ def montar(estado, projeto='', desde=''):
     abertos = estado / 'agentes'
     if abertos.is_dir():
         for arq in abertos.glob('*.json'):
+            sessao = arq.stem
+            if sessao in {'.', '..'} or not re.fullmatch(r'[A-Za-z0-9_.-]+', sessao): continue
             try: m = json.loads(arq.read_text(encoding='utf-8'))
             except (OSError, ValueError): continue
             if not isinstance(m, dict): continue
-            sessao = m.get('sessao', arq.stem)
-            if not isinstance(sessao, str) or not sessao: continue
-            execucao = m.get('execucao')
-            if not isinstance(execucao, str): execucao = None
+            if m.get('sessao', sessao) != sessao: continue
+            protegido = estado / 'revisoes' / f'{sessao}.json'
+            try:
+                if protegido.is_symlink() or not protegido.is_file():
+                    chave = (sessao, None)
+                    por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=None, autor=None,
+                        tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None,
+                                    motivo='cópia protegida da sessão ausente'), inicio=None, fim=None))
+                    continue
+                seguro = json.loads(protegido.read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                seguro = None
+            if not isinstance(seguro, dict) or seguro.get('sessao') != sessao:
+                chave = (sessao, None)
+                por_chave.setdefault(chave, dict(sessao=sessao, projeto=None, execucao=None, autor=None,
+                    tokens=dict(entrada=None, saida=None, cache_lido=None, modelo=None,
+                                motivo='cópia protegida da sessão ausente ou inválida'), inicio=None, fim=None))
+                continue
+            execucao = seguro.get('execucao') if isinstance(seguro.get('execucao'), str) else None
             chave = (sessao, execucao)
             if chave not in por_chave:
-                raiz = m.get('raiz') or m.get('dir') or ''
+                raiz = seguro.get('raiz') or ''
                 if not isinstance(raiz, str): continue
                 projeto_aberto = Path(raiz).name
                 if projeto and projeto_aberto != projeto:
                     continue
-                inicio = m.get('desde') if isinstance(m.get('desde'), str) else ''
+                inicio = seguro.get('desde') if isinstance(seguro.get('desde'), str) else ''
                 if desde and inicio[:10] < desde:
                     continue
-                agente = m.get('agente') if isinstance(m.get('agente'), str) else ''
+                agente = seguro.get('agente') if isinstance(seguro.get('agente'), str) else ''
                 provedor = agente.split()
                 autor = os.path.basename(provedor[0]) if provedor else ''
-                tem_worktree = bool(m.get('worktree'))
-                caminho = m.get('worktree') or m.get('dir') or raiz
+                tem_worktree = bool(seguro.get('worktree'))
+                caminho = seguro.get('worktree') or raiz
                 if not isinstance(caminho, str): continue
                 medido = medir(estado, sessao, autor, caminho, inicio=inicio, worktree=tem_worktree)
                 por_chave[chave] = dict(sessao=sessao, projeto=projeto_aberto, execucao=execucao,

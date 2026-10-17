@@ -137,10 +137,11 @@ for trecho in re.split(r';\s*(?=\d+[.:)]?\s)|\n(?=\s*\d+[.:)]?\s)', texto):
         contagens['sem_classificar'] += 1
 anterior = None
 try:
-    with open(caminho, encoding='utf-8') as f:
+    with open(caminho, encoding='utf-8', errors='replace') as f:
         for linha in f:
             try: d = json.loads(linha)
             except ValueError: continue
+            if not isinstance(d, dict): continue
             if (d.get('rotulo') == sessao and d.get('execucao') == (execucao or None)
                     and d.get('rodada') == int(rodada) - 1
                     and d.get('etapa') == 'revisor' and d.get('resultado') in {'aprovado', 'revisar'}):
@@ -151,7 +152,7 @@ if anterior:
     contagens['responde_a'] = {k: anterior.get(k) for k in ('rodada', 'revisor', 'modelo')}
 print(json.dumps(contagens, ensure_ascii=False, separators=(',', ':')))
 PY
-)"
+ )" || resposta_json=''
   fi
   resumo_subagentes
   linha="$(jq -nc --arg data "$(date -Iseconds)" --arg projeto "$projeto" --arg rotulo "$rotulo" \

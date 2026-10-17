@@ -157,6 +157,7 @@ conferir "caso 1: estado registra a rodada e o revisor" [ "$(jq -r .validacao "$
 conferir "caso 1: parecer gravado" grep -q "problema" "$estado/validacao-s-r1.md"
 
 # Caso 2: rodada 2 leva o parecer anterior e a resposta do agente.
+printf '[]\n' >>"$tmp/estado/jangada/validar.jsonl"
 validar 'STATUS: APROVADO\ntudo certo' --resposta "1 corrigido; 2 rejeitado: MARCA-RESPOSTA"; rc=$?
 conferir "caso 2: APROVADO sai com 0" [ "$rc" = 0 ]
 conferir "caso 2: pedido traz a resposta do agente" grep -q MARCA-RESPOSTA "$tmp/falso/agy.pedido"

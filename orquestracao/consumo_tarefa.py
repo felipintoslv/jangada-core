@@ -42,6 +42,8 @@ def instante(valor):
 
 
 def codex(estado, sessao, inicio):
+    if sessao in {'.', '..'} or not re.fullmatch(r'[A-Za-z0-9_.-]+', sessao):
+        return vazio('nome de sessão inválido')
     limite = instante(inicio) if inicio else None
     if inicio and limite is None:
         return vazio('início da sessão inválido')

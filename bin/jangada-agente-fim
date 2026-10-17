@@ -560,23 +560,33 @@ limpar() {
 }
 
 registrar_consumo_tarefa() {
-  local autor projeto execucao inicio fim medicao linha arquivo="$JANGADA_ESTADO/consumo-tarefas.jsonl"
+  local autor projeto execucao inicio fim medicao linha copia="$JANGADA_ESTADO/revisoes/$s.json" arquivo="$JANGADA_ESTADO/consumo-tarefas.jsonl"
   [[ -f "$arq" ]] || return 0
-  execucao="$(jq -r '.execucao // ""' "$arq" 2>/dev/null || true)"
-  [[ "$execucao" =~ ^exe-[0-9a-f]{16}$ ]] || execucao=""
-  inicio="$(jq -r 'if (.desde | type) == "string" then .desde else "" end' "$arq" 2>/dev/null || true)"
+  if [[ ! -f "$copia" || -L "$copia" ]] \
+      || ! jq -e --arg sessao "$s" 'type == "object" and .sessao == $sessao' "$copia" >/dev/null 2>&1; then
+    inicio=""
+    execucao=""
+    autor=""
+    medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"cópia protegida da sessão ausente ou inválida"}'
+  else
+    execucao="$(jq -r '.execucao // ""' "$copia" 2>/dev/null || true)"
+    inicio="$(jq -r 'if (.desde | type) == "string" then .desde else "" end' "$copia" 2>/dev/null || true)"
+    autor="$(basename -- "$(jq -r '.agente // ""' "$copia" 2>/dev/null | awk '{print $1}')")"
+    if ! jangada_provedor "$autor"; then autor=""; fi
+    [[ "$execucao" =~ ^exe-[0-9a-f]{16}$ ]] || execucao=""
+  fi
   if [[ -f "$arquivo" ]] && jq -e --arg sessao "$s" --arg execucao "$execucao" --arg inicio "$inicio" \
       'select(.sessao == $sessao and (.execucao // "") == $execucao and (.inicio // "") == $inicio)' \
       "$arquivo" >/dev/null 2>&1; then return 0; fi
-  autor="$(basename -- "$(jq -r '.agente // ""' "$arq" 2>/dev/null | awk '{print $1}')")"
-  if ! jangada_provedor "$autor"; then autor=""; fi
   projeto="$(basename "$raiz")"
   fim="$(jangada_data_iso)"
-  local -a args=(python3 "$JANGADA_CORE_PATH/orquestracao/consumo_tarefa.py" "$JANGADA_ESTADO" "$s" "$autor"
-    --projeto "${worktree:-$raiz}" --inicio "$inicio")
-  [[ -n "$worktree" ]] || args+=(--sem-worktree)
-  medicao="$(timeout 10s "${args[@]}" 2>/dev/null)" \
-    || medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"falha na medição"}'
+  if [[ -z "${medicao:-}" ]]; then
+    local -a args=(python3 "$JANGADA_CORE_PATH/orquestracao/consumo_tarefa.py" "$JANGADA_ESTADO" "$s" "$autor"
+      --projeto "${worktree:-$raiz}" --inicio "$inicio")
+    [[ -n "$worktree" ]] || args+=(--sem-worktree)
+    medicao="$(timeout 10s "${args[@]}" 2>/dev/null)" \
+      || medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"falha na medição"}'
+  fi
   linha="$(jq -nc --arg sessao "$s" --arg projeto "$projeto" --arg execucao "$execucao" \
     --arg autor "$autor" --arg inicio "$inicio" --arg fim "$fim" --argjson tokens "$medicao" \
     '{sessao:$sessao,projeto:$projeto,execucao:(if $execucao == "" then null else $execucao end),autor:$autor,
