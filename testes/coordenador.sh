@@ -73,7 +73,11 @@ git init -q -b main "$tmp/projeto"
 git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -q --allow-empty -m inicio
 
 # Abertura, a partir de uma subpasta: o coordenador fica na raiz do projeto.
-saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"
+# Quem chama é uma tarefa, com JANGADA_SESSAO no processo e no ambiente
+# global do servidor: o coordenador não a herda.
+rodar tmux -L jangada -f "$repo_jangada/agentes/tmux/agentes.conf" new-session -d -s base
+tm set-environment -g JANGADA_SESSAO alheia--tarefa
+saida="$(rodar env JANGADA_SESSAO=alheia--tarefa "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"
 conferir "a abertura cria a sessão PROJETO--coordenador" [ "$saida" = projeto--coordenador ]
 conferir "a sessão existe no servidor do teste" tm has-session -t =projeto--coordenador
 conferir "o socket é o do teste" test -S "$tmp/sock/tmux-$(id -u)/jangada"
@@ -84,6 +88,10 @@ conferir "a sessão recebe JANGADA_COORDENADOR" \
   [ "$(tm show-environment -t =projeto--coordenador JANGADA_COORDENADOR 2>/dev/null)" = JANGADA_COORDENADOR=projeto--coordenador ]
 conferir "a sessão não recebe JANGADA_SESSAO" \
   [ "$( (tm show-environment -t =projeto--coordenador; tm show-environment -g) | grep -c '^JANGADA_SESSAO=')" = 0 ]
+conferir "o processo da sessão não recebe JANGADA_SESSAO" \
+  bash -c '! tr "\\0" "\\n" <"/proc/$1/environ" | grep -q "^JANGADA_SESSAO="' _ \
+  "$(tm display-message -p -t =projeto--coordenador: '#{pane_pid}')"
+tm kill-session -t =base
 conferir "a sessão roda na raiz do projeto" \
   [ "$(tm display-message -p -t =projeto--coordenador: '#{pane_start_path}')" = "$tmp/projeto" ]
 conferir "o Claude falso abre na sessão" esperar test -f "$tmp/claude.pronto"

@@ -157,6 +157,12 @@ abrir() {
   while IFS= read -r _v; do
     "${JANGADA_TMUX[@]}" set-environment -g -u "$_v" || true
   done < <("${JANGADA_TMUX[@]}" show-environment -g 2>/dev/null | ambiente_do_coordenador)
+  # O coordenador não é tarefa: chamado de dentro de uma, os hooks gravariam
+  # no registro dela.
+  unset JANGADA_SESSAO
+  if "${JANGADA_TMUX[@]}" show-environment -g JANGADA_SESSAO >/dev/null 2>&1; then
+    "${JANGADA_TMUX[@]}" set-environment -g -u JANGADA_SESSAO || true
+  fi
 
   if [[ "$provedor" == codex ]]; then
     cmd="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-coordenador") --executar-codex"
