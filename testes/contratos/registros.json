@@ -58,6 +58,13 @@
         "revisor": {"tipo": ["texto"], "obrigatorio": true},
         "modelo": {"tipo": ["texto"], "obrigatorio": true}
       }},
+      "tokens_revisor": {"tipo": ["objeto"], "obrigatorio": false, "campos": {
+        "entrada": {"tipo": ["inteiro", "nulo"], "obrigatorio": true},
+        "saida": {"tipo": ["inteiro", "nulo"], "obrigatorio": true},
+        "cache_lido": {"tipo": ["inteiro", "nulo"], "obrigatorio": true},
+        "total": {"tipo": ["inteiro", "nulo"], "obrigatorio": true}
+      }},
+      "motivo_tokens_revisor": {"tipo": ["texto"], "obrigatorio": false},
       "subagentes": {"tipo": ["objeto"], "obrigatorio": false, "campos": {
         "n": {"tipo": ["inteiro"], "obrigatorio": true},
         "claude": {"tipo": ["objeto"], "obrigatorio": true, "campos": {

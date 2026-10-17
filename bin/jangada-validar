@@ -117,7 +117,7 @@ fi
 # em mais de um write; a linha é montada antes e gravada sob a trava da pasta,
 # para rodadas simultâneas não se intercalarem.
 registrar() {
-  local itens=0 linha resumo resumo_erro resposta_json=''
+  local itens=0 linha resumo resumo_erro resposta_json='' tokens_json=''
   [[ -f "${saida:-}" ]] && itens="$(grep -cE '^[[:space:]]*[0-9]+\.[[:space:]]' "$saida" || true)"
   if [[ -n "$resposta" && "$2" == revisor && ( "$1" == aprovado || "$1" == revisar ) ]]; then
     resposta_json="$(python3 - "$resposta" "$arq_metricas" "$rotulo" "$execucao" "$rodada" <<'PY'
@@ -154,6 +154,7 @@ print(json.dumps(contagens, ensure_ascii=False, separators=(',', ':')))
 PY
  )" || resposta_json=''
   fi
+  [[ "$2" == revisor && ( "$1" == aprovado || "$1" == revisar ) ]] && tokens_json="$tokens_revisor"
   resumo_subagentes
   linha="$(jq -nc --arg data "$(date -Iseconds)" --arg projeto "$projeto" --arg rotulo "$rotulo" \
     --argjson rodada "$rodada" --arg resultado "$1" --arg etapa "$2" --arg revisor "$revisor" \
@@ -161,7 +162,7 @@ PY
     --argjson mais "${mais:-0}" --argjson menos "${menos:-0}" --argjson itens "${itens:-0}" \
     --argjson segundos "$SECONDS" --arg subagentes "$resumo" --arg subagentes_erro "$resumo_erro" \
     --argjson auto "$(( ${auto_revisao:-0} || !${autoria_confiavel:-0} ))" --arg execucao "${execucao:-}" \
-    --arg resposta "$resposta_json" \
+    --arg resposta "$resposta_json" --arg tokens "$tokens_json" \
     '{data: $data, projeto: $projeto, rotulo: $rotulo, rodada: $rodada, resultado: $resultado,
       etapa: $etapa, revisor: $revisor, modelo: $modelo, autor: $autor, independente: ($auto == 0),
       execucao: (if $execucao == "" then null else $execucao end),
@@ -169,7 +170,8 @@ PY
      + (if $subagentes != "" then {subagentes: ($subagentes | fromjson)} else {} end)
      + (if $subagentes_erro != "" then {subagentes_erro: $subagentes_erro} else {} end)
      + (if $resposta != "" then {resposta: (($resposta | fromjson) | {corrigidos, rejeitados, sem_classificar}),
-        responde_a: (($resposta | fromjson).responde_a // null)} else {} end)' \
+        responde_a: (($resposta | fromjson).responde_a // null)} else {} end)
+     + (if $tokens != "" then ($tokens | fromjson) else {} end)' \
     2>/dev/null)" || return 0
   if command -v flock >/dev/null 2>&1; then
     (
@@ -1203,6 +1205,7 @@ revisar_agy() {
   for tentativa in 1 2; do
     if saida_agy="$(cd "$dir" && env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 JANGADA_ISOLAR_FOTO="$foto" "${com_prazo[@]}" "$JANGADA_CORE_PATH/bin/jangada-isolar" -- agy "${args[@]}" </dev/null 2>"$log_temporario")"; then
       cp "$log_temporario" "$log"
+      saida_revisor="$saida_agy"
       status_agy="$(jq -r '.status // ""' <<<"$saida_agy" 2>/dev/null || true)"
       if [[ "$status_agy" == SUCCESS ]] && jq -r '.response // ""' <<<"$saida_agy" >"$saida.tmp" 2>/dev/null \
          && [[ -n "$(tr -d '[:space:]' <"$saida.tmp")" ]]; then
@@ -1261,6 +1264,27 @@ revisar() {
   return 1
 }
 
+# Lido antes de o parecer ganhar cabeçalho de cobertura ou de independência:
+# o Codex confere o rodapé contra a resposta como ela veio.
+medir_tokens_revisor() {
+  local medida
+  local -a args=(python3 "$JANGADA_CORE_PATH/orquestracao/consumo_tarefa.py" revisor "$revisor"
+    --resposta "$saida" --log "$saida.log" --saida-stdin)
+  if command -v python3 >/dev/null 2>&1 \
+      && medida="$(timeout 10s "${args[@]}" <<<"$saida_revisor" 2>/dev/null)" \
+      && jq -e 'type == "object" and (.tokens_revisor | type) == "object"
+        and ([.tokens_revisor[]] | all(. == null or (type == "number" and . >= 0 and . == floor)))' \
+        <<<"$medida" >/dev/null 2>&1; then
+    tokens_revisor="$(jq -c '{tokens_revisor: (.tokens_revisor | {entrada, saida, cache_lido, total})}
+      + (if .motivo_tokens_revisor then {motivo_tokens_revisor: (.motivo_tokens_revisor | tostring)} else {} end)' <<<"$medida")" \
+      || tokens_revisor=''
+  fi
+  [[ -n "$tokens_revisor" ]] \
+    || tokens_revisor='{"tokens_revisor":{"entrada":null,"saida":null,"cache_lido":null,"total":null},"motivo_tokens_revisor":"falha na leitura dos tokens do revisor"}'
+}
+
+tokens_revisor=''
+saida_revisor=''
 if ! revisar; then
   rm -f "$saida.tmp"
   if ((prazo_vencido)); then
@@ -1272,6 +1296,7 @@ if ! revisar; then
   exit 1
 fi
 mv "$saida.tmp" "$saida"
+medir_tokens_revisor
 
 status="REVISAR"
 # Só a primeira linha com texto vale: um apontamento pode citar do diff uma

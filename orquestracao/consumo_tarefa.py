@@ -5,6 +5,7 @@ import json
 import os
 import re
 import stat
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -248,7 +249,132 @@ def medir(estado, sessao, autor, projeto, home=None, inicio=None, worktree=True)
     return vazio('provedor sem medição disponível')
 
 
+CAMPOS_REVISOR = ('entrada', 'saida', 'cache_lido', 'total')
+RODAPE_CODEX = re.compile(r'^tokens used[ \t]*\r?\n[ \t]*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]+)[ \t]*$', re.M)
+
+
+def contagem(v):
+    return v if type(v) is int and v >= 0 else None
+
+
+def ler_texto(arquivo):
+    try:
+        fd = os.open(arquivo, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, 'rb') as f:
+            info = os.fstat(f.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                return None
+            f.seek(max(0, info.st_size - LIMITE_JSONL))
+            return f.read(LIMITE_JSONL).decode('utf-8', errors='replace')
+    except OSError:
+        return None
+
+
+def uso_revisor(motivo=None, **valores):
+    tokens = {campo: contagem(valores.get(campo)) for campo in CAMPOS_REVISOR}
+    if all(v is None for v in tokens.values()):
+        return dict(tokens_revisor=tokens, motivo_tokens_revisor=motivo or 'revisor não informou tokens')
+    return dict(tokens_revisor=tokens)
+
+
+def tokens_codex(log, resposta):
+    texto = ler_texto(log) if log else None
+    if texto is None:
+        return uso_revisor('registro do Codex ausente')
+    final = (ler_texto(resposta) or '').strip() if resposta else ''
+    # O rodapé vem logo antes da resposta final; um "tokens used" citado na
+    # própria resposta ou no pedido não tem a resposta depois dele.
+    for achado in reversed(list(RODAPE_CODEX.finditer(texto))):
+        if not final or texto[achado.end():].strip() == final:
+            return uso_revisor(total=int(re.sub(r'[.,]', '', achado.group(1))))
+    return uso_revisor('registro do Codex sem "tokens used" antes da resposta')
+
+
+def tokens_json(texto, provedor):
+    try:
+        dados = json.loads(texto)
+    except (ValueError, RecursionError):
+        return None, f'saída do {provedor} não é JSON; sem contagem de tokens'
+    uso = dados.get('usage') if isinstance(dados, dict) else None
+    if not isinstance(uso, dict):
+        return None, f'saída do {provedor} sem usage'
+    return uso, None
+
+
+def tokens_revisor(revisor, resposta=None, log=None, saida=''):
+    if revisor == 'codex':
+        return tokens_codex(log, resposta)
+    if revisor == 'claude':
+        uso, motivo = tokens_json((ler_texto(resposta) or '') if resposta else '', 'claude')
+        if uso is None:
+            return uso_revisor(motivo)
+        partes = [contagem(uso.get(c)) for c in
+                  ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens')]
+        medidas = [v for v in partes if v is not None]
+        return uso_revisor(entrada=partes[0], saida=partes[3], cache_lido=partes[2],
+                           total=sum(medidas) if medidas else None)
+    if revisor == 'agy':
+        uso, motivo = tokens_json(saida, 'agy')
+        if uso is None:
+            return uso_revisor(motivo)
+        return uso_revisor(total=uso.get('total_tokens'))
+    return uso_revisor('revisor sem contagem de tokens conhecida')
+
+
+def somar_revisor(estado, sessao, execucao=None, inicio=None):
+    """Soma campo a campo os tokens_revisor das rodadas da sessão e execução."""
+    estado = Path(estado)
+    limite = instante(inicio) if inicio else None
+    somas = dict.fromkeys(CAMPOS_REVISOR)
+    rodadas = medidas = 0
+    for arquivo in (estado / 'validar.jsonl', estado / 'revisoes' / 'validar.jsonl'):
+        lidas = ler_jsonl(arquivo)
+        for linha in (lidas[0] if lidas else []):
+            try:
+                d = json.loads(linha)
+            except (ValueError, RecursionError):
+                continue
+            if (not isinstance(d, dict) or d.get('rotulo') != sessao
+                    or (d.get('execucao') or None) != (execucao or None)
+                    or d.get('etapa') != 'revisor' or d.get('resultado') not in {'aprovado', 'revisar'}):
+                continue
+            if inicio:
+                data = instante(d.get('data'))
+                if limite is None or data is None or data < limite:
+                    continue
+            rodadas += 1
+            tokens = d.get('tokens_revisor') if isinstance(d.get('tokens_revisor'), dict) else {}
+            valores = {c: contagem(tokens.get(c)) for c in CAMPOS_REVISOR}
+            if any(v is not None for v in valores.values()):
+                medidas += 1
+            for campo, valor in valores.items():
+                if valor is not None:
+                    somas[campo] = (somas[campo] or 0) + valor
+    return dict(somas, rodadas_medidas=medidas, rodadas=rodadas)
+
+
+def main_revisor(argv):
+    p = argparse.ArgumentParser(prog='consumo_tarefa.py revisor')
+    p.add_argument('revisor'); p.add_argument('--resposta'); p.add_argument('--log')
+    p.add_argument('--saida-stdin', action='store_true')
+    a = p.parse_args(argv)
+    saida = sys.stdin.read(LIMITE_JSONL) if a.saida_stdin else ''
+    print(json.dumps(tokens_revisor(a.revisor, a.resposta, a.log, saida), ensure_ascii=False))
+
+
+def main_soma_revisor(argv):
+    p = argparse.ArgumentParser(prog='consumo_tarefa.py soma-revisor')
+    p.add_argument('estado'); p.add_argument('sessao')
+    p.add_argument('--execucao', default=''); p.add_argument('--inicio', default='')
+    a = p.parse_args(argv)
+    print(json.dumps(somar_revisor(a.estado, a.sessao, a.execucao, a.inicio), ensure_ascii=False))
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == 'revisor':
+        return main_revisor(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == 'soma-revisor':
+        return main_soma_revisor(sys.argv[2:])
     p = argparse.ArgumentParser()
     p.add_argument('estado'); p.add_argument('sessao'); p.add_argument('autor')
     p.add_argument('--projeto', default=''); p.add_argument('--home'); p.add_argument('--inicio')

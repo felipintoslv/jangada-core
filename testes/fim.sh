@@ -212,6 +212,35 @@ encerrar_seq seq1 exe-4444444444444444
 conferir "a mesma tarefa encerrada duas vezes grava uma linha" \
   jq -Rne '[inputs | fromjson? | objects | select(.sessao == "seq1")] | length == 1' "$consumo"
 
+echo "== tokens do revisor somados por sessão e execução"
+# Duas rodadas medidas (Codex só com total, Claude com tudo) e uma sem medida
+# entram; outra execução, rodada antes do início e erro do revisor, não.
+rodada_rev() { # execução, data, resultado, tokens_revisor (JSON ou vazio)
+  jq -nc --arg e "$1" --arg d "$2" --arg r "$3" --arg t "$4" \
+    '{data:$d, rotulo:"rev", rodada:1, resultado:$r, etapa:"revisor", execucao:$e}
+     + (if $t == "" then {} else {tokens_revisor:($t | fromjson)} end)'
+}
+{
+  rodada_rev exe-6666666666666666 2026-04-06T10:00:00Z revisar '{"entrada":null,"saida":null,"cache_lido":null,"total":1000}'
+  rodada_rev exe-6666666666666666 2026-04-06T11:00:00Z revisar '{"entrada":null,"saida":null,"cache_lido":null,"total":null}'
+  rodada_rev exe-7777777777777777 2026-04-06T11:30:00Z aprovado '{"entrada":9,"saida":9,"cache_lido":9,"total":9}'
+  rodada_rev exe-6666666666666666 2026-04-05T23:00:00Z revisar '{"entrada":9,"saida":9,"cache_lido":9,"total":9}'
+  rodada_rev exe-6666666666666666 2026-04-06T11:40:00Z erro ''
+} >"$XDG_STATE_HOME/jangada/validar.jsonl"
+rodada_rev exe-6666666666666666 2026-04-06T12:00:00Z aprovado '{"entrada":300,"saida":40,"cache_lido":200,"total":560}' \
+  >"$XDG_STATE_HOME/jangada/revisoes/validar.jsonl"
+gravar rev "{\"raiz\": \"$proj\", \"estado\": \"concluido\"}"
+jq -n --arg raiz "$proj" \
+  '{sessao:"rev", raiz:$raiz, worktree:"", execucao:"exe-6666666666666666", agente:"codex", desde:"2026-04-06T00:00:00Z"}' \
+  >"$XDG_STATE_HOME/jangada/revisoes/rev.json"
+fim rev
+conferir "tokens do revisor: soma campo a campo, nulo onde nenhuma rodada mediu" \
+  jq -Rne '[inputs | fromjson? | objects | select(.sessao == "rev")] | length == 1 and .[0].tokens_revisor
+    == {entrada:300, saida:40, cache_lido:200, total:1560, rodadas_medidas:2, rodadas:3}' "$consumo"
+conferir "tokens do revisor: linha antiga continua sem o campo" \
+  jq -Rne '[inputs | fromjson? | objects | select(.sessao == "x" and .autor == "antigo")] | length == 1 and (.[0] | has("tokens_revisor") | not)' "$consumo"
+rm -f "$XDG_STATE_HOME/jangada/validar.jsonl" "$XDG_STATE_HOME/jangada/revisoes/validar.jsonl"
+
 echo "== cópia protegida ausente"
 gravar sem-copia "{\"raiz\": \"$outro\", \"estado\": \"concluido\", \"execucao\": \"forjada\"}"
 fim sem-copia

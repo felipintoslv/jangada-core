@@ -560,7 +560,7 @@ limpar() {
 }
 
 registrar_consumo_tarefa() {
-  local autor projeto execucao inicio fim medicao linha raiz_medicao worktree_medicao
+  local autor projeto execucao inicio fim medicao revisor linha raiz_medicao worktree_medicao
   local copia="$JANGADA_ESTADO/revisoes/$s.json" arquivo="$JANGADA_ESTADO/consumo-tarefas.jsonl"
   if [[ ! -f "$copia" || -L "$copia" ]] \
       || ! jq -e --arg sessao "$s" 'type == "object" and .sessao == $sessao' "$copia" >/dev/null 2>&1; then
@@ -597,14 +597,20 @@ registrar_consumo_tarefa() {
     medicao="$(timeout 10s "${args[@]}" 2>/dev/null)" \
       || medicao='{"entrada":null,"saida":null,"cache_lido":null,"modelo":null,"motivo":"falha na medição"}'
   fi
+  revisor="$(timeout 10s python3 "$JANGADA_CORE_PATH/orquestracao/consumo_tarefa.py" soma-revisor \
+    "$JANGADA_ESTADO" "$s" --execucao "$execucao" --inicio "$inicio" 2>/dev/null)" \
+    && jq -e 'type == "object"' <<<"$revisor" >/dev/null 2>&1 \
+    || revisor='{"entrada":null,"saida":null,"cache_lido":null,"total":null,"rodadas_medidas":null,"rodadas":null}'
   linha="$(jq -nc --arg sessao "$s" --arg projeto "$projeto" --arg execucao "$execucao" \
     --arg autor "$autor" --arg inicio "$inicio" --arg fim "$fim" --argjson tokens "$medicao" \
+    --argjson revisor "$revisor" \
     '{sessao:$sessao,projeto:(if $projeto == "" then null else $projeto end),
       execucao:(if $execucao == "" then null else $execucao end),autor:$autor,
       modelo:$tokens.modelo,tokens:{entrada:$tokens.entrada,saida:$tokens.saida,cache_lido:$tokens.cache_lido},
       motivo:$tokens.motivo,inicio:(if $inicio == "" then null else $inicio end),fim:$fim,
       contexto_inicial:(if ($tokens.contexto_inicial | type) == "number" then $tokens.contexto_inicial else null end)}
-    | .motivo_contexto = (if .contexto_inicial == null then ($tokens.motivo_contexto // $tokens.motivo // "contexto inicial não medido") else null end)')" || return 0
+    | .motivo_contexto = (if .contexto_inicial == null then ($tokens.motivo_contexto // $tokens.motivo // "contexto inicial não medido") else null end)
+    | .tokens_revisor = ($revisor | {entrada, saida, cache_lido, total, rodadas_medidas, rodadas})')" || return 0
   jangada_anexar_linha "$arquivo" "$linha" || true
 }
 

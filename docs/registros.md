@@ -91,6 +91,21 @@ substituem a marca protegida que autoriza integração.
   - `responde_a` (opcional): `rodada`, `revisor` e `modelo` do último parecer
     registrado na rodada imediatamente anterior, com o mesmo `rotulo` e
     `execucao`. Ignora erros e outras etapas; vale `null` quando não encontrado.
+  - `tokens_revisor` (opcional, desde 17/10/2026): tokens que o revisor
+    informou na resposta, gravados só com parecer `aprovado` ou `revisar` na
+    etapa `revisor`. Tem `entrada`, `saida`, `cache_lido` e `total`, inteiros
+    ou `null` quando o provedor não informa. Codex: só `total`, o número da
+    linha depois de "tokens used" no `validacao-SESSAO-rN.md.log`, sem o
+    separador de milhar; vale o rodapé seguido da resposta final, e um
+    "tokens used" citado no pedido ou na resposta é ignorado. agy: só
+    `total`, de `usage.total_tokens` da saída JSON. Claude: `usage` da saída
+    JSON (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, com
+    `total` somando também `cache_creation_input_tokens`); a chamada atual do
+    `claude -p` responde em texto, e os campos ficam `null`. Com reserva, vale
+    o revisor que deu o parecer; o que falhou antes não é medido.
+  - `motivo_tokens_revisor` (opcional, desde 17/10/2026): por que nenhum
+    campo de `tokens_revisor` foi medido (resposta sem contagem, registro
+    ausente, falha da leitura). A leitura não muda o parecer nem a rodada.
   - `subagentes` (opcional, a partir de 27/09/2026): resumo dos subagentes
     e delegações da entrega, dado por `jangada-subagentes --entrega`, comando opcional, fora do Core por ora. Conta
     o que rodou na pasta desde a última aprovação (mtime do
@@ -729,9 +744,20 @@ bordas para conferir assinaturas não entra nessas contagens.
     `null` quando não medido.
   - `motivo_contexto` (desde 17/10/2026): motivo de `contexto_inicial` nulo;
     `null` quando medido. Linhas anteriores não têm os dois campos.
+  - `tokens_revisor` (desde 17/10/2026): soma, campo a campo, do
+    `tokens_revisor` das rodadas da sessão em `validar.jsonl` e
+    `revisoes/validar.jsonl` (seção 1). Entram as linhas com o mesmo `rotulo`
+    e `execucao`, etapa `revisor`, resultado `aprovado` ou `revisar` e, com
+    `inicio` conhecido, `data` a partir dele. Tem `entrada`, `saida`,
+    `cache_lido` e `total`, cada um `null` quando nenhuma rodada mediu aquele
+    campo, mais `rodadas_medidas` (rodadas com algum campo medido) e
+    `rodadas` (rodadas que entraram). Falha da soma deixa tudo `null`.
+    As rodadas de `validar.jsonl` são graváveis pelo agente. Linhas
+    anteriores não têm o campo.
 - **Acúmulo e limpeza:** não é sobrescrito nem apagado no encerramento.
   Uma medição ausente não bloqueia a limpeza da sessão. O consumo do revisor
-  fica fora deste registro. Consulte o [contrato dos indicadores](indicadores.md).
+  fica em `tokens_revisor`, separado de `tokens`. Consulte o
+  [contrato dos indicadores](indicadores.md).
 
 ## Indicadores e registros
 

@@ -41,8 +41,9 @@ O objeto JSON tem `versao: 1` e três listas:
 
 O medidor usa o último total do Codex e respostas únicas do Claude, identificadas
 por mensagem e pedido. Uma medição ausente retorna tokens e modelo nulos com
-`motivo`. Não há medição separada dos tokens do revisor; faltam registros de
-uso vinculados à chamada de revisão.
+`motivo`. Os tokens do revisor são medidos à parte, em `tokens_revisor` de
+cada rodada do `validar.jsonl` e da linha de `consumo-tarefas.jsonl`
+([registros](registros.md), seções 1 e 11). O `--json` ainda não os mostra.
 O medidor do Claude considera apenas respostas a partir do início da sessão e
 exige um worktree para separar as conversas do projeto. Se o autor e o revisor
 forem Claude e usarem o mesmo worktree, os tokens da revisão podem entrar na
@@ -65,4 +66,5 @@ e ignora linhas inválidas ou que não sejam objetos.
 Após parar o agente e preservar as evidências, o Core mede e grava o consumo em
 `$JANGADA_ESTADO/consumo-tarefas.jsonl`, antes de remover a pasta de trabalho.
 A linha inclui sessão, projeto, execução, autor, modelo, tokens, motivo, início,
-fim, `contexto_inicial` e `motivo_contexto`. Falha de medição não impede o encerramento.
+fim, `contexto_inicial`, `motivo_contexto` e `tokens_revisor`. Falha de medição
+não impede o encerramento.

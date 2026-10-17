@@ -48,7 +48,8 @@ if [[ "$1" == agents ]]; then printf '%s\n' ${FALSO_AGENTES-explorador revisor};
 printf '%s\n' "$@" >"$FALSO_DIR/agy.args"
 while (($#)); do [[ "$1" == -p ]] && { printf '%s' "$2" >"$FALSO_DIR/agy.pedido"; break; }; shift; done
 [[ -z "${FALSO_COMANDO:-}" ]] || eval "$FALSO_COMANDO"
-jq -n --arg r "$(printf '%b' "$FALSO_RESPOSTA")" '{status:"SUCCESS", response:$r}'
+jq -n --arg r "$(printf '%b' "$FALSO_RESPOSTA")" --arg u "${FALSO_USO_AGY:-}" \
+  '{status:"SUCCESS", response:$r} + (if $u == "" then {} else {usage:{total_tokens:($u | tonumber)}} end)'
 EOF
 cat >"$tmp/bin/codex" <<'EOF'
 #!/usr/bin/env bash
@@ -60,6 +61,12 @@ while (($#)); do
   if [[ "$1" == --output-last-message ]]; then printf '%b\n' "$FALSO_RESPOSTA" >"$2"; break; fi
   shift
 done
+# Como o codex exec: o pedido ecoado, o rodapé com o total e a resposta final.
+if [[ -n "${FALSO_TOKENS_CODEX:-}" ]]; then
+  printf 'user\n%s\ncodex\n%b\n' "${FALSO_ECO:-}" "$FALSO_RESPOSTA" >&2
+  printf 'tokens used\n%s\n' "$FALSO_TOKENS_CODEX" >&2
+  printf '%b\n' "$FALSO_RESPOSTA"
+fi
 [[ "${FALSO_CODEX_ERRO:-0}" == 0 ]]
 EOF
 chmod +x "$tmp/bin/"*
@@ -252,6 +259,31 @@ FALSO_AGENTES=explorador FALSO_CODEX_ERRO=1 validar 'STATUS: APROVADO'; rc=$?
 conferir "caso reserva: sem agy nem Codex, o Claude revisa o próprio trabalho" \
   bash -c '[ "$1" = 3 ] && [ "$(jq -r .validacao "$2")" = "r1: REVISAR (claude)" ] && grep -q "revisão pelo mesmo modelo" "$3"' \
   _ "$rc" "$estado/s.json" "$tmp/falso/claude.pedido"
+
+# Tokens do revisor: cada provedor informa do seu jeito, e a falta de contagem
+# não muda o parecer.
+ultima_tokens() { tail -n1 "$tmp/estado/jangada/validar.jsonl" | jq -c '{tokens_revisor, motivo_tokens_revisor}'; }
+sessao_de claude codex
+FALSO_TOKENS_CODEX=32.353 validar 'STATUS: APROVADO'; rc=$?
+conferir "tokens: Codex grava só o total do rodapé"   bash -c '[ "$1" = 0 ] && [ "$2" = "{\"tokens_revisor\":{\"entrada\":null,\"saida\":null,\"cache_lido\":null,\"total\":32353},\"motivo_tokens_revisor\":null}" ]' _ "$rc" "$(ultima_tokens)"
+sessao_de claude codex
+FALSO_TOKENS_CODEX=9,488 FALSO_ECO=$'tokens used\n999' validar 'STATUS: REVISAR\n1. a.txt:1: x\ntokens used\n7'; rc=$?
+conferir "tokens: Codex ignora o rodapé citado no pedido e na resposta" \
+  bash -c '[ "$1" = 3 ] && jq -e ".tokens_revisor.total == 9488" <<<"$2" >/dev/null' _ "$rc" "$(ultima_tokens)"
+sessao_de claude codex
+validar 'STATUS: APROVADO' --revisor codex; rc=$?
+conferir "tokens: Codex sem rodapé vira nulo com motivo e aprova" \
+  bash -c '[ "$1" = 0 ] && jq -e "(.tokens_revisor | [.[]] | all(. == null)) and (.motivo_tokens_revisor | test(\"tokens used\"))" <<<"$2" >/dev/null' _ "$rc" "$(ultima_tokens)"
+sessao_de claude agy
+FALSO_USO_AGY=61000 validar 'STATUS: REVISAR\n1. a.txt:1: x'; rc=$?
+conferir "tokens: agy grava usage.total_tokens" \
+  bash -c '[ "$1" = 3 ] && jq -e ".tokens_revisor == {entrada:null,saida:null,cache_lido:null,total:61000} and .motivo_tokens_revisor == null" <<<"$2" >/dev/null' _ "$rc" "$(ultima_tokens)"
+sessao_de codex claude
+validar 'STATUS: APROVADO'; rc=$?
+conferir "tokens: Claude em texto vira nulo com motivo e a rodada segue" \
+  bash -c '[ "$1" = 0 ] && jq -e "(.tokens_revisor | [.[]] | all(. == null)) and (.motivo_tokens_revisor | test(\"não é JSON\"))" <<<"$2" >/dev/null' _ "$rc" "$(ultima_tokens)"
+conferir "tokens: só a rodada com parecer ganha o campo" \
+  bash -c '! jq -e "select(.resultado == \"erro\" or .etapa == \"local\") | has(\"tokens_revisor\")" "$1" | grep -q true' _ "$tmp/estado/jangada/validar.jsonl"
 unset VALIDAR_PATH
 
 # Revisor preso: o prazo encerra a chamada, e a resposta que viria não aprova.
