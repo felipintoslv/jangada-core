@@ -26,6 +26,7 @@ por mensagem e pedido. Uma medição ausente retorna tokens e modelo nulos com
 `motivo`. Tokens do revisor não são medidos nesta versão; faltam registros de
 uso vinculados à chamada do revisor, fora dos registros de consumo do autor.
 
-O consumo por sessão é anexado a `$JANGADA_ESTADO/consumo-tarefas.jsonl` ao
-encerrar. A linha inclui sessão, projeto, execução, autor, modelo, tokens,
-motivo, início e fim. Falha de medição não impede o encerramento.
+Após parar o agente e preservar as evidências, o Core mede e grava o consumo em
+`$JANGADA_ESTADO/consumo-tarefas.jsonl`, antes de remover a pasta de trabalho.
+A linha inclui sessão, projeto, execução, autor, modelo, tokens, motivo, início
+e fim. Falha de medição não impede o encerramento.

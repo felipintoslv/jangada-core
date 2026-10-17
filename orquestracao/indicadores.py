@@ -27,11 +27,9 @@ def linhas(path):
 
 
 def tokens(d, autor):
-    if isinstance(d.get('tokens'), dict):
-        return d['tokens']
-    entrada = d.get('entrada')
-    saida = d.get('saida')
-    return dict(entrada=entrada, saida=saida, cache_lido=d.get('cache_lido'), modelo=d.get('modelo'))
+    dados = d.get('tokens') if isinstance(d.get('tokens'), dict) else d
+    return {campo: dados.get(campo, d.get(campo)) for campo in
+            ('entrada', 'saida', 'cache_lido', 'modelo', 'motivo')}
 
 
 def carregar(estado, projeto, desde):

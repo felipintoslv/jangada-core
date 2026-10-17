@@ -167,6 +167,16 @@ conferir "caso 2: registra classificação e rodada respondida" \
 
 conferir "caso 2: marca registra verificação local" jq -e '.local_verified == true' "$estado/validacao-s.aprovado"
 
+# A resposta também aceita pontuação após o número e conta itens sem classe.
+echo "linha 2" >>"$tmp/projeto/arquivo.txt"
+git -C "$tmp/projeto" add arquivo.txt
+git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "commit 2"
+sessao_de claude agy
+validar 'STATUS: APROVADO' --resposta "1: corrigido; 2. rejeitado: motivo; 3 talvez"; rc=$?
+conferir "caso 2b: resposta pontuada e item sem classe" jq -e \
+  'select(.resposta.corrigidos == 1 and .resposta.rejeitados == 1 and .resposta.sem_classificar == 1 and .responde_a.rodada == 2)' \
+  "$tmp/estado/jangada/validar.jsonl"
+
 # Caso 3: sessão do agy, o revisor é o Claude; status com Markdown.
 sessao_de agy
 validar '## **STATUS: APROVADO**'; rc=$?

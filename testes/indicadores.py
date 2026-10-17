@@ -15,7 +15,18 @@ def gravar(pasta, nome, objetos):
     (pasta / nome).write_text(''.join(json.dumps(x) + '\n' for x in objetos), encoding='utf-8')
 
 
+def classificar_resposta(texto):
+    validar = (RAIZ / 'bin/jangada-validar').read_text(encoding='utf-8')
+    bloco = validar.split('resposta_json="$(python3 - "$resposta"', 1)[1].split("<<'PY'\n", 1)[1].split('\nPY', 1)[0]
+    saida = subprocess.check_output(['python3', '-', texto, '/nao-existe', 'sessao', 'execucao'],
+                                    input=bloco, text=True)
+    return json.loads(saida)
+
+
 def main():
+    classificacao = classificar_resposta('1: corrigido; 2. rejeitado: x; 3 talvez')
+    assert (classificacao['corrigidos'], classificacao['rejeitados'],
+            classificacao['sem_classificar']) == (1, 1, 1)
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
         estado = base / 'state' / 'jangada'
@@ -23,7 +34,11 @@ def main():
         (estado / 'agentes').mkdir(parents=True)
         sessao = 's1'
         gravar(estado, 'consumo-tarefas.jsonl', [dict(sessao=sessao, projeto='p', execucao='e1', autor='claude',
-            tokens=dict(entrada=50, saida=20, cache_lido=5, modelo='m'), inicio='2026-01-01', fim='2026-01-02')])
+            modelo='m', tokens=dict(entrada=50, saida=20, cache_lido=5), motivo=None,
+            inicio='2026-01-01', fim='2026-01-02'),
+            dict(sessao='sem-medicao', projeto='p', execucao='e4', autor='claude', modelo=None,
+                 tokens=dict(entrada=None, saida=None, cache_lido=None), motivo='registro ausente',
+                 inicio='2026-01-01', fim='2026-01-02')])
         gravar(estado, 'validar.jsonl', [
             dict(rotulo=sessao, execucao='e1', projeto='p', rodada=1, etapa='revisor', resultado='revisar',
                  revisor='codex', modelo='r', itens=3, segundos=8),
@@ -69,11 +84,14 @@ def main():
         d = json.loads(saida)
         assert d['versao'] == 1
         t = d['tarefas'][0]
-        assert t['tokens']['entrada'] == 50 and t['rodadas'] == 2 and t['segundos_revisao'] == 12
+        assert t['tokens'] == dict(entrada=50, saida=20, cache_lido=5, modelo='m', motivo=None)
+        assert t['rodadas'] == 2 and t['segundos_revisao'] == 12
         aberta = next(x for x in d['tarefas'] if x['sessao'] == 'aberta')
         assert (aberta['tokens']['entrada'], aberta['tokens']['saida']) == (100, 25)
         vazia = next(x for x in d['tarefas'] if x['sessao'] == 'vazia')
         assert vazia['tokens']['entrada'] is None and vazia['tokens']['motivo']
+        sem_medicao = next(x for x in d['tarefas'] if x['sessao'] == 'sem-medicao')
+        assert sem_medicao['tokens']['entrada'] is None and sem_medicao['tokens']['motivo'] == 'registro ausente'
         r = d['revisores'][0]
         assert (r['pareceres'], r['apontamentos'], r['procedentes'], r['rejeitados'], r['sem_classificacao']) == (2, 4, 1, 1, 0)
         assert r['taxa_procedencia'] == 0.5 and r['casos_taxa'] == 2
