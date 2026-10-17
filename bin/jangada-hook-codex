@@ -5,6 +5,24 @@
 # Codex entrega ao modelo como additionalContext.
 exec 3>&1
 {
+  # Coordenador aberto pelo jangada-coordenador: só estado e última linha no
+  # registro dele, sem as regras de gravação das tarefas.
+  if [[ -z "${JANGADA_SESSAO:-}" && -n "${JANGADA_COORDENADOR:-}" && -z "${JANGADA_HOOK_DESLIGADO:-}" ]]; then
+    evento="${1:-}"
+    case "$evento" in inicio|trabalhando|aguardando|concluido|fim) ;; *) exit 0 ;; esac
+    entrada="$(cat)"
+    jq -e 'type == "object" and ((.agent_id // "") == "")' <<<"$entrada" >/dev/null 2>&1 || exit 0
+    linha="$(jq -r '(.last_assistant_message // .tool_input.description // .prompt // "")
+      | strings | split("\n") | map(select(test("\\S"))) | (.[0] // "") | .[0:120]' <<<"$entrada")"
+    case "$evento" in
+      inicio) estado=iniciado; linha="" ;;
+      concluido) estado=concluido; linha="${linha:-turno concluído}" ;;
+      fim) estado=encerrado; linha="Codex encerrado" ;;
+      *) estado="$evento" ;;
+    esac
+    "$(dirname "${BASH_SOURCE[0]}")/jangada-coordenador" --registrar "$estado" <<<"$linha"
+    exit 0
+  fi
   [[ -n "${JANGADA_SESSAO:-}" && -z "${JANGADA_HOOK_DESLIGADO:-}" ]] || exit 0
   [[ "$JANGADA_SESSAO" =~ ^[A-Za-z0-9_.-]+$ ]] || exit 0
   evento="${1:-}"

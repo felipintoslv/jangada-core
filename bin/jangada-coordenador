@@ -1,0 +1,330 @@
+#!/usr/bin/env bash
+# Abre e conduz a sessão de coordenador de um projeto: tmux no servidor do
+# jangada, na pasta do projeto, sem worktree e sem isolamento.
+#
+# Uso:
+#   jangada-coordenador --projeto PASTA [--provedor claude|codex] [--janela]
+#   jangada-coordenador --mensagem SESSAO --arquivo ARQ
+#   jangada-coordenador --fim SESSAO
+#   jangada-coordenador --registrar ESTADO   uso interno dos hooks; linha pela entrada
+#   jangada-coordenador --executar-codex     uso interno; abre o Codex com os hooks
+#
+# Um coordenador por projeto: a sessão se chama PROJETO--coordenador e um
+# segundo pedido só avisa e foca a janela. A sessão recebe
+# JANGADA_COORDENADOR com o próprio nome (e não JANGADA_SESSAO): os hooks
+# gravam estado e última linha em $JANGADA_ESTADO/coordenadores/SESSAO.json.
+#
+# --mensagem cola o texto do arquivo na sessão e fecha com Enter, só com o
+# estado "concluido" e a sessão viva. Nunca manda outra tecla.
+#
+# Saída: 0 feito; 1 erro; 2 uso ou texto inválido; 3 recusado pelo estado.
+set -euo pipefail
+# shellcheck source=bin/jangada-config
+source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
+
+reg_dir="$JANGADA_ESTADO/coordenadores"
+TEXTO_MAX=8192
+
+erro() { echo "jangada-coordenador: $1" >&2; exit "${2:-1}"; }
+
+nome_valido() {
+  [[ "$1" =~ ^[A-Za-z0-9_.-]{1,255}$ && "$1" != . && "$1" != .. ]]
+}
+
+# Registro de um coordenador: arquivo regular, sem link, dentro da pasta.
+registro() {
+  local arq="$reg_dir/$1.json"
+  [[ -f "$arq" && ! -L "$arq" && ! -L "$reg_dir" ]] || return 1
+  printf '%s\n' "$arq"
+}
+
+campo() { jq -r "$2 // \"\" | strings" "$1" 2>/dev/null || true; }
+
+# Regrava o registro com o filtro jq, por arquivo temporário e mv.
+regravar() {
+  local arq="$1" tmp
+  shift
+  tmp="$(mktemp "$reg_dir/.reg.XXXXXX")" || return 1
+  if jq "$@" "$arq" >"$tmp" 2>/dev/null && mv -fT -- "$tmp" "$arq"; then
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
+preparar_pasta() {
+  [[ ! -L "$reg_dir" ]] || erro "$reg_dir é link simbólico"
+  (umask 077; mkdir -p "$reg_dir")
+  chmod 700 "$reg_dir"
+}
+
+# Variáveis de uma sessão do Claude Code que chamou este comando, como no
+# jangada-agente: o servidor do tmux as herdaria. Ficam o login, a escolha de
+# provedor e os DISABLE_* do usuário.
+ambiente_do_coordenador() {
+  local v
+  while IFS= read -r v; do
+    v="${v#-}"; v="${v%%=*}"
+    case "$v" in
+      CLAUDE_CODE_OAUTH_TOKEN | CLAUDE_CODE_USE_* | CLAUDE_CODE_DISABLE_*) ;;
+      CLAUDECODE | CLAUDE_CODE_*) printf '%s\n' "$v" ;;
+    esac
+  done
+}
+
+slug() {
+  { iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null <<<"$1" || printf '%s\n' "$1"; } \
+    | LC_ALL=C tr '[:upper:]' '[:lower:]' \
+    | LC_ALL=C sed -E -e 's/[^a-z0-9_-]+/-/g' -e 's/^-+//' -e 's/-+$//'
+}
+
+focar() {
+  local rc=0
+  jangada_focar_janela "$1" || rc=$?
+  if ((rc == 1)); then
+    jangada_abrir_terminal --solto org.jangada.agente "${JANGADA_TMUX[@]}" attach -t "=$1"
+  fi
+}
+
+# Uso interno dos hooks. A linha chega pela entrada e vira dado: sem
+# caracteres de controle nem marcas de direção, até 200 caracteres.
+registrar() {
+  local estado="$1" nome="${JANGADA_COORDENADOR:-}" linha arq agora
+  [[ -z "${JANGADA_SESSAO:-}" && -z "${JANGADA_ISOLADO:-}" ]] || return 0
+  nome_valido "$nome" || return 0
+  case "$estado" in iniciado|trabalhando|aguardando|concluido|encerrado|"") ;; *) return 0 ;; esac
+  linha="$(head -c 4096 | jq -Rrs '
+    gsub("[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]"; " ")
+    | gsub("^ +| +$"; "") | .[0:200]' 2>/dev/null || true)"
+  [[ -n "$estado$linha" ]] || return 0
+  arq="$(registro "$nome")" || return 0
+  agora="$(jangada_data_iso)"
+  _registrar() {
+    # Encerrado pelo --fim: o hook que chega depois não reabre o registro.
+    [[ -z "$(campo "$arq" .encerrado)" ]] || return 0
+    # shellcheck disable=SC2016  # variáveis do jq
+    regravar "$arq" --arg e "$estado" --arg l "$linha" --arg a "$agora" '
+      (if $e != "" then .estado = $e else . end)
+      | (if $l != "" then .ultima_linha = $l else . end)
+      | .atualizado = $a'
+  }
+  jangada_com_trava_dir "$reg_dir" _registrar && jangada_avisar_interface estado-sessao
+  return 0
+}
+
+# Abre o Codex com os hooks do jangada passados na chamada, como faz o
+# jangada-codex, mas fora do isolamento. A aprovação dos hooks fica no
+# estado do jangada, separada da das sessões isoladas.
+executar_codex() {
+  nome_valido "${JANGADA_COORDENADOR:-}" || erro "uso interno: JANGADA_COORDENADOR ausente" 2
+  command -v codex >/dev/null 2>&1 || erro "codex não instalado"
+  local hook par evento estado comando estado_hooks
+  local -a args_hooks=()
+  hook="$JANGADA_CORE_PATH/bin/jangada-hook-codex"
+  hook="'${hook//\'/\'\\\'\'}'"
+  for par in SessionStart:inicio UserPromptSubmit:trabalhando PreToolUse:trabalhando \
+             PostToolUse:trabalhando PermissionRequest:aguardando Stop:concluido \
+             SessionEnd:fim Interrupt:concluido; do
+    evento="${par%%:*}"; estado="${par#*:}"
+    comando="$(jq -Rn --arg c "$hook $estado" '$c')"
+    args_hooks+=(-c "hooks.$evento=[{hooks=[{type=\"command\",command=$comando}]}]")
+  done
+  preparar_pasta
+  estado_hooks="$(bash "$JANGADA_CORE_PATH/bin/jangada-codex-hooks" codex \
+    "$reg_dir/codex-hooks-confianca.json" "${args_hooks[@]}")" || exit 1
+  exec codex "${args_hooks[@]}" -c "$estado_hooks"
+}
+
+abrir() {
+  local projeto="$1" provedor="$2" janela="$3" raiz repo sessao arq cmd existente=0 rc
+  [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "o coordenador abre fora do isolamento"
+  case "$provedor" in claude|codex) ;; *) erro "provedor deve ser claude ou codex" 2 ;; esac
+  jangada_provedor "$provedor" && [[ " $PROVEDOR_FUNCOES " == *" principal "* ]] \
+    || erro "provedor $provedor sem a função principal no registro"
+  command -v "$PROVEDOR_COMANDO" >/dev/null 2>&1 || erro "$PROVEDOR_COMANDO não instalado; nenhuma sessão criada"
+  [[ -d "$projeto" ]] || erro "diretório não encontrado: $projeto"
+  raiz="$(realpath "$projeto")"
+  raiz="$(git -C "$raiz" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$raiz")"
+  repo="$(slug "$(basename "$raiz")")"
+  [[ -n "$repo" ]] || repo="projeto-$(printf '%s' "$raiz" | md5sum | cut -c1-8)"
+  sessao="$repo--coordenador"
+  nome_valido "$sessao" || erro "nome de sessão inválido: $sessao"
+  arq="$reg_dir/$sessao.json"
+  preparar_pasta
+
+  while IFS= read -r _v; do unset "$_v"; done < <(compgen -e | ambiente_do_coordenador)
+  while IFS= read -r _v; do
+    "${JANGADA_TMUX[@]}" set-environment -g -u "$_v" || true
+  done < <("${JANGADA_TMUX[@]}" show-environment -g 2>/dev/null | ambiente_do_coordenador)
+
+  if [[ "$provedor" == codex ]]; then
+    cmd="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-coordenador") --executar-codex"
+  else
+    cmd="$(printf '%q' "$PROVEDOR_COMANDO")"
+  fi
+  # Conferência e criação sob a trava: dois pedidos juntos não abrem duas.
+  # A trava roda em subshell: a sessão já existente volta pelo código 10.
+  _abrir() {
+    if "${JANGADA_TMUX[@]}" has-session -t "=$sessao" 2>/dev/null; then
+      return 10
+    fi
+    local agora tmp
+    agora="$(jangada_data_iso)"
+    tmp="$(mktemp "$reg_dir/.reg.XXXXXX")" || return 1
+    # shellcheck disable=SC2016  # variáveis do jq
+    if ! jq -n --arg s "$sessao" --arg p "$raiz" --arg v "$provedor" --arg a "$agora" \
+      '{sessao:$s, projeto:$p, provedor:$v, estado:"iniciado", ultima_linha:"", desde:$a, atualizado:$a}' \
+      >"$tmp" || ! mv -fT -- "$tmp" "$arq"; then
+      rm -f "$tmp"
+      return 1
+    fi
+    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao"; then
+      rm -f "$arq"
+      return 1
+    fi
+    "${JANGADA_TMUX[@]}" send-keys -t "=$sessao:" "$cmd" Enter
+  }
+  rc=0
+  jangada_com_trava_dir "$reg_dir" _abrir || rc=$?
+  if ((rc == 10)); then
+    existente=1
+  elif ((rc != 0)); then
+    erro "não foi possível criar a sessão $sessao"
+  fi
+
+  if ((existente)); then
+    if [[ "$(campo "$arq" .projeto)" != "$raiz" ]]; then
+      erro "a sessão $sessao já existe e não é o coordenador de $raiz"
+    fi
+    echo "o coordenador de $raiz já está aberto: $sessao" >&2
+    focar "$sessao"
+    return 0
+  fi
+  jangada_avisar_interface estado-sessao
+  echo "$sessao"
+  if ((janela)); then
+    jangada_abrir_terminal --exec org.jangada.agente "${JANGADA_TMUX[@]}" attach -t "=$sessao"
+  elif [[ -t 0 && -t 1 ]]; then
+    if [[ -n "${TMUX:-}" && -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+      jangada_abrir_terminal --exec org.jangada.agente "${JANGADA_TMUX[@]}" attach -t "=$sessao"
+    fi
+    unset TMUX
+    exec "${JANGADA_TMUX[@]}" attach -t "=$sessao"
+  fi
+}
+
+# Texto da mensagem: UTF-8, até TEXTO_MAX bytes, sem caracteres de controle
+# exceto a quebra de linha. As quebras do fim saem: o único Enter é o que
+# fecha a mensagem. Imprime o texto conferido.
+conferir_texto() {
+  python3 -I - "$1" "$TEXTO_MAX" <<'PY'
+import re, sys
+caminho, limite = sys.argv[1], int(sys.argv[2])
+with open(caminho, 'rb') as f:
+    bruto = f.read(limite + 1)
+if len(bruto) > limite:
+    sys.exit('texto acima de %d bytes' % limite)
+try:
+    texto = bruto.decode('utf-8')
+except UnicodeDecodeError:
+    sys.exit('texto não é UTF-8')
+if re.search('[\x00-\x09\x0b-\x1f\x7f-\x9f‎‏‪-‮⁦-⁩]', texto):
+    sys.exit('texto com caractere de controle; só a quebra de linha é aceita')
+texto = texto.rstrip('\n')
+if not texto.strip():
+    sys.exit('texto vazio')
+sys.stdout.write(texto)
+PY
+}
+
+# Motivo da recusa, ou nada se o estado permite o envio.
+motivo_estado() {
+  local arq="$1"
+  [[ -z "$(campo "$arq" .encerrado)" ]] || { echo "o coordenador foi encerrado"; return; }
+  case "$(campo "$arq" .estado)" in
+    concluido) ;;
+    aguardando) echo "o coordenador espera resposta a uma permissão ou pergunta; responda no terminal" ;;
+    trabalhando) echo "o coordenador está no meio de um turno; espere a conclusão" ;;
+    iniciado) echo "o coordenador ainda não concluiu um turno; mande a primeira mensagem pelo terminal" ;;
+    *) echo "o coordenador não está pronto para receber mensagem" ;;
+  esac
+}
+
+mensagem() {
+  local sessao="$1" arquivo="$2" arq texto motivo antes depois painel buffer
+  [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "mensagem ao coordenador só fora do isolamento" 3
+  nome_valido "$sessao" && [[ "$sessao" == *--coordenador ]] || erro "sessão de coordenador inválida: $sessao" 2
+  [[ -n "$arquivo" ]] || erro "informe --arquivo" 2
+  [[ -f "$arquivo" && -r "$arquivo" ]] || erro "arquivo não encontrado: $arquivo" 2
+  arq="$(registro "$sessao")" || erro "coordenador sem registro: $sessao" 3
+  texto="$(conferir_texto "$arquivo" 2>&1)" || erro "${texto:-texto inválido}" 2
+  motivo="$(motivo_estado "$arq")"
+  [[ -z "$motivo" ]] || erro "mensagem recusada: $motivo" 3
+  "${JANGADA_TMUX[@]}" has-session -t "=$sessao" 2>/dev/null || erro "mensagem recusada: a sessão $sessao não está aberta" 3
+  # Painel em modo de cópia engole a colagem; num shell o texto viraria
+  # comando.
+  painel="$("${JANGADA_TMUX[@]}" display-message -p -t "=$sessao:" '#{pane_in_mode} #{pane_current_command}' 2>/dev/null)" \
+    || erro "mensagem recusada: painel da sessão $sessao ilegível" 3
+  [[ "${painel%% *}" == 0 ]] || erro "mensagem recusada: o painel está em modo de cópia" 3
+  case "${painel#* }" in
+    bash|zsh|sh|dash|fish|ksh|tcsh|csh) erro "mensagem recusada: o agente não está em execução na sessão" 3 ;;
+  esac
+  antes="$(jq -c '[.estado, .atualizado, .ultima_linha, .encerrado]' "$arq" 2>/dev/null)" || erro "registro ilegível" 1
+  buffer="jangada-mensagem-$$"
+  printf '%s' "$texto" | "${JANGADA_TMUX[@]}" load-buffer -b "$buffer" - \
+    || erro "não foi possível preparar a mensagem" 1
+  # -p: colagem entre marcas (bracketed paste), para as quebras de linha não
+  # virarem Enter; -r: sem trocar LF por CR.
+  if ! "${JANGADA_TMUX[@]}" paste-buffer -p -r -d -b "$buffer" -t "=$sessao:"; then
+    "${JANGADA_TMUX[@]}" delete-buffer -b "$buffer" 2>/dev/null || true
+    erro "não foi possível colar a mensagem" 1
+  fi
+  sleep "${JANGADA_COORDENADOR_PAUSA:-0.3}"
+  # Se um hook gravou outro estado durante a colagem, o Enter poderia
+  # responder um pedido aberto: o texto fica colado, sem Enter.
+  depois="$(jq -c '[.estado, .atualizado, .ultima_linha, .encerrado]' "$arq" 2>/dev/null || true)"
+  [[ "$depois" == "$antes" ]] || erro "o estado mudou durante o envio; o texto ficou colado, sem Enter" 3
+  "${JANGADA_TMUX[@]}" send-keys -t "=$sessao:" Enter
+  echo "mensagem enviada a $sessao"
+}
+
+fim() {
+  local sessao="$1" arq agora
+  [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "o coordenador encerra fora do isolamento"
+  nome_valido "$sessao" && [[ "$sessao" == *--coordenador ]] || erro "sessão de coordenador inválida: $sessao" 2
+  arq="$(registro "$sessao")" || erro "coordenador sem registro: $sessao" 1
+  "${JANGADA_TMUX[@]}" kill-session -t "=$sessao" 2>/dev/null || true
+  agora="$(jangada_data_iso)"
+  _fim() {
+    # shellcheck disable=SC2016  # variáveis do jq
+    regravar "$arq" --arg a "$agora" '.estado = "encerrado" | .encerrado = $a | .atualizado = $a'
+  }
+  jangada_com_trava_dir "$reg_dir" _fim || erro "não foi possível marcar o registro de $sessao"
+  jangada_avisar_interface estado-sessao
+  echo "coordenador encerrado: $sessao"
+}
+
+projeto=""; provedor=claude; janela=0; modo=""; alvo=""; arquivo=""
+while (($#)); do
+  case "$1" in
+    --projeto) projeto="${2:?}"; modo="${modo:-abrir}"; shift 2 ;;
+    --provedor) provedor="${2:?}"; shift 2 ;;
+    --janela) janela=1; shift ;;
+    --mensagem) modo=mensagem; alvo="${2:?}"; shift 2 ;;
+    --arquivo) arquivo="${2:?}"; shift 2 ;;
+    --fim) modo=fim; alvo="${2:?}"; shift 2 ;;
+    --registrar) modo=registrar; alvo="${2-}"; shift $(($# > 1 ? 2 : 1)) ;;
+    --executar-codex) modo=codex; shift ;;
+    -h|--ajuda) sed -n '2,21s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) erro "argumento desconhecido: $1" 2 ;;
+  esac
+done
+
+case "$modo" in
+  abrir) abrir "$projeto" "$provedor" "$janela" ;;
+  mensagem) mensagem "$alvo" "$arquivo" ;;
+  fim) fim "$alvo" ;;
+  registrar) registrar "$alvo" || true; exit 0 ;;
+  codex) executar_codex ;;
+  *) erro "informe --projeto, --mensagem ou --fim (veja --ajuda)" 2 ;;
+esac

@@ -118,8 +118,19 @@
       jangada_avisar_interface estado-sessao
     fi
     rm -f "$tmp"
+  elif [[ -n "${JANGADA_COORDENADOR:-}" && -z "${JANGADA_ISOLADO:-}" ]]; then
+    # Coordenador aberto pelo jangada-coordenador: estado e última linha no
+    # registro dele. O /clear e o /compact não mudam o estado, e o lembrete
+    # de inatividade não substitui a última linha.
+    estado_coord="$estado"; linha="$mensagem"
+    case "$evento" in
+      inicio) [[ "$(campo .source)" == startup || "$(campo .source)" == resume ]] || estado_coord="" ;;
+      fim) [[ -z "$estado" ]] || estado_coord="encerrado" ;;
+    esac
+    [[ "$tipo" != idle_prompt ]] || linha=""
+    "$dir_bin/jangada-coordenador" --registrar "$estado_coord" <<<"$linha"
   fi
-  nome="${sessao:-$(basename "${cwd:-$PWD}")}"
+  nome="${sessao:-${JANGADA_COORDENADOR:-$(basename "${cwd:-$PWD}")}}"
 
   # Avisos. A notificação com botão fica esperando em segundo plano; um clique
   # leva à janela do agente. Dentro do jangada-isolar o tmux fica fora de
@@ -139,7 +150,7 @@
       setsid -f bash -c '
         r="$(jangada_notificar -a jangada-agente -u "$1" -A abrir=Abrir "$2" "$3")"
         [[ "$r" == "abrir" && -n "$5" ]] && "$4/jangada-agentes" --focar "$5"
-      ' _ "$urg" "$titulo" "$corpo" "$dir_bin" "$sessao" >/dev/null 2>&1
+      ' _ "$urg" "$titulo" "$corpo" "$dir_bin" "${sessao:-${JANGADA_COORDENADOR:-}}" >/dev/null 2>&1
     fi
   fi
 } >/dev/null 2>&1
