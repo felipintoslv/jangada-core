@@ -75,6 +75,18 @@ e valem sobre o que está aqui se houver diferença.
 Os cinco revisores dependem só do mapa e rodam em paralelo. As demais etapas
 são sequenciais.
 
+Três skills apoiam etapas existentes, sem criar etapa nova; o que elas
+produzem vira finding no formato do revisor que as chamou:
+
+- `references_review`: o revisor de referências usa `conferir-referencias`
+  (citação sem entrada, entrada sem citação, campos, DOI) e, para as
+  afirmações centrais, `conferir-citacao`.
+- `inference_review`: o revisor inferencial usa `conferir-citacao` quando a
+  conclusão do aluno se apoia numa fonte citada.
+- `map_structure`: quando o dono fornece as fontes citadas, `fichamento`
+  pode registrar as principais antes dos revisores; a ficha é contexto, não
+  finding.
+
 Ao concluir cada etapa, acrescente o `id` a `completed` em
 `.jangada/state.json` (com `status` e `updated_at`) e uma linha em
 `.jangada/trace.jsonl`:
