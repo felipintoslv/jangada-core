@@ -106,6 +106,13 @@ def momento(valor):
     return quando.timestamp() if quando.tzinfo else None
 
 
+def tokens_revisor(valor):
+    """Campos do registro, cada um inteiro ou nulo; registro sem o campo dá nulo."""
+    if not isinstance(valor, dict):
+        return None
+    return {campo: inteiro(valor.get(campo)) for campo in ('entrada', 'saida', 'cache_lido', 'total')}
+
+
 def execucao_valida(valor):
     return valor is None or (isinstance(valor, str) and 0 < len(valor) <= 128 and bool(TEXTO.fullmatch(valor)))
 
@@ -160,6 +167,7 @@ def rodadas_sessao(raiz, sessao):
             data=registro['data'] if quando is not None else None,
             segundos=numero(registro.get('segundos')),
             apontamentos=inteiro(registro.get('itens')),
+            tokens_revisor=tokens_revisor(registro.get('tokens_revisor')),
             # O registro não grava o N do parecer, e horário não prova a associação.
             parecer_origem=None))
     return {'versao': 1, 'sessao': sessao, 'execucao': execucao, 'rodadas': rodadas}

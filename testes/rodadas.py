@@ -71,7 +71,8 @@ def main():
         ], extra='{"quebrada": \n[1, 2]\n')
         gravar(estado / 'revisoes/validar.jsonl', [
             rodada(2, 'aprovado', '2026-10-17T10:20:00-03:00', execucao='e2', modelo='sonnet', revisor='claude',
-                   itens=0, segundos=12.5),
+                   itens=0, segundos=12.5,
+                   tokens_revisor=dict(entrada=100, saida=20, cache_lido=None, total=-1, extra=5)),
         ])
         antes = retrato(base / 'state')
         dados = rodadas('s1')
@@ -81,7 +82,10 @@ def main():
             (1, 'revisar', 'sessao'), (2, 'aprovado', 'protegida')], dados
         primeira, segunda = dados['rodadas']
         assert set(primeira) == {'rodada', 'origem', 'resultado', 'etapa', 'revisor', 'modelo', 'data',
-                                 'segundos', 'apontamentos', 'parecer_origem'}, primeira
+                                 'segundos', 'apontamentos', 'tokens_revisor', 'parecer_origem'}, primeira
+        # Linha anterior à medição não tem o campo; valor negativo e campo estranho não passam.
+        assert primeira['tokens_revisor'] is None, primeira
+        assert segunda['tokens_revisor'] == dict(entrada=100, saida=20, cache_lido=None, total=None), segunda
         # Parecer com horário igual ao da linha não é associado: o registro não grava o N.
         assert primeira['parecer_origem'] is None, primeira
         assert (primeira['etapa'], primeira['revisor'], primeira['modelo'], primeira['apontamentos'],

@@ -81,6 +81,7 @@ Cada rodada tem:
 | `data` | Hora do registro, ISO com fuso; nulo se ilegível. O registro não tem início separado |
 | `segundos` | Número do registro, duração do `jangada-validar` até o registro; nulo se inválido |
 | `apontamentos` | Inteiro do campo `itens`; nulo se inválido |
+| `tokens_revisor` | Objeto com `entrada`, `saida`, `cache_lido` e `total`, cada um inteiro ou nulo; nulo quando a linha não tem o campo, gravado desde 17/10/2026 |
 | `parecer_origem` | Sempre nulo nesta versão; ver abaixo |
 
 A fonte é o `validar.jsonl` da [seção 1 dos registros](../registros.md),
@@ -108,6 +109,10 @@ ignorados, mas contam entre as 5.000 linhas. Arquivo ausente dá lista vazia; li
 recusa a consulta. São devolvidas as 50 rodadas mais recentes. Rodada sem
 `data` legível fica antes das datadas. A saída não tem `NaN` nem texto
 `None`; valor inválido vira nulo.
+
+`tokens_revisor` entrou sem mudar `versao`: os campos anteriores continuam
+iguais. Quem confere o conjunto exato de campos de cada rodada precisa
+aceitar o novo.
 
 Nome de sessão inválido ou número errado de argumentos sai com 2 e mensagem
 curta. Outra falha sai com 1, diagnóstico e stdout vazio. A consulta não
