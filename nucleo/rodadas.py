@@ -1,6 +1,5 @@
 """Consulta das rodadas de revisão de uma sessão, só leitura e sem pareceres."""
 
-import bisect
 import collections
 import contextlib
 from datetime import datetime
@@ -23,9 +22,6 @@ LINHAS_MAX = 5000
 RODADAS_MAX = 50
 LINHA_MAX = 64 * 1024
 CAUDA_MAX = 8 * 1024 * 1024
-CANDIDATOS_MAX = 16384
-# Mesma janela de docs/registros.md, seção 2: parecer e linha caem no mesmo segundo.
-JANELA = 60
 TEXTO = re.compile(r'[A-Za-z0-9_.:/@+\[\]-]{0,128}')
 
 
@@ -113,54 +109,11 @@ def execucao_valida(valor):
     return valor is None or (isinstance(valor, str) and 0 < len(valor) <= 128 and bool(TEXTO.fullmatch(valor)))
 
 
-def pareceres(fd, sessao):
-    """Mtime de cada validacao-SESSAO-rN.md do topo de agentes/, sem abrir o arquivo."""
-    padrao = re.compile(r'validacao-' + re.escape(sessao) + r'-r[0-9]{1,9}\.md')
-    achados = []
-    with os.scandir(fd) as entradas:
-        for entrada in entradas:
-            if not padrao.fullmatch(entrada.name):
-                continue
-            if len(achados) >= CANDIDATOS_MAX:
-                raise ValueError('Consulta excedeu 16384 pareceres.')
-            try:
-                info = os.stat(entrada.name, dir_fd=fd, follow_symlinks=False)
-            except FileNotFoundError:
-                continue
-            if stat.S_ISREG(info.st_mode):
-                achados.append((info.st_mtime, entrada.name))
-    return achados
-
-
-def associar(candidatos, registros):
-    """Parecer de cada registro só quando a correspondência por horário é única nos dois sentidos.
-
-    Considera todas as linhas da sessão, de qualquer etapa e execução, antes do
-    limite de rodadas: um parecer perto de duas linhas, ou duas perto de uma
-    linha, fica sem dono.
-    """
-    candidatos = sorted(candidatos)
-    horarios = [mtime for mtime, _ in candidatos]
-    perto_do_registro, perto_do_parecer = {}, {}
-    for posicao, registro in registros:
-        quando = momento(registro.get('data'))
-        if quando is None:
-            continue
-        inicio = bisect.bisect_left(horarios, quando - JANELA)
-        fim = bisect.bisect_right(horarios, quando + JANELA)
-        for _, nome in candidatos[inicio:fim]:
-            perto_do_registro.setdefault(posicao, set()).add(nome)
-            perto_do_parecer.setdefault(nome, set()).add(posicao)
-    por_posicao = {posicao: registro for posicao, registro in registros}
-    return {id(por_posicao[posicao]): nome for posicao, nomes in perto_do_registro.items()
-            for nome in nomes if len(nomes) == 1 and perto_do_parecer[nome] == {posicao}}
-
-
 def rodadas_sessao(raiz, sessao):
     if not nome_valido(sessao):
         raise Uso('Nome de sessão inválido.')
     raiz = Path(raiz).resolve()
-    validacoes, candidatos = [], []
+    validacoes = []
     execucao, aberta = None, False
     with pasta_leitura(raiz) as fd_raiz:
         if fd_raiz is not None:
@@ -179,7 +132,6 @@ def rodadas_sessao(raiz, sessao):
                             raise ValueError('Execução inválida no registro da sessão.')
                     except FileNotFoundError:
                         pass
-                    candidatos = pareceres(fd_ag, sessao)
 
     ordem = []
     for posicao, registro in enumerate(validacoes):
@@ -194,8 +146,6 @@ def rodadas_sessao(raiz, sessao):
         execucao = ordem[-1][1].get('execucao') if ordem else None
     escolhidas = [r for _, r in ordem if r.get('execucao') == execucao][-RODADAS_MAX:]
 
-    associados = associar(candidatos, [(posicao, r) for posicao, r in enumerate(validacoes)
-                                       if r.get('origem') == 'sessao' and r.get('rotulo') == sessao])
     rodadas = []
     for registro in escolhidas:
         quando = momento(registro.get('data'))
@@ -209,7 +159,8 @@ def rodadas_sessao(raiz, sessao):
             data=registro['data'] if quando is not None else None,
             segundos=numero(registro.get('segundos')),
             apontamentos=inteiro(registro.get('itens')),
-            parecer_origem=associados.get(id(registro))))
+            # O registro não grava o N do parecer, e horário não prova a associação.
+            parecer_origem=None))
     return {'versao': 1, 'sessao': sessao, 'execucao': execucao, 'rodadas': rodadas}
 
 
