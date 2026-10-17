@@ -18,6 +18,7 @@
 [[ -z "${JANGADA_HOOK_DESLIGADO:-}" ]] || exit 0
 modo="${1:-}"
 LIMITE_ARQUIVO=$((2 * 1024 * 1024))
+LIMITE_CONVERSA=$((4 * 1024 * 1024))
 MAX_ARQUIVOS=20
 MAX_LINHAS=3
 REGRAS_PESQUISA="$(dirname "${BASH_SOURCE[0]}")/../agentes/regras-pesquisa.md"
@@ -103,45 +104,56 @@ tipo_pesquisa() { # caminho absoluto; escreve escrita, figuras ou nada
   return 0
 }
 
-# Lembrete de cada tipo ainda não dado nesta conversa. A marca é uma pasta
-# vazia em agentes/avisos-pesquisa, porque agentes/ é a única pasta do estado
-# gravável no isolamento. Nenhum componente do caminho até avisos-pesquisa
-# pode ser link: o agente grava em agentes/. Quem cria a marca com mkdir dá o aviso, e a
-# limpeza só remove pasta vazia.
+CABECALHO_PESQUISA='Projeto de pesquisa (lembrete do jangada, uma vez por conversa; não bloqueia):'
+MARCA_ESCRITA='Regras de escrita (.md, .qmd, .Rmd, .tex, .docx):'
+MARCA_FIGURAS='Regras de figura (script R ou Python que gera gráfico):'
+
+# Tipos de lembrete já dados nesta conversa, lidos da transcrição do Claude
+# Code (transcript_path), sem gravar nada. O Claude Code guarda o
+# additionalContext como linha {"type": "attachment", "attachment": {"type":
+# "hook_additional_context", "hookEvent": "PostToolUse", "content": [...]}}.
+# Conta o texto com o cabeçalho e a linha do tipo; um resumo da conversa
+# (compact_boundary) depois dele zera a conta. Só lê arquivo comum, que não é
+# link, dentro de ~/.claude/projects; a transcrição é dado, e daqui só sai
+# escrita, figuras ou nada.
+lembrados() {
+  local t base real
+  t="$(jq -r '.transcript_path // "" | strings' <<<"$entrada" 2>/dev/null)"
+  [[ "$t" == /* && -n "${HOME:-}" && "$HOME" != / ]] || return 0
+  [[ -f "$t" && ! -L "$t" ]] || return 0
+  base="$(realpath -e -- "$HOME/.claude/projects" 2>/dev/null)" || return 0
+  real="$(realpath -e -- "$t" 2>/dev/null)" || return 0
+  [[ "$real" == "$base"/* ]] || return 0
+  timeout 5 tail -c "$LIMITE_CONVERSA" -- "$real" 2>/dev/null \
+    | timeout 5 jq -R -r --arg c "$CABECALHO_PESQUISA" --arg e "$MARCA_ESCRITA" --arg f "$MARCA_FIGURAS" '
+      fromjson? | objects
+      | if .type == "system" and .subtype == "compact_boundary" then "resumo"
+        elif .type == "attachment" and (.attachment | objects | .type == "hook_additional_context"
+             and .hookEvent == "PostToolUse") then
+          .attachment.content | (arrays[], strings) | strings | split("\n")
+          | select(any(.[]; . == $c))
+          | (if any(.[]; . == $e) then "escrita" else empty end), (if any(.[]; . == $f) then "figuras" else empty end)
+        else empty end' 2>/dev/null \
+    | awk '$0 == "resumo" {delete v; next} {v[$0] = 1} END {for (k in v) print k}'
+}
+
+# Lembrete de cada tipo ainda não dado nesta conversa. Sem transcrição
+# legível, o lembrete vai a cada gravação.
 lembrete_pesquisa() { # tipos, um por linha
-  local tipos="$1" conversa base avisos marca tipo secao texto="" marcas=0
+  local tipos="$1" vistos tipo secao texto=""
   [[ -n "${tipos//$'\n'/}" && -f "$REGRAS_PESQUISA" ]] || return 0
-  conversa="$(jq -r '.session_id // "" | strings' <<<"$entrada" 2>/dev/null)"
-  [[ "$conversa" =~ ^[A-Za-z0-9_-]{1,128}$ ]] || conversa=""
-  base="${JANGADA_ESTADO:-${XDG_STATE_HOME:-$HOME/.local/state}/jangada}/agentes"
-  avisos="$base/avisos-pesquisa"
-  # O caminho resolvido igual ao só normalizado: nenhum componente é link.
-  if [[ -n "$conversa" && -d "$base" \
-        && "$(realpath -e -- "$base" 2>/dev/null)" == "$(realpath -s -m -- "$base" 2>/dev/null)" ]]; then
-    [[ -e "$avisos" || -L "$avisos" ]] || (umask 077; mkdir -- "$avisos" 2>/dev/null) || true
-    [[ -d "$avisos" && ! -L "$avisos" ]] && marcas=1
-  fi
-  if ((marcas)); then
-    timeout 5 find -P "$avisos" -mindepth 1 -maxdepth 1 -type d -empty -mtime +7 \
-      -regextype posix-extended -regex '.*/[A-Za-z0-9_-]+\.(escrita|figuras)' -delete 2>/dev/null
-  fi
+  vistos="$(lembrados)"
   for tipo in escrita figuras; do
     grep -qx "$tipo" <<<"$tipos" || continue
-    # Sem conversa ou sem onde gravar a marca, o lembrete vai a cada gravação.
-    if ((marcas)); then
-      marca="$avisos/$conversa.$tipo"
-      if ! mkdir -- "$marca" 2>/dev/null; then
-        [[ -e "$marca" || -L "$marca" ]] && continue
-      fi
-    fi
+    grep -qx "$tipo" <<<"$vistos" && continue
     case "$tipo" in
-      escrita) secao=Escrita; texto+=$'Regras de escrita (.md, .qmd, .Rmd, .tex, .docx):\n' ;;
-      figuras) secao=Figuras; texto+=$'Regras de figura (script R ou Python que gera gráfico):\n' ;;
+      escrita) secao=Escrita; texto+="$MARCA_ESCRITA"$'\n' ;;
+      figuras) secao=Figuras; texto+="$MARCA_FIGURAS"$'\n' ;;
     esac
     texto+="$(awk -v t="## $secao" '$0 == t {d = 1; next} /^## / {d = 0} d && NF' "$REGRAS_PESQUISA" | head -c 1500)"$'\n'
   done
   [[ -n "$texto" ]] || return 0
-  printf 'Projeto de pesquisa (lembrete do jangada, uma vez por conversa; não bloqueia):\n%s' "$texto"
+  printf '%s\n%s' "$CABECALHO_PESQUISA" "$texto"
 }
 
 gravacao() {
