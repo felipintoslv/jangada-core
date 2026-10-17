@@ -59,7 +59,7 @@ do mesmo jeito.
 | Pasta atual, com `--saida` | `jangada-avaliar-ollama` | fontes sintéticas e registros da avaliação local, em uma pasta nova por execução |
 | `~/.cache/jangada` | `jangada-delegar` | cache da cota do agy |
 | `~/.cache/cliphist` | `jangada-isolar` | pasta criada com 0700 para poder ocultá-la do agente |
-| `$XDG_RUNTIME_DIR/jangada-isolar` | `jangada-isolar` | soquetes do proxy do D-Bus |
+| `$XDG_RUNTIME_DIR/jangada-isolar` | `jangada-isolar` | soquetes do proxy do D-Bus e, em `atendente-*`, o soquete do atendente da revisão |
 | `$TMPDIR/jangada-consulta-*` (ou `/tmp/jangada-consulta-*`) | `nucleo/consultas.py` | cópia privada temporária do SQLite e WAL, removida ao fechar a consulta; evita gravar arquivos auxiliares na origem |
 
 Pacotes, serviços do systemd e o estado dos serviços mudam pelos comandos do
