@@ -138,8 +138,9 @@ uma sessão de agente roda fora, pedida pelo soquete.
   `revisoes/SESSAO.json` presente e sem ser link. O revisor que o validar
   chama não abre outro atendente.
 - **Onde fica:** um processo python fora do bwrap, com o soquete numa pasta
-  0700 em `$XDG_RUNTIME_DIR/jangada-isolar/atendente-*` (ou no `TMPDIR`). A
-  pasta entra no bwrap somente leitura em `/tmp/.jangada-atendente`.
+  0700 em `$XDG_RUNTIME_DIR/jangada-isolar/atendente-*`; sem
+  `XDG_RUNTIME_DIR`, o atendente não abre. A pasta entra no bwrap somente
+  leitura em `/tmp/.jangada-atendente`.
 - **O que o agente pode pedir:** só a revisão do sha da cabeça, com a
   resposta ao parecer anterior. O `jangada-validar` de dentro lê o `HEAD` e
   manda o sha e, se houver, o texto de `--resposta`. Com `--forcar`,

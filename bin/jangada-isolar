@@ -592,7 +592,6 @@ if ((!mostrar)) && [[ "$perfil" == agente && -z "${JANGADA_ISOLAR_FOTO:-}" ]] \
      && { [[ -d "$XDG_RUNTIME_DIR/jangada-isolar" ]] || mkdir -m 0700 "$XDG_RUNTIME_DIR/jangada-isolar" 2>/dev/null; }; then
     atendente_pasta="$(mktemp -d "$XDG_RUNTIME_DIR/jangada-isolar/atendente-XXXXXX" 2>/dev/null)" || atendente_pasta=""
   fi
-  [[ -n "$atendente_pasta" ]] || atendente_pasta="$(mktemp -d "${TMPDIR:-/tmp}/jangada-atendente-XXXXXX" 2>/dev/null)" || atendente_pasta=""
 fi
 if [[ -n "$atendente_pasta" ]]; then
   exec {atendente_fd}< <(exec env -u JANGADA_ISOLADO python3 -c 'import json, os, re, signal, socket, subprocess, sys, threading, unicodedata

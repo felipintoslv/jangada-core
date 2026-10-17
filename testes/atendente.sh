@@ -90,7 +90,7 @@ ambiente=(HOME="$casa" XDG_STATE_HOME="$casa/.local/state" XDG_CONFIG_HOME="$tmp
   PATH="$path_teste" FALSO_DIR="$F" JANGADA_ISOLAR_ESCRITA="$F" JANGADA_VALIDAR_RODADAS=2)
 limpar_ambiente=(-u JANGADA_ISOLADO -u DBUS_SESSION_BUS_ADDRESS -u JANGADA_VALIDAR_REVISOR
   -u JANGADA_VALIDAR_MODELO -u JANGADA_VALIDAR_ESFORCO -u JANGADA_VALIDAR_PULAR_LOCAL
-  -u JANGADA_VALIDAR_TESTANDO -u JANGADA_VALIDAR_SEM_ATENDENTE -u JANGADA_VALIDAR_SOQUETE
+  -u JANGADA_VALIDAR_TESTANDO -u JANGADA_VALIDAR_SOQUETE
   -u JANGADA_DELEGAR -u JANGADA_ISOLAR_FOTO -u JANGADA_ISOLAR_PERFIL)
 command -v gitleaks >/dev/null 2>&1 || ambiente+=(JANGADA_VALIDAR_SEM_GITLEAKS=1)
 # isolar SESSAO COMANDO...: abre a sessão no worktree, como o jangada-agente.
@@ -274,6 +274,14 @@ conferir "caso 9: atendente mudo sai com 1 em cerca de 10 s" \
 isolar u bash -c '"$1" >"$FALSO_DIR/a3.out" 2>"$FALSO_DIR/a3.err"; echo $? >"$FALSO_DIR/a3.rc"' _ "$validar"
 conferir "caso 9: sessão sem cópia protegida não abre atendente" \
   bash -c '[ "$1" = 1 ] && grep -q "indisponível; peça ao coordenador" "$2"' _ "$(rc a3)" "$F/a3.err"
+sem_runtime=(); mkdir -p "$tmp/tmpdir"
+for v in "${ambiente[@]}"; do [[ "$v" == XDG_RUNTIME_DIR=* ]] || sem_runtime+=("$v"); done
+(cd "$tmp/wt" && env "${limpar_ambiente[@]}" -u XDG_RUNTIME_DIR "${sem_runtime[@]}" TMPDIR="$tmp/tmpdir" \
+  JANGADA_SESSAO=t "$repo_jangada/bin/jangada-isolar" -- \
+  bash -c '"$1" >"$FALSO_DIR/a4.out" 2>"$FALSO_DIR/a4.err"; echo $? >"$FALSO_DIR/a4.rc"' _ "$validar" </dev/null)
+conferir "caso 9: sem XDG_RUNTIME_DIR o atendente não abre e o pedido diz indisponível" \
+  bash -c '[ "$1" = 1 ] && grep -q "indisponível; peça ao coordenador" "$2" \
+    && [ -z "$(find "$3" -mindepth 1 2>/dev/null)" ]' _ "$(rc a4)" "$F/a4.err" "$tmp/tmpdir"
 conferir "caso 9: nada gravado" bash -c '[ "$1" = "$2" ] && [ "$3" = 4 ] && [ "$4" = 4 ] \
   && ! ls "$5/agentes/validacao-"* >/dev/null 2>&1' _ "$antes" "$(linhas "$estado/validar.jsonl")" \
   "$(pareceres)" "$(chamadas)" "$estado"
