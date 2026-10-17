@@ -105,6 +105,7 @@ testes/fim.sh || falha "testes/fim.sh"
 passo "histórico de estados dos agentes"
 testes/eventos.sh || falha "testes/eventos.sh"
 testes/codex.sh || falha "testes/codex.sh"
+testes/coordenador.sh || falha "testes/coordenador.sh"
 
 passo "subagentes"
 testes/subagentes.sh || falha "testes/subagentes.sh"
