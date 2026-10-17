@@ -34,6 +34,10 @@ TABELA = RAIZ / 'testes/contratos/registros.json'
 DOCUMENTO = RAIZ / 'docs/registros.md'
 SESSAO = 'projeto--tarefa'
 MARCA = '/tmp/.jangada-isolado'
+# Dentro do jangada-isolar, esta marca faz o Core recusar o que exige o
+# controlador de fora; o jangada-validar não chega ao revisor. Ali os casos
+# que dependem dele são pulados, e fora nenhum é (testes/isolamento.sh).
+SEM_AUTORIDADE = '/tmp/.jangada-sem-autoridade'
 DATA = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$')
 TIPOS = {
     'texto': lambda v: isinstance(v, str),
@@ -98,10 +102,25 @@ exit 0
 }
 
 falhas = 0
+pulados = 0
 
 
-def conferir(descricao, certo, detalhe=()):
-    global falhas
+def sem_autoridade():
+    return any(linha.split()[4] == SEM_AUTORIDADE
+               for linha in pathlib.Path('/proc/self/mountinfo').read_text().splitlines())
+
+
+def conferir(descricao, certo, detalhe=(), controlador=False):
+    """Com controlador=True, o caso depende do jangada-validar de fora e é
+    pulado dentro do isolamento."""
+    global falhas, pulados
+    if controlador and sem_autoridade():
+        pulados += 1
+        print(f'pulado no isolamento: {descricao} (o jangada-validar exige o controlador de fora)')
+        if os.environ.get('JANGADA_TESTES_PULADOS'):
+            with open(os.environ['JANGADA_TESTES_PULADOS'], 'a', encoding='utf-8') as arquivo:
+                arquivo.write(descricao + '\n')
+        return
     print(('ok    ' if certo else 'FALHA ') + descricao)
     if not certo:
         falhas += 1
@@ -408,20 +427,21 @@ def main():
                  all(campo in (registros['SESSAO.json'][1][1] or {}) for campo in ('conversa', 'mensagem'))
                  and (registros['SESSAO.json'][1][1] or {}).get('estado') == 'aguardando')
         conferir('o jangada-validar sai com 3 no REVISAR e 0 no APROVADO', gerador.codigos_validar == [3, 0],
-                 [gerador.codigos_validar])
+                 [gerador.codigos_validar], controlador=True)
         conferir('o jangada-validar grava a validação no SESSAO.json',
-                 (registros['SESSAO.json'][2][1] or {}).get('validacao') == 'r2: APROVADO (agy)')
+                 (registros['SESSAO.json'][2][1] or {}).get('validacao') == 'r2: APROVADO (agy)', controlador=True)
         conferir('o validar.jsonl tem uma linha por rodada',
                  [(r.get('rodada'), r.get('resultado')) for _, r in registros['validar.jsonl']]
-                 == [(1, 'revisar'), (2, 'aprovado')])
+                 == [(1, 'revisar'), (2, 'aprovado')], controlador=True)
         conferir('cada rodada grava um parecer validacao-SESSAO-rN.md',
-                 [p.name for p in gerador.pareceres] == [f'validacao-{SESSAO}-r{n}.md' for n in (1, 2)])
+                 [p.name for p in gerador.pareceres] == [f'validacao-{SESSAO}-r{n}.md' for n in (1, 2)], controlador=True)
         primeiras = [next((linha for linha in p.read_text(encoding='utf-8').splitlines() if linha.strip()), '')
                      for p in gerador.pareceres]
         conferir('a primeira linha com texto de cada parecer é o STATUS',
                  bool(primeiras) and all(re.match(parecer['primeira_linha'], linha) for linha in primeiras),
-                 primeiras)
-        conferir('o APROVADO grava a marca validacao-SESSAO.aprovado', bool(registros['validacao-SESSAO.aprovado']))
+                 primeiras, controlador=True)
+        conferir('o APROVADO grava a marca validacao-SESSAO.aprovado', bool(registros['validacao-SESSAO.aprovado']),
+                 controlador=True)
         conferir('o jangada-delegar sai com 0 nas delegações atendidas e 4 na recusada',
                  gerador.codigos_delegar == [0, 4, 0], [gerador.codigos_delegar])
         conferir('o delegacoes.jsonl tem a delegação ao agy, a recusada e a local',
@@ -433,7 +453,8 @@ def main():
             ausentes = sorted(set(caminhos(tabela[nome]['campos'])) - vistos
                               - set(tabela[nome].get('sem_exemplo', [])))
             conferir(f'{nome}: todo campo da tabela aparece em algum registro gerado, salvo os de "sem_exemplo"',
-                     not ausentes, [f'ausentes: {ausentes}'])
+                     not ausentes, [f'ausentes: {ausentes}'],
+                     controlador=nome in ('validar.jsonl', 'validacao-SESSAO.aprovado', 'SESSAO.json'))
 
         # O teste precisa falhar quando um campo muda de nome. Primeiro numa
         # cópia do registro, depois numa cópia do código que grava.
@@ -476,8 +497,10 @@ def main():
             texto = '\n'.join(achados[nome])
             conferir(f'{nome}: {some} renomeado numa cópia de {arquivo} é apontado',
                      f'falta o campo obrigatório {some}' in texto and f'campo fora da tabela: {aparece}' in texto,
-                     achados[nome])
+                     achados[nome], controlador=arquivo == 'bin/jangada-validar')
 
+    if pulados:
+        print(f'{pulados} caso(s) pulado(s) no isolamento')
     if falhas:
         print(f'{falhas} falha(s)')
         return 1
