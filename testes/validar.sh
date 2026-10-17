@@ -20,9 +20,6 @@ if ! awk -v m="$marca" '$5 == m { a = 1 } END { exit !a }' /proc/self/mountinfo;
   exit "$rc"
 fi
 unset JANGADA_VALIDAR_REVISOR JANGADA_DELEGAR
-# Os casos conferem a revisão completa dentro do isolamento, sem o atendente
-# de fora; o pedido pelo atendente fica em testes/atendente.sh.
-export JANGADA_VALIDAR_SEM_ATENDENTE=1
 # Sem o gitleaks, o portão reprovaria todos os casos; o 16e liga de novo.
 command -v gitleaks >/dev/null 2>&1 || export JANGADA_VALIDAR_SEM_GITLEAKS=1
 falhas=0
@@ -34,6 +31,10 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin" "$tmp/config/jangada" "$tmp/estado/jangada/agentes" "$tmp/projeto" "$tmp/falso"
 estado="$tmp/estado/jangada/agentes"
+# A revisão roda fora do isolamento, como o atendente a roda, e grava aqui; o
+# pedido de dentro pelo soquete fica em testes/atendente.sh.
+rev="$tmp/estado/jangada/revisoes"
+mkdir -p "$rev"
 
 # Os dois falsos gravam o pedido e respondem com $FALSO_RESPOSTA. O claude
 # recebe o pedido pela entrada padrão; o agy, como argumento de -p, e responde
@@ -95,16 +96,18 @@ echo "linha 1" >"$tmp/projeto/arquivo.txt"
 git -C "$tmp/projeto" add arquivo.txt
 git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "commit 1"
 
-# Sessão falsa com o agente dado; o jangada-validar lê .agente, .revisor e .tarefa.
+# Sessão falsa com o agente dado; o jangada-validar lê .agente, .revisor e
+# .tarefa da cópia em revisoes/, como o jangada-agente a grava.
 sessao_de() {
   jq -n --arg a "$1" --arg r "${2:-}" \
     '{sessao:"s", agente:$a, base:"main", tarefa:"tarefa de teste", estado:"trabalhando"}
      + (if $r != "" then {revisor:$r} else {} end)' \
     >"$estado/s.json"
-  rm -f "$estado/validacao-s-r"* "$estado/validacao-s.aprovado" "$tmp/falso/"*.pedido
+  copiar_sessao
+  rm -f "$rev/validacao-s-r"* "$rev/validacao-s.aprovado" "$rev/validacao-s.erros" "$tmp/falso/"*.pedido
 }
-# Por padrão, como o agente chama: dentro do isolamento (JANGADA_ISOLADO).
-# VALIDAR_FORA=1 roda como o usuário, fora dele.
+copiar_sessao() { mkdir -p "$rev" && cp "$estado/s.json" "$rev/s.json"; }
+# Fora do isolamento, onde a revisão roda.
 # PATH sem as pastas que trazem comandos do Monitor de verdade (máquina com o
 # jangada-monitor instalado); os falsos do teste ficam em $tmp.
 path_limpo() {
@@ -117,9 +120,7 @@ path_limpo() {
   printf '%s' "$out"
 }
 validar() {
-  local isolado=(JANGADA_ISOLADO=1)
-  [[ "${VALIDAR_FORA:-0}" == 1 ]] && isolado=()
-  env -u JANGADA_VALIDAR_REVISOR -u JANGADA_ISOLADO "${isolado[@]}" PATH="$tmp/bin:$(path_limpo)" FALSO_DIR="$tmp/falso" JANGADA_ISOLAR_ESCRITA="$tmp/falso" FALSO_RESPOSTA="$1" JANGADA_SESSAO=s \
+  env -u JANGADA_VALIDAR_REVISOR -u JANGADA_ISOLADO PATH="$tmp/bin:$(path_limpo)" FALSO_DIR="$tmp/falso" JANGADA_ISOLAR_ESCRITA="$tmp/falso" FALSO_RESPOSTA="$1" JANGADA_SESSAO=s \
     XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="${VALIDAR_PATH:-$repo_jangada}" \
     "$repo_jangada/bin/jangada-validar" "${@:2}" "$tmp/projeto" >"$tmp/saida.log" 2>&1
 }
@@ -133,6 +134,7 @@ for autor in codex claude; do
   selecao="$(python3 "$repo_jangada/delegacao/modelos.py" "$autor" "$revisor" "$autor_modelo" "$autor_esforco")"
   jq --argjson s "$selecao" '.modelos_tarefa = $s' "$estado/s.json" >"$tmp/selecao.json"
   mv "$tmp/selecao.json" "$estado/s.json"
+  copiar_sessao
   validar 'STATUS: APROVADO' --revisor "$revisor" --modelo divergente; rc=$?
   conferir "modelos $autor: modelo divergente recusado sem cliente" \
     bash -c '[[ "$1" == 1 ]] && grep -q "modelo diverge" "$2" && ! test -e "$3"' _ "$rc" "$tmp/saida.log" "$tmp/falso/$revisor.pedido"
@@ -164,19 +166,19 @@ conferir "caso 1: o agy revisa com o agente revisor, em --sandbox" \
 conferir "caso 1: pedido traz o diff e a tarefa" \
   bash -c 'grep -q "^+linha 1$" "$1" && grep -q "tarefa de teste" "$1"' _ "$tmp/falso/agy.pedido"
 conferir "caso 1: estado registra a rodada e o revisor" [ "$(jq -r .validacao "$estado/s.json")" = "r1: REVISAR (agy)" ]
-conferir "caso 1: parecer gravado" grep -q "problema" "$estado/validacao-s-r1.md"
+conferir "caso 1: parecer gravado" grep -q "problema" "$rev/validacao-s-r1.md"
 
 # Caso 2: rodada 2 leva o parecer anterior e a resposta do agente.
-printf '[]\n' >>"$tmp/estado/jangada/validar.jsonl"
+printf '[]\n' >>"$rev/validar.jsonl"
 validar 'STATUS: APROVADO\ntudo certo' --resposta "1 corrigido; 2 rejeitado: MARCA-RESPOSTA"; rc=$?
 conferir "caso 2: APROVADO sai com 0" [ "$rc" = 0 ]
 conferir "caso 2: pedido traz a resposta do agente" grep -q MARCA-RESPOSTA "$tmp/falso/agy.pedido"
 conferir "caso 2: pedido traz o parecer anterior" grep -q "problema" "$tmp/falso/agy.pedido"
 conferir "caso 2: registra classificação e rodada respondida" \
   jq -e 'select(.rodada == 2) | .resposta == {corrigidos:1,rejeitados:1,sem_classificar:0} and .responde_a.rodada == 1 and .responde_a.revisor == "agy"' \
-  "$tmp/estado/jangada/validar.jsonl"
+  "$rev/validar.jsonl"
 
-conferir "caso 2: marca registra verificação local" jq -e '.local_verified == true' "$estado/validacao-s.aprovado"
+conferir "caso 2: marca registra verificação local" jq -e '.local_verified == true' "$rev/validacao-s.aprovado"
 
 # A resposta também aceita pontuação após o número e conta itens sem classe.
 echo "linha 2" >>"$tmp/projeto/arquivo.txt"
@@ -187,7 +189,7 @@ validar 'STATUS: REVISAR\n1. arquivo.txt:1: conferir'; rc=$?
 validar 'STATUS: APROVADO' --resposta "1: corrigido; 2. rejeitado: motivo; 3 talvez"; rc=$?
 conferir "caso 2b: resposta pontuada e item sem classe" jq -e \
   'select(.resposta.corrigidos == 1 and .resposta.rejeitados == 1 and .resposta.sem_classificar == 1 and .responde_a.rodada == 1 and .responde_a.revisor == "agy")' \
-  "$tmp/estado/jangada/validar.jsonl"
+  "$rev/validar.jsonl"
 
 # Caso 3: sessão do agy, o revisor é o Claude; status com Markdown.
 sessao_de agy
@@ -256,7 +258,7 @@ conferir "caso reserva: o pedido é o do Codex, sem ferramenta de leitura" \
   grep -q "não tem ferramenta de leitura" "$tmp/falso/codex.pedido"
 conferir "caso reserva: o autor fica para o fim" test ! -e "$tmp/falso/claude.pedido"
 conferir "caso reserva: a falha do agy fica nas métricas" \
-  bash -c '[ "$(tail -n2 "$1" | jq -r "[.resultado, .revisor] | join(\" \")" | paste -sd,)" = "erro agy,aprovado codex" ]' _ "$tmp/estado/jangada/validar.jsonl"
+  bash -c '[ "$(tail -n2 "$1" | jq -r "[.resultado, .revisor] | join(\" \")" | paste -sd,)" = "erro agy,aprovado codex" ]' _ "$rev/validar.jsonl"
 sessao_de claude agy
 FALSO_AGENTES=explorador FALSO_CODEX_ERRO=1 validar 'STATUS: APROVADO'; rc=$?
 conferir "caso reserva: sem agy nem Codex, o Claude revisa o próprio trabalho" \
@@ -265,7 +267,7 @@ conferir "caso reserva: sem agy nem Codex, o Claude revisa o próprio trabalho" 
 
 # Tokens do revisor: cada provedor informa do seu jeito, e a falta de contagem
 # não muda o parecer.
-ultima_tokens() { tail -n1 "$tmp/estado/jangada/validar.jsonl" | jq -c '{tokens_revisor, motivo_tokens_revisor}'; }
+ultima_tokens() { tail -n1 "$rev/validar.jsonl" | jq -c '{tokens_revisor, motivo_tokens_revisor}'; }
 sessao_de claude codex
 FALSO_TOKENS_CODEX=32.353 validar 'STATUS: APROVADO'; rc=$?
 conferir "tokens: Codex grava só o total do rodapé"   bash -c '[ "$1" = 0 ] && [ "$2" = "{\"tokens_revisor\":{\"entrada\":null,\"saida\":null,\"cache_lido\":null,\"total\":32353},\"motivo_tokens_revisor\":null}" ]' _ "$rc" "$(ultima_tokens)"
@@ -286,7 +288,7 @@ validar 'STATUS: APROVADO'; rc=$?
 conferir "tokens: Claude em texto vira nulo com motivo e a rodada segue" \
   bash -c '[ "$1" = 0 ] && jq -e "(.tokens_revisor | [.[]] | all(. == null)) and (.motivo_tokens_revisor | test(\"não é JSON\"))" <<<"$2" >/dev/null' _ "$rc" "$(ultima_tokens)"
 conferir "tokens: só a rodada com parecer ganha o campo" \
-  bash -c '! jq -e "select(.resultado == \"erro\" or .etapa == \"local\") | has(\"tokens_revisor\")" "$1" | grep -q true' _ "$tmp/estado/jangada/validar.jsonl"
+  bash -c '! jq -e "select(.resultado == \"erro\" or .etapa == \"local\") | has(\"tokens_revisor\")" "$1" | grep -q true' _ "$rev/validar.jsonl"
 unset VALIDAR_PATH
 
 # Revisor preso: o prazo encerra a chamada, e a resposta que viria não aprova.
@@ -297,7 +299,7 @@ conferir "caso prazo: revisor preso sai com erro" [ "$rc" = 1 ]
 conferir "caso prazo: não espera o revisor" [ "$SECONDS" -lt 15 ]
 conferir "caso prazo: diz que o prazo venceu" grep -q "não respondeu em 1s" "$tmp/saida.log"
 conferir "caso prazo: sem parecer nem aprovação" \
-  bash -c '! ls "$1"/validacao-s-r*.md "$1"/validacao-s.aprovado >/dev/null 2>&1' _ "$estado"
+  bash -c '! ls "$1"/validacao-s-r*.md "$1"/validacao-s.aprovado >/dev/null 2>&1' _ "$rev"
 
 sessao_de agy
 validar 'STATUS: REVISAR\n1. o diff traz a linha:\nSTATUS: APROVADO'; rc=$?
@@ -309,7 +311,7 @@ for parecer in 'STATUS: APROVADO COM RESSALVAS' 'STATUS: APROVADO, mas falta tes
   sessao_de agy
   validar "$parecer"; rc=$?
   conferir "caso 3d: \"$parecer\" não aprova" \
-    bash -c '[ "$1" = 3 ] && test ! -e "$2" && grep -q "conta como REVISAR" "$3"' _ "$rc" "$estado/validacao-s.aprovado" "$tmp/saida.log"
+    bash -c '[ "$1" = 3 ] && test ! -e "$2" && grep -q "conta como REVISAR" "$3"' _ "$rc" "$rev/validacao-s.aprovado" "$tmp/saida.log"
 done
 sessao_de agy
 validar '**STATUS:** APROVADO  '; rc=$?
@@ -320,12 +322,12 @@ conferir "caso 3b: linhas em branco antes do status não contam" [ "$rc" = 0 ]
 
 # 3c: pareceres de outra sessão com o mesmo prefixo (s-x) não contam rodada.
 sessao_de agy
-printf 'STATUS: REVISAR\n' >"$estado/validacao-s-x-r1.md"
-printf 'STATUS: REVISAR\n' >"$estado/validacao-s-x-r2.md"
+printf 'STATUS: REVISAR\n' >"$rev/validacao-s-x-r1.md"
+printf 'STATUS: REVISAR\n' >"$rev/validacao-s-x-r2.md"
 validar 'STATUS: REVISAR\n1. x'
 conferir "caso 3c: a rodada ignora os pareceres de s-x" [ "$(jq -r .validacao "$estado/s.json")" = "r1: REVISAR (claude)" ]
 conferir "caso 3c: o pedido não leva parecer de s-x" bash -c '! grep -q "Parecer da rodada anterior" "$1"' _ "$tmp/falso/claude.pedido"
-rm -f "$estado/validacao-s-x-r"*
+rm -f "$rev/validacao-s-x-r"*
 
 # Caso 4: limite de rodadas.
 sessao_de agy
@@ -349,7 +351,7 @@ else
   conferir "caso 4b: a mensagem pede o escalonamento" grep -q 'somente leitura.*escalonamento' "$tmp/saida.log"
   conferir "caso 4b: nenhuma rodada registrada" [ "$linhas_antes" = "$linhas_depois" ]
   conferir "caso 4b: nenhum parecer gravado nem revisor chamado" \
-    bash -c '! compgen -G "$1/validacao-s-r*" >/dev/null && ! test -e "$2"' _ "$estado" "$tmp/falso/claude.pedido"
+    bash -c '! compgen -G "$1/validacao-s-r*" >/dev/null && ! test -e "$2"' _ "$rev" "$tmp/falso/claude.pedido"
 fi
 
 # Caso 5: pedido acima do limite de argumento do agy. O diff sai do pedido e
@@ -390,9 +392,9 @@ conferir "caso 7: pedido identifica o autor como Claude" grep -q "agente (Claude
 conferir "caso 7: pedido alerta sobre revisão pelo mesmo modelo" grep -q "revisão pelo mesmo modelo" "$tmp/falso/claude.pedido"
 conferir "caso 7: estado registra a autorrevisão" [ "$(jq -r .validacao "$estado/s.json")" = "r1: REVISAR (claude)" ]
 conferir "caso 7: a marca diz que a revisão não foi independente" \
-  test ! -e "$estado/validacao-s.aprovado"
+  test ! -e "$rev/validacao-s.aprovado"
 conferir "caso 7: a métrica registra a autorrevisão" \
-  bash -c '[ "$(tail -n1 "$1" | jq -r .independente)" = false ]' _ "$tmp/estado/jangada/validar.jsonl"
+  bash -c '[ "$(tail -n1 "$1" | jq -r .independente)" = false ]' _ "$rev/validar.jsonl"
 
 # Caso 8: os perfis padrão são só claude-codex e codex-claude, com revisor de
 # outro provedor e delegação ao agy. Autorrevisão e revisor agy ficam em
@@ -443,7 +445,7 @@ conferir "caso 8: nenhum perfil pronto abre o agy como agente principal" \
 
 # Caso 9: auto-revisão fora de sessão com --revisor mesmo.
 rm -f "$tmp/falso/"*.pedido
-env JANGADA_ISOLADO=1 PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' \
+env -u JANGADA_ISOLADO JANGADA_ISOLAR_ESCRITA="$tmp/falso" PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' \
   XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
   "$repo_jangada/bin/jangada-validar" --revisor mesmo "$tmp/projeto" >"$tmp/saida.log" 2>&1; rc=$?
 conferir "caso 9: autorrevisão fora de sessão não aprova" [ "$rc" = 3 ]
@@ -497,7 +499,7 @@ conferir "caso 10d: JANGADA_VALIDAR_REVISOR=mesmo global resolve para o agente d
 
 # 10e: Revisor do estado prevalece sobre JANGADA_VALIDAR_REVISOR global no jangada-validar
 sessao_de agy agy
-env JANGADA_ISOLADO=1 PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' JANGADA_SESSAO=s \
+env -u JANGADA_ISOLADO JANGADA_ISOLAR_ESCRITA="$tmp/falso" PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' JANGADA_SESSAO=s \
   XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
   JANGADA_VALIDAR_REVISOR=claude \
   "$repo_jangada/bin/jangada-validar" "$tmp/projeto" >/dev/null 2>&1
@@ -517,7 +519,7 @@ conferir "caso 11a: estado gravado como REVISAR (local)" [ "$(jq -r .validacao "
 # 11b: --pular-local ignora a checagem e chama o revisor
 validar 'STATUS: APROVADO' --pular-local; rc=$?
 conferir "caso 11b: --pular-local não aprova validação incompleta" [ "$rc" = 3 ]
-conferir "caso 11b: validação incompleta não cria marca" test ! -e "$estado/validacao-s.aprovado"
+conferir "caso 11b: validação incompleta não cria marca" test ! -e "$rev/validacao-s.aprovado"
 conferir "caso 11b: o revisor foi chamado com --pular-local" test -s "$tmp/falso/agy.pedido"
 
 git -C "$tmp/projeto" rm -qf conflito.txt
@@ -541,21 +543,21 @@ sessao_de claude agy
 printf '<<<<<<< HEAD\na\n=======\nb\n>>>>>>> outro\n' >"$tmp/projeto/conflito-ação.txt"
 validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 11d: conflito em arquivo novo reprova" [ "$rc" = 3 ]
-conferir "caso 11d: o parecer aponta o arquivo novo pelo nome" grep -q "conflito do git não resolvido em conflito-ação.txt" "$estado/validacao-s-r1.md"
+conferir "caso 11d: o parecer aponta o arquivo novo pelo nome" grep -q "conflito do git não resolvido em conflito-ação.txt" "$rev/validacao-s-r1.md"
 rm -f "$tmp/projeto/conflito-ação.txt"
 # Script com byte nulo: o git o mostraria como binário e o revisor não o leria.
 sessao_de claude agy
 printf '#!/bin/bash\necho executou\n# \0\n' >"$tmp/projeto/nulo"
 validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 11d: script com byte nulo reprova" [ "$rc" = 3 ]
-conferir "caso 11d: o parecer aponta o script com byte nulo" grep -q "script tratado como binário.*: nulo$" "$estado/validacao-s-r1.md"
+conferir "caso 11d: o parecer aponta o script com byte nulo" grep -q "script tratado como binário.*: nulo$" "$rev/validacao-s-r1.md"
 rm -f "$tmp/projeto/nulo"
 if command -v shellcheck >/dev/null; then
   sessao_de claude agy
   printf '#!/usr/bin/env bash\necho $((1 +))\n' >"$tmp/projeto/novo.sh"
   validar 'STATUS: APROVADO'; rc=$?
   conferir "caso 11d: script novo com erro reprova" [ "$rc" = 3 ]
-  conferir "caso 11d: o parecer aponta o script novo" grep -q "falha no shellcheck em novo.sh" "$estado/validacao-s-r1.md"
+  conferir "caso 11d: o parecer aponta o script novo" grep -q "falha no shellcheck em novo.sh" "$rev/validacao-s-r1.md"
   rm -f "$tmp/projeto/novo.sh"
   # Rastreado com acento: o git escaparia o nome sem -z.
   printf '#!/usr/bin/env bash\necho ok\n' >"$tmp/projeto/ação.sh"
@@ -565,18 +567,18 @@ if command -v shellcheck >/dev/null; then
   echo 'echo $((1 +))' >>"$tmp/projeto/ação.sh"
   validar 'STATUS: APROVADO'; rc=$?
   conferir "caso 11d: script rastreado com acento e erro reprova" [ "$rc" = 3 ]
-  conferir "caso 11d: o parecer aponta o script pelo nome" grep -q "falha no shellcheck em ação.sh" "$estado/validacao-s-r1.md"
+  conferir "caso 11d: o parecer aponta o script pelo nome" grep -q "falha no shellcheck em ação.sh" "$rev/validacao-s-r1.md"
   git -C "$tmp/projeto" checkout -q -- ação.sh
 fi
 
 # 11e: nome com quebra de linha não cabe nas listas e reprova, mesmo quando
 # é a única mudança desde o commit aprovado.
 sessao_de claude agy
-echo "$(git -C "$tmp/projeto" rev-parse HEAD) 0" >"$estado/validacao-s.aprovado"
+echo "$(git -C "$tmp/projeto" rev-parse HEAD) 0" >"$rev/validacao-s.aprovado"
 touch "$tmp/projeto/nome"$'\n'"quebrado.txt"
 validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 11e: nome com quebra de linha reprova" [ "$rc" = 3 ]
-conferir "caso 11e: o parecer explica" grep -q "quebra de linha" "$estado/validacao-s-r1.md"
+conferir "caso 11e: o parecer explica" grep -q "quebra de linha" "$rev/validacao-s-r1.md"
 rm -f "$tmp/projeto/nome"$'\n'"quebrado.txt"
 
 # Caso 12: lintr nos arquivos R, só nas linhas alteradas. O cat() da linha 1
@@ -631,7 +633,7 @@ if Rscript -e 'quit(status = !requireNamespace("lintr", quietly = TRUE))' >/dev/
   conferir "caso 12c: com .lintr, cat() novo reprova" [ "$rc" = 3 ]
   conferir "caso 12c: o revisor não foi chamado" test ! -e "$tmp/falso/agy.pedido"
   conferir "caso 12c: o parecer aponta a linha nova e não a da base" \
-    bash -c 'grep -q "antigo.R:3:" "$1" && ! grep -q "antigo.R:1:" "$1"' _ "$estado/validacao-s-r1.md"
+    bash -c 'grep -q "antigo.R:3:" "$1" && ! grep -q "antigo.R:1:" "$1"' _ "$rev/validacao-s-r1.md"
 
   # 12c: com .lintr, arquivo R só com linhas apagadas não gera achado.
   sessao_de claude agy
@@ -651,7 +653,7 @@ if Rscript -e 'quit(status = !requireNamespace("lintr", quietly = TRUE))' >/dev/
   sessao_de claude agy
   validar 'STATUS: APROVADO'; rc=$?
   conferir "caso 12d: arquivo R novo sem commit é conferido" [ "$rc" = 3 ]
-  conferir "caso 12d: o parecer aponta o arquivo novo" grep -q "novo.R:1:" "$estado/validacao-s-r1.md"
+  conferir "caso 12d: o parecer aponta o arquivo novo" grep -q "novo.R:1:" "$rev/validacao-s-r1.md"
   rm -f "$tmp/projeto/novo.R"
 
   # 12e: sem o lintr instalado (Rscript sai com 2), a etapa é pulada em silêncio.
@@ -675,7 +677,7 @@ if Rscript -e 'quit(status = !requireNamespace("lintr", quietly = TRUE))' >/dev/
   validar 'STATUS: APROVADO'; rc=$?
   conferir "caso 12f: variável sem uso reprova" [ "$rc" = 3 ]
   conferir "caso 12f: o parecer aponta a variável" \
-    grep -q "sobra.R:2: \[object_usage_linter\]" "$estado/validacao-s-r1.md"
+    grep -q "sobra.R:2: \[object_usage_linter\]" "$rev/validacao-s-r1.md"
   rm -f "$tmp/projeto/colunas.R" "$tmp/projeto/sobra.R"
   rm -f "$tmp/projeto/metodo.R"
 
@@ -688,7 +690,7 @@ if Rscript -e 'quit(status = !requireNamespace("lintr", quietly = TRUE))' >/dev/
   JANGADA_ISOLAR_ESCRITA="$tmp/lintrquebrado" PATH="$tmp/lintrquebrado:$PATH" validar 'STATUS: APROVADO'; rc=$?
   conferir "caso 12i: com .lintr, falha do lintr reprova" [ "$rc" = 3 ]
   conferir "caso 12i: o parecer diz que os arquivos R não foram conferidos" \
-    grep -q "arquivos R não conferidos" "$estado/validacao-s-r1.md"
+    grep -q "arquivos R não conferidos" "$rev/validacao-s-r1.md"
 
   # 12h: o .lintr da base é código R avaliado pelo lintr. Fora do isolamento
   # ele roda no bwrap: confere os arquivos e não grava no host.
@@ -699,7 +701,7 @@ if Rscript -e 'quit(status = !requireNamespace("lintr", quietly = TRUE))' >/dev/
     git -C "$tmp/projeto" checkout -q agente/x
     git -C "$tmp/projeto" -c user.name=t -c user.email=t@t merge -q main -m "traz o .lintr que grava"
     sessao_de claude agy
-    VALIDAR_FORA=1 validar 'STATUS: APROVADO'; rc=$?
+    validar 'STATUS: APROVADO'; rc=$?
     conferir "caso 12h: o lintr rodou com o .lintr da base ($rc)" \
       bash -c '! grep -q "lintr.*falhou" "$1"' _ "$tmp/saida.log"
     conferir "caso 12h: o .lintr da base não grava no host" test ! -e "$tmp/lintr-no-host"
@@ -747,20 +749,20 @@ rm -f "$tmp/estado/jangada/revisoes/validacao-s"*
 echo "entrega 1" >"$tmp/projeto/entrega1.txt"
 git -C "$tmp/projeto" add entrega1.txt
 git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "entrega 1"
-VALIDAR_FORA=1 validar 'STATUS: REVISAR\n1. x'
-VALIDAR_FORA=1 validar 'STATUS: APROVADO' --resposta "1 corrigido"
+validar 'STATUS: REVISAR\n1. x'
+validar 'STATUS: APROVADO' --resposta "1 corrigido"
 conferir "caso 15: APROVADO grava o commit aprovado" test -s "$tmp/estado/jangada/revisoes/validacao-s.aprovado"
 rm -f "$tmp/falso/"*.pedido
 echo "entrega 2" >"$tmp/projeto/entrega2.txt"
 git -C "$tmp/projeto" add entrega2.txt
 git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "entrega 2"
-VALIDAR_FORA=1 validar 'STATUS: REVISAR\n1. y'; rc=$?
+validar 'STATUS: REVISAR\n1. y'; rc=$?
 conferir "caso 15: nova entrega começa na rodada 1" grep -q "rodada 1 de 3" "$tmp/saida.log"
 conferir "caso 15: o parecer novo não sobrescreve os antigos" test -s "$tmp/estado/jangada/revisoes/validacao-s-r3.md"
 conferir "caso 15: pedido traz só a entrega nova" \
   bash -c 'grep -q "entrega2.txt" "$1" && ! grep -q "entrega1.txt" "$1"' _ "$tmp/falso/agy.pedido"
 conferir "caso 15: pedido não traz o parecer da entrega aprovada" bash -c '! grep -q "Parecer da rodada anterior" "$1"' _ "$tmp/falso/agy.pedido"
-VALIDAR_FORA=1 validar 'STATUS: REVISAR\n1. y' --resposta "1 rejeitado"
+validar 'STATUS: REVISAR\n1. y' --resposta "1 rejeitado"
 conferir "caso 15: a segunda chamada é a rodada 2" grep -q "rodada 2 de 3" "$tmp/saida.log"
 conferir "caso 15: a rodada 2 traz o parecer anterior" grep -q "Parecer da rodada anterior" "$tmp/falso/agy.pedido"
 
@@ -795,9 +797,9 @@ if command -v gitleaks >/dev/null 2>&1; then
   conferir "caso 16b: o revisor não foi chamado" test ! -e "$tmp/falso/agy.pedido"
   linha="$(grep -n "^chave" "$tmp/projeto/rastreado.txt" | cut -d: -f1)"
   conferir "caso 16b: o parecer aponta arquivo e linha" \
-    grep -q "rastreado.txt:$linha: \[github-pat\]" "$estado/validacao-s-r1.md"
+    grep -q "rastreado.txt:$linha: \[github-pat\]" "$rev/validacao-s-r1.md"
   conferir "caso 16b: o segredo não aparece no parecer nem na saída" \
-    bash -c '! grep -qF "$1" "$2" "$3"' _ "$token" "$estado/validacao-s-r1.md" "$tmp/saida.log"
+    bash -c '! grep -qF "$1" "$2" "$3"' _ "$token" "$rev/validacao-s-r1.md" "$tmp/saida.log"
 
   # 16b: um .gitleaks.toml que a entrega acrescenta não libera o segredo; vale
   # o da base.
@@ -820,7 +822,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   printf 'chave = "%s"\nrastreado\n' "$token" >"$tmp/projeto/rastreado.txt"
   validar 'STATUS: APROVADO'; rc=$?
   conferir "caso 16i: segredo na linha 1 reprova" [ "$rc" = 3 ]
-  conferir "caso 16i: o parecer aponta a linha 1" grep -q "rastreado.txt:1: " "$estado/validacao-s-r1.md"
+  conferir "caso 16i: o parecer aponta a linha 1" grep -q "rastreado.txt:1: " "$rev/validacao-s-r1.md"
   git -C "$tmp/projeto" checkout -q -- rastreado.txt
 
   # 16d: arquivo novo sem commit é conferido inteiro.
@@ -828,7 +830,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   printf 'chave = "%s"\n' "$token" >"$tmp/projeto/novo.env"
   validar 'STATUS: APROVADO'; rc=$?
   conferir "caso 16d: segredo em arquivo novo reprova" [ "$rc" = 3 ]
-  conferir "caso 16d: o parecer aponta o arquivo novo" grep -q "novo.env:1:" "$estado/validacao-s-r1.md"
+  conferir "caso 16d: o parecer aponta o arquivo novo" grep -q "novo.env:1:" "$rev/validacao-s-r1.md"
   rm -f "$tmp/projeto/novo.env"
 
   # 16f: arquivo renomeado com segredo antigo e uma linha nova limpa passa.
@@ -872,7 +874,7 @@ sessao_de claude agy
 echo "outra" >>"$tmp/projeto/rastreado.txt"
 JANGADA_VALIDAR_SEM_GITLEAKS=0 PATH="$tmp/glquebrado:$PATH" validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 16e: gitleaks com erro reprova" [ "$rc" = 3 ]
-conferir "caso 16e: o parecer diz que o gitleaks falhou" grep -q "gitleaks falhou" "$estado/validacao-s-r1.md"
+conferir "caso 16e: o parecer diz que o gitleaks falhou" grep -q "gitleaks falhou" "$rev/validacao-s-r1.md"
 sessao_de claude agy
 JANGADA_VALIDAR_SEM_GITLEAKS=1 PATH="$tmp/glquebrado:$PATH" validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 16e: exceção de gitleaks não aprova" \
@@ -902,7 +904,7 @@ printf 'novo %s %s/z\n' "$travessao" "$casa" >>"$tmp/projeto/CHANGELOG.md"
 printf 'texto %s\n' "$travessao" >>"$tmp/projeto/rastreado.txt"
 HOME="$casa" validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 16j: linha antiga, CHANGELOG.md e travessão fora de .md passam ($rc)" [ "$rc" = 0 ]
-conferir "caso 16j: verificação texto registrada" grep -q $'^texto\tPASSED' "$estado/validacao-s-r1.verificacoes.tsv"
+conferir "caso 16j: verificação texto registrada" grep -q $'^texto\tPASSED' "$rev/validacao-s-r1.verificacoes.tsv"
 git -C "$tmp/projeto" checkout -q -- antigo.md CHANGELOG.md rastreado.txt
 sessao_de claude agy
 printf 'a\ncaminho %s/y\n' "$casa" >>"$tmp/projeto/rastreado.txt"
@@ -911,21 +913,21 @@ HOME="$casa" validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 16j: caminho pessoal e travessão novos reprovam" [ "$rc" = 3 ]
 conferir "caso 16j: o revisor não foi chamado" test ! -e "$tmp/falso/agy.pedido"
 conferir "caso 16j: aponta o caminho pessoal" \
-  grep -q "rastreado.txt:$(grep -c '' "$tmp/projeto/rastreado.txt"): caminho pessoal" "$estado/validacao-s-r1.md"
-conferir "caso 16j: aponta o travessão" grep -q "antigo.md:3: travessão" "$estado/validacao-s-r1.md"
-conferir "caso 16j: verificação texto reprovada" grep -q $'^texto\tFAILED' "$estado/validacao-s-r1.verificacoes.tsv"
+  grep -q "rastreado.txt:$(grep -c '' "$tmp/projeto/rastreado.txt"): caminho pessoal" "$rev/validacao-s-r1.md"
+conferir "caso 16j: aponta o travessão" grep -q "antigo.md:3: travessão" "$rev/validacao-s-r1.md"
+conferir "caso 16j: verificação texto reprovada" grep -q $'^texto\tFAILED' "$rev/validacao-s-r1.verificacoes.tsv"
 git -C "$tmp/projeto" checkout -q -- antigo.md rastreado.txt
 sessao_de claude agy
 printf 'novo %s\n' "$travessao" >"$tmp/projeto/novo.md"
 HOME="$casa" validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 16j: arquivo novo com travessão reprova" \
-  bash -c '[ "$1" = 3 ] && grep -q "novo.md:1: travessão" "$2"' _ "$rc" "$estado/validacao-s-r1.md"
+  bash -c '[ "$1" = 3 ] && grep -q "novo.md:1: travessão" "$2"' _ "$rc" "$rev/validacao-s-r1.md"
 rm -f "$tmp/projeto/novo.md"
 
 # Caso 17: métricas de uma entrega a partir de base sintética explícita.
 # Marcas graváveis pelo agente não podem encurtar a revisão.
 git -C "$tmp/projeto" branch -f main HEAD
-metricas="$tmp/estado/jangada/validar.jsonl"
+metricas="$rev/validar.jsonl"
 sessao_de claude agy
 validar 'STATUS: APROVADO'
 rm -f "$metricas"
@@ -996,6 +998,7 @@ conferir "caso 17b: o comando recebe a pasta da entrega" grep -qx -- "--entrega"
 sessao_de claude agy
 jq --arg d "$(date -d '+1 hour' -Iseconds)" '. + {inicio: "0123456789abcdef0123456789abcdef01234567", desde: $d}' \
   "$estado/s.json" >"$tmp/s.json" && mv "$tmp/s.json" "$estado/s.json"
+copiar_sessao
 echo "m5" >>"$tmp/projeto/metricas.txt"
 PATH="$tmp/sub-bin:$PATH" validar 'STATUS: APROVADO'
 conferir "caso 17b: o corte vem da criação da sessão, não do commit de partida" \
@@ -1023,17 +1026,17 @@ saida_k6() { grep -v "resumo de subagentes não gravado" "$tmp/saida.log"; }
 echo "m-k6" >>"$tmp/projeto/metricas.txt"
 sessao_de claude agy
 PATH="$tmp/sub-bin:$PATH" validar 'STATUS: APROVADO'; rc_com=$?
-cp "$estado/validacao-s-r1.md" "$tmp/parecer-com.md"
+cp "$rev/validacao-s-r1.md" "$tmp/parecer-com.md"
 linha_com="$(linha_k6)"; saida_com="$(saida_k6)"
 conferir "caso 17d: com o comando, a linha tem o resumo" \
   bash -c 'tail -n1 "$1" | jq -e "has(\"subagentes\") and (has(\"subagentes_erro\") | not)" >/dev/null' _ "$metricas"
 sessao_de claude agy
 validar 'STATUS: APROVADO'; rc_sem=$?
 conferir "caso 17d: sem jangada-subagentes, mesma saída do validar" [ "$rc_com $rc_sem" = "0 0" ]
-conferir "caso 17d: sem jangada-subagentes, mesmo parecer" cmp -s "$tmp/parecer-com.md" "$estado/validacao-s-r1.md"
+conferir "caso 17d: sem jangada-subagentes, mesmo parecer" cmp -s "$tmp/parecer-com.md" "$rev/validacao-s-r1.md"
 conferir "caso 17d: sem jangada-subagentes, mesma saída fora o aviso do resumo" [ "$saida_com" = "$(saida_k6)" ]
 conferir "caso 17d: sem jangada-subagentes, mesma linha fora o resumo" [ "$linha_com" = "$(linha_k6)" ]
-conferir "caso 17d: sem jangada-subagentes, a marca de aprovação é gravada" test -e "$estado/validacao-s.aprovado"
+conferir "caso 17d: sem jangada-subagentes, a marca de aprovação é gravada" test -e "$rev/validacao-s.aprovado"
 conferir "caso 17d: a linha sai sem resumo e com o motivo, como na falha" \
   bash -c 'tail -n1 "$1" | jq -e "(has(\"subagentes\") | not) and (.subagentes_erro | length > 0)" >/dev/null' _ "$metricas"
 conferir "caso 17d: o validar avisa que o resumo não foi gravado" \
@@ -1059,7 +1062,7 @@ sessao_de claude agy
 antes="$(wc -l <"$metricas")"
 for i in 1 2 3 4; do
   jq --arg s "p$i" '.sessao = $s' "$estado/s.json" >"$estado/p$i.json"
-  env -u JANGADA_VALIDAR_REVISOR JANGADA_ISOLADO=1 PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' \
+  env -u JANGADA_VALIDAR_REVISOR -u JANGADA_ISOLADO PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' \
     JANGADA_SESSAO="p$i" XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
     "$repo_jangada/bin/jangada-validar" "$tmp/projeto" >"$tmp/par$i.log" 2>&1 &
 done
@@ -1067,7 +1070,7 @@ wait
 conferir "caso 17c: uma linha por rodada simultânea" [ "$(wc -l <"$metricas")" = $((antes + 4)) ]
 conferir "caso 17c: as linhas novas são JSON válido" \
   bash -c 'tail -n +"$2" "$1" | jq -e . >/dev/null' _ "$metricas" $((antes + 1))
-rm -f "$estado"/p[1-4].json "$estado"/validacao-p[1-4]-* "$tmp"/par[1-4].log
+rm -f "$estado"/p[1-4].json "$rev"/validacao-p[1-4]-* "$tmp"/par[1-4].log
 
 # Caso 18: arquivo novo que é link simbólico vai ao revisor como link, sem o
 # conteúdo do alvo.
@@ -1088,8 +1091,8 @@ echo "mudança importante" >"$tmp/projeto/zzz-depois.txt"
 JANGADA_VALIDAR_DIFF_MAX=1000 validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 19: corte sem cobertura no parecer não aprova" [ "$rc" = 3 ]
 conferir "caso 19: parecer registra a recusa por cobertura" \
-  bash -c '[ "$(head -n1 "$1")" = "STATUS: REVISAR" ] && grep -q "cobertura do diff" "$1"' _ "$estado/validacao-s-r1.md"
-conferir "caso 19: corte sem cobertura não grava marca" test ! -e "$estado/validacao-s.aprovado"
+  bash -c '[ "$(head -n1 "$1")" = "STATUS: REVISAR" ] && grep -q "cobertura do diff" "$1"' _ "$rev/validacao-s-r1.md"
+conferir "caso 19: corte sem cobertura não grava marca" test ! -e "$rev/validacao-s.aprovado"
 conferir "caso 19: o pedido lista o arquivo depois do corte" \
   bash -c 'sed -n "/diff cortado/,\$p" "$1" | grep -qF "zzz-depois.txt"' _ "$tmp/falso/agy.pedido"
 conferir "caso 19: o pedido lista o arquivo partido no corte" \
@@ -1105,7 +1108,7 @@ conferir "caso 19: Codex recusa o diff cortado" [ "$rc" = 1 ]
 conferir "caso 19: a recusa lista o arquivo de fora" grep -qF "zzz-depois.txt" "$tmp/saida.log"
 conferir "caso 19: o Codex não é chamado" [ ! -s "$tmp/falso/codex.pedido" ]
 conferir "caso 19: a recusa não deixa aprovação" \
-  bash -c '! ls "$1"/validacao-s-r*.md "$1"/validacao-s.aprovado >/dev/null 2>&1' _ "$estado"
+  bash -c '! ls "$1"/validacao-s-r*.md "$1"/validacao-s.aprovado >/dev/null 2>&1' _ "$rev"
 rm -f "$tmp/projeto/aaa-grande.txt" "$tmp/projeto/zzz-depois.txt"
 head -c 60000 /dev/zero | tr '\0' 'a' | fold -w 60 >"$tmp/projeto/novo-grande.txt"
 validar 'STATUS: APROVADO' --revisor codex; rc=$?
@@ -1150,7 +1153,7 @@ git rev-parse --verify --quiet HEAD >/dev/null || exit 1
 [[ "${JANGADA_ISOLADO:-}" == 1 ]]
 ' \
     "$tmp/validar-fora" >"$tmp/projeto/.jangada/validar.sh"
-  VALIDAR_FORA=1 validar 'STATUS: APROVADO'; rc=$?
+  validar 'STATUS: APROVADO'; rc=$?
   conferir "caso 20b: o .jangada/validar.sh roda no isolamento, com git, e passa" [ "$rc" = 0 ]
   conferir "caso 20b: o .jangada/validar.sh grava na cópia, não na pasta do agente" \
     test ! -e "$tmp/projeto/.jangada/rodou"
@@ -1177,7 +1180,7 @@ git rev-parse --verify --quiet HEAD >/dev/null || exit 1
   # shellcheck disable=SC2016  # avaliado pelo agy falso, dentro do isolamento
   FALSO_COMANDO='pwd >"$FALSO_DIR/agy.pasta"; test -L atalho && cat atalho/'"$novo"' >"$FALSO_DIR/agy.visto"
     ls -A "${PWD%/*}" >"$FALSO_DIR/agy.fotos"; ! echo x >invadido 2>/dev/null || echo gravou >>"$FALSO_DIR/agy.fotos"' \
-    VALIDAR_FORA=1 validar 'STATUS: APROVADO'; rc=$?
+    validar 'STATUS: APROVADO'; rc=$?
   conferir "caso 20e: entrega com link de pasta é aprovada fora do isolamento ($rc)" [ "$rc" = 0 ]
   conferir "caso 20e: o isolamento não recusa por causa da foto" \
     bash -c '! grep -q "AUTORIZACAO_RECUSADA\|estado protegido" "$1" "$2"' _ "$tmp/saida.log" "$tmp/estado/jangada/revisoes/validacao-s-r1.md"
@@ -1212,7 +1215,7 @@ done
 sessao_de claude agy
 printf '#!/usr/bin/env bash\n: >.jangada/rodou\nexit 0\n' >"$tmp/projeto/.jangada/validar.sh"
 chmod +x "$tmp/projeto/.jangada/validar.sh"
-PATH="$sem_bwrap" VALIDAR_FORA=1 validar 'STATUS: APROVADO'; rc=$?
+PATH="$sem_bwrap" validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 20c: sem o bwrap, a validação reprova" [ "$rc" = 3 ]
 conferir "caso 20c: sem o bwrap, o .jangada/validar.sh não roda" test ! -e "$tmp/projeto/.jangada/rodou"
 conferir "caso 20c: o motivo é o bwrap" grep -q "bwrap não instalado" "$tmp/saida.log"
@@ -1230,8 +1233,8 @@ echo "linha-20d" >"$tmp/projeto/vinte-d.txt"
 git -C "$tmp/projeto" add vinte-d.txt
 git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "caso 20d"
 printf '%s 1 limpo\n' "$(git -C "$tmp/projeto" rev-parse HEAD)" >"$estado/validacao-s.aprovado"
-metricas_antes="$(wc -l <"$tmp/estado/jangada/validar.jsonl")"
-VALIDAR_FORA=1 validar 'STATUS: APROVADO'; rc=$?
+metricas_antes="$(cat "$tmp/estado/jangada/validar.jsonl" 2>/dev/null | wc -l)"
+validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 20d: aprovado fora do isolamento" [ "$rc" = 0 ]
 conferir "caso 20d: o autor vem da cópia (claude, revisado pelo agy)" test -s "$tmp/falso/agy.pedido"
 conferir "caso 20d: a tarefa vem da cópia" grep -q "tarefa da copia" "$tmp/falso/agy.pedido"
@@ -1245,7 +1248,7 @@ conferir "caso 20d: a marca em revisoes/ diz o que foi revisado, contra qual bas
      and .reviewer == "agy" and .author == "claude" and .independent == true' \
   "$revisoes/validacao-s.aprovado"
 conferir "caso 20d: a métrica vai para revisoes/validar.jsonl" \
-  bash -c '[ "$(wc -l <"$1")" = "$2" ] && [ "$(jq -r .resultado "$3")" = aprovado ]' \
+  bash -c '[ "$(cat "$1" 2>/dev/null | wc -l)" = "$2" ] && [ "$(tail -n1 "$3" | jq -r .resultado)" = aprovado ]' \
   _ "$tmp/estado/jangada/validar.jsonl" "$metricas_antes" "$revisoes/validar.jsonl"
 env XDG_STATE_HOME="$tmp/estado" JANGADA_CORE_PATH="$repo_jangada" "$repo_jangada/bin/jangada-validar" --metricas >"$tmp/metricas.log" 2>&1
 conferir "caso 20d: --metricas conta a aprovação de fora à parte" grep -q "1 aprovada(s) fora do isolamento" "$tmp/metricas.log"
@@ -1266,7 +1269,7 @@ conferir "caso 22: o revisor não trabalha na pasta do agente" \
 conferir "caso 22: o revisor lê o conteúdo de antes da troca" [ "$(cat "$tmp/falso/agy.visto" 2>/dev/null)" = benigno ]
 conferir "caso 22: a marca traz a árvore da foto e o commit do ramo" \
   jq -e --arg t "$arvore_22" --arg c "$(git -C "$tmp/projeto" rev-parse HEAD)" \
-    '.candidate_tree == $t and .candidate_sha == $c and .limpo == true' "$estado/validacao-s.aprovado"
+    '.candidate_tree == $t and .candidate_sha == $c and .limpo == true' "$rev/validacao-s.aprovado"
 conferir "caso 22: a foto some no fim" bash -c 'test ! -e "$(cat "$1")"' _ "$tmp/falso/agy.pasta"
 git -C "$tmp/projeto" checkout -q -- alvo.txt
 
@@ -1278,7 +1281,7 @@ PROJ="$tmp/projeto" FALSO_COMANDO='git -C "$PROJ" checkout -q -- alvo.txt' valid
 conferir "caso 22b: aprovado" [ "$rc" = 0 ]
 conferir "caso 22b: o pedido traz a alteração sem commit" grep -q "^+sem commit$" "$tmp/falso/agy.pedido"
 conferir "caso 22b: a marca não vale para o commit do ramo" \
-  jq -e '.limpo == false and .candidate_sha != .cabeca' "$estado/validacao-s.aprovado"
+  jq -e '.limpo == false and .candidate_sha != .cabeca' "$rev/validacao-s.aprovado"
 
 # Caso 22c: objeto solto trocado em .git/objects, que o agente grava. O git
 # entregaria o conteúdo forjado sem conferir o hash; o espelho recusa.
@@ -1295,17 +1298,19 @@ sys.stdout.buffer.write(zlib.compress(b"blob %d\0" % len(d) + d))' >"$objeto_22"
 conferir "caso 22c: o git lê o objeto forjado sem reclamar" \
   [ "$(git -C "$tmp/projeto" cat-file -p "$blob_22")" = "conteudo forjado" ]
 rm -f "$revisoes/validacao-s.aprovado"
-VALIDAR_FORA=1 validar 'STATUS: APROVADO'; rc=$?
+validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 22c: objeto forjado barra a revisão" [ "$rc" = 1 ]
 conferir "caso 22c: a mensagem diz que o espelho recusou" grep -q "o espelho recusou os objetos" "$tmp/saida.log"
 conferir "caso 22c: o revisor não é chamado e nada é aprovado" \
   bash -c 'test ! -e "$1" && test ! -e "$2"' _ "$tmp/falso/agy.pedido" "$revisoes/validacao-s.aprovado"
 rm -f "$objeto_22"
 git -C "$tmp/projeto" reset -q --hard HEAD~1
-VALIDAR_FORA=1 validar 'STATUS: REVISAR\n1. x'
+rm -f "$rev/s.json"
+validar 'STATUS: REVISAR\n1. x'
 conferir "caso 20d: sem a cópia da sessão, avisa que os metadados vêm do estado gravável" \
   grep -q "sem cópia da sessão" "$tmp/saida.log"
-rm -f "$estado/validacao-s.aprovado"
+rm -f "$rev/validacao-s.aprovado"
+copiar_sessao
 
 # Caso 21: a prévia do jangada-agentes mostra o último parecer da sessão, não o
 # da vizinha com o mesmo prefixo, e avisa que a sessão o gravou.
@@ -1421,7 +1426,7 @@ validar 'STATUS: APROVADO'; rc=$?
 conferir "caso 13h: o revisor da sessão também passa pelo registro" \
   bash -c '[ "$1" != 0 ] && grep -q "o provedor novo não tem revisão implementada" "$2"' _ "$rc" "$tmp/saida.log"
 sessao_de claude
-env -u JANGADA_ISOLADO JANGADA_ISOLADO=1 JANGADA_VALIDAR_REVISOR=novo PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" \
+env -u JANGADA_ISOLADO JANGADA_VALIDAR_REVISOR=novo PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" \
   FALSO_RESPOSTA='STATUS: APROVADO' JANGADA_SESSAO=s XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" \
   JANGADA_CORE_PATH="$repo_jangada" "$repo_jangada/bin/jangada-validar" "$tmp/projeto" >"$tmp/saida.log" 2>&1; rc=$?
 conferir "caso 13h: JANGADA_VALIDAR_REVISOR também passa pelo registro" \

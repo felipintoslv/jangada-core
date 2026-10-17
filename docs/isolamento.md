@@ -178,12 +178,11 @@ uma sessão de agente roda fora, pedida pelo soquete.
   o apaga no encerramento.
 - **A resposta:** o texto do parecer e o código de saída voltam pelo soquete
   como dado; o validar de dentro só os imprime.
-- **Sem atendente** (isolar antigo, sessão sem cópia protegida, soquete
-  ausente ou sem resposta em 10 s): o validar de dentro sai com 1 e a
-  mensagem "revisão fora do isolamento indisponível; peça ao coordenador",
-  sem gravar nada. `JANGADA_VALIDAR_SEM_ATENDENTE=1` mantém a revisão antiga
-  dentro do isolamento, para os testes do validar; o que ela grava não entra
-  nas somas nem na integração.
+- **Sem atendente** (isolar antigo, sessão sem cópia protegida, sem
+  `XDG_RUNTIME_DIR`, soquete ausente ou sem resposta em 10 s): o validar de
+  dentro sai com 1 e a mensagem "revisão fora do isolamento indisponível;
+  peça ao coordenador", sem gravar nada. Não há variável que leve a revisão
+  para dentro: o agente define as variáveis de dentro.
 - **Fim:** o atendente sai quando o `jangada-isolar` acaba, mesmo morto por
   KILL (confere o pai a cada segundo), e mata a revisão em curso.
 

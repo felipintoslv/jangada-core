@@ -100,11 +100,10 @@ fi
 
 # Dentro do isolamento o validar só pede a revisão ao atendente que o
 # jangada-isolar mantém fora: vai o sha da cabeça e, se houver, a resposta ao
-# parecer anterior, como dado. Sessão, base,
-# revisor, modelo, esforço e limite de rodadas são os de fora, e só lá se
-# grava. JANGADA_VALIDAR_SEM_ATENDENTE=1 roda aqui dentro como antes (os
-# testes do validar); o que essa rodada grava não entra nas somas nem integra.
-if ((!fora)) && [[ "${JANGADA_VALIDAR_SEM_ATENDENTE:-0}" != 1 ]]; then
+# parecer anterior, como dado. Sessão, base, revisor, modelo, esforço e limite
+# de rodadas são os de fora, e só lá se grava. Não há desvio por variável: o
+# agente define as variáveis de dentro.
+if ((!fora)); then
   if ((${#restritas[@]})) || [[ -n "$atendido" ]]; then
     ((${#restritas[@]})) || restritas=(--atendido)
     echo "jangada-validar: dentro do isolamento ${restritas[*]} não vale: o atendente fora dele usa a base, o revisor, o modelo, o esforço e o limite de rodadas da sessão. Rode sem opções ou peça ao coordenador." >&2

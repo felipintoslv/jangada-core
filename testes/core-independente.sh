@@ -72,17 +72,20 @@ chmod +x "$tmp/bin/claude"
 export PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso"
 export JANGADA_ISOLAR_ESCRITA="$tmp/falso"
 export XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config"
-# Sem o atendente do jangada-isolar: o validar revisa dentro, como antes.
-export JANGADA_CORE_PATH="$copia" JANGADA_SESSAO=s JANGADA_ISOLADO=1 JANGADA_VALIDAR_SEM_ATENDENTE=1
+# Fora do isolamento, onde o atendente do jangada-isolar roda a revisão.
+export JANGADA_CORE_PATH="$copia" JANGADA_SESSAO=s
+unset JANGADA_ISOLADO
 git -C "$tmp/projeto" init -q -b main
 printf 'x <- 1\n' >"$tmp/projeto/exemplo.R"
 git -C "$tmp/projeto" add exemplo.R
 git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm inicio
 git -C "$tmp/projeto" checkout -qb agente/x
 nova_sessao() {
-  rm -f "$tmp/estado/jangada/agentes/validacao-s"* "$tmp/falso/pedido"
+  rm -f "$tmp/estado/jangada/revisoes/validacao-s"* "$tmp/falso/pedido"
   printf '{"sessao":"s","agente":"codex","revisor":"claude","base":"main","tarefa":"R sintético"}\n' \
     >"$tmp/estado/jangada/agentes/s.json"
+  mkdir -p "$tmp/estado/jangada/revisoes"
+  cp "$tmp/estado/jangada/agentes/s.json" "$tmp/estado/jangada/revisoes/s.json"
 }
 validar() {
   "$copia/bin/jangada-validar" --revisor claude "$tmp/projeto" >"$tmp/saida" 2>&1

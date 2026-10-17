@@ -234,10 +234,7 @@ class Gerador:
         """Roda como o agente chama: com JANGADA_ISOLADO e a marca do isolamento
         montada. Dentro de uma sessão a marca já existe; fora, o bwrap monta só
         ela, como faz o testes/validar.sh."""
-        # Sem o atendente do jangada-isolar, que este teste não abre: o validar
-        # revisa dentro, como antes; testes/atendente.sh cobre o pedido.
-        prefixo, variaveis = [], {'JANGADA_ISOLADO': '1', 'JANGADA_SESSAO': SESSAO,
-                                  'JANGADA_VALIDAR_SEM_ATENDENTE': '1'}
+        prefixo, variaveis = [], {'JANGADA_ISOLADO': '1', 'JANGADA_SESSAO': SESSAO}
         montagens = pathlib.Path('/proc/self/mountinfo').read_text().splitlines()
         if not any(linha.split()[4] == MARCA for linha in montagens):
             marca = self.tmp / 'marca'
@@ -305,15 +302,17 @@ class Gerador:
 
     def validar(self):
         """validar.jsonl (seção 1), pareceres e marca de aprovação (seção 2): uma
-        rodada REVISAR e outra APROVADO, com o agy falso de revisor."""
+        rodada REVISAR e outra APROVADO, com o agy falso de revisor. Roda fora do
+        isolamento, como o atendente do jangada-isolar a roda; testes/atendente.sh
+        cobre o pedido de dentro."""
         (self.worktree / 'arquivo.txt').write_text('linha 1\n')
         self.git('add', 'arquivo.txt', pasta=self.worktree)
         self.git('commit', '-q', '-m', 'commit 1', pasta=self.worktree)
         codigos = []
         for resposta, extra in (('STATUS: REVISAR\\n1. arquivo.txt:1: problema', []),
                                 ('STATUS: APROVADO\\ntudo certo', ['--resposta', '1 rejeitado: motivo'])):
-            feito = self.como_agente(self.comando('jangada-validar'), *extra, self.worktree,
-                                     FALSO_RESPOSTA=resposta)
+            feito = self.rodar(self.comando('jangada-validar'), *extra, self.worktree,
+                               JANGADA_SESSAO=SESSAO, FALSO_RESPOSTA=resposta)
             codigos.append(feito.returncode)
         return codigos
 
@@ -336,14 +335,14 @@ class Gerador:
         """Todos os registros, por nome da tabela: lista de (rótulo, registro)."""
         registros = {nome: [] for nome in ('validar.jsonl', 'validacao-SESSAO.aprovado', 'SESSAO.json',
                                            'eventos-agentes.jsonl', 'delegacoes.jsonl')}
-        pareceres = self.estado / 'agentes'
+        pareceres = self.estado / 'revisoes'
         momentos = [('criado', self.abrir_sessao())]
         registros['eventos-agentes.jsonl'] = list(enumerate(self.hooks(), 1))
         momentos.append(('depois dos hooks', self.sessao()))
         self.codigos_validar = self.validar()
         momentos.append(('depois do validar', self.sessao()))
         registros['SESSAO.json'] = momentos
-        registros['validar.jsonl'] = list(enumerate(self.linhas('validar.jsonl'), 1))
+        registros['validar.jsonl'] = list(enumerate(self.linhas('revisoes/validar.jsonl'), 1))
         marca = pareceres / f'validacao-{SESSAO}.aprovado'
         if marca.is_file():
             registros['validacao-SESSAO.aprovado'] = [('marca', json.loads(marca.read_text(encoding='utf-8')))]
