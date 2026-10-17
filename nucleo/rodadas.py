@@ -43,7 +43,7 @@ def subpasta(fd, nome):
 
 
 def linhas(fd, nome):
-    """Últimas LINHAS_MAX linhas válidas; arquivo ausente não tem linhas."""
+    """Registros das últimas LINHAS_MAX linhas físicas; arquivo ausente não tem linhas."""
     try:
         arquivo_fd = os.open(nome, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
     except FileNotFoundError:
@@ -64,14 +64,15 @@ def linhas(fd, nome):
             pedaco = linha
             while len(pedaco) > LINHA_MAX and not pedaco.endswith(b'\n'):
                 pedaco = arquivo.readline(LINHA_MAX + 1)
+            # Toda linha física ocupa lugar na janela, inclusive a descartada.
             if cauda:
                 # A primeira linha da cauda pode começar no meio.
                 cauda = False
-                continue
-            if not longa:
-                ultimas.append(linha)
+                ultimas.append(None)
+            else:
+                ultimas.append(None if longa else linha)
     registros = []
-    for linha in ultimas:
+    for linha in filter(None, ultimas):
         try:
             dados = json.loads(linha.decode('utf-8'))
         except (ValueError, RecursionError):

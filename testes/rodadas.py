@@ -128,6 +128,27 @@ def main():
         cauda = rodadas('s1')['rodadas']
         assert [x['rodada'] for x in cauda] == [3], cauda
 
+        # Linha longa descartada também conta na janela: a rodada 1 fica fora.
+        gravar(estado / 'validar.jsonl', [rodada(1, 'revisar', '2026-10-17T08:00:00-03:00', execucao='e6')]
+               + [dict(rotulo='outra')] * 4900
+               + [dict(rotulo='outra', autor='x' * 66000)] * 100
+               + [rodada(2, 'aprovado', '2026-10-17T09:00:00-03:00', execucao='e6')])
+        assert (estado / 'validar.jsonl').stat().st_size < 8 * 1024 * 1024
+        janela = rodadas('s1')['rodadas']
+        assert [x['rodada'] for x in janela] == [2], janela
+
+        # Em revisoes/ só validar.jsonl é aberto; pareceres e outros arquivos não.
+        segredo = 'TEXTO-DO-PARECER-PROTEGIDO'
+        (estado / 'revisoes/validacao-s1-r1.md').write_text(f'STATUS: REVISAR\n{segredo}\n')
+        gravar(estado / 'revisoes/validar.jsonl', [
+            rodada(3, 'revisar', '2026-10-17T09:10:00-03:00', execucao='e6', modelo='sonnet')])
+        (estado / 'revisoes/outro.jsonl').write_text(
+            json.dumps(rodada(4, 'revisar', '2026-10-17T09:20:00-03:00', execucao='e6', revisor=segredo)) + '\n')
+        r = consultar('s1')
+        assert r.returncode == 0 and segredo not in r.stdout, r
+        assert [x['rodada'] for x in json.loads(r.stdout)['rodadas']] == [2, 3], r.stdout
+        (estado / 'revisoes/validar.jsonl').unlink()
+
         for invalido in ('..', 'a/b', '', 'x' * 256):
             r = consultar(invalido)
             assert r.returncode == 2 and r.stdout == '' and r.stderr.strip(), (invalido, r)

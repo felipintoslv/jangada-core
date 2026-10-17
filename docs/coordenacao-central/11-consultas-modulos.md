@@ -104,7 +104,7 @@ tarefa.
 
 Cada `validar.jsonl` é lido nos últimos 8 MiB e nas últimas 5.000 linhas.
 Linha acima de 64 KiB, JSON inválido ou valor que não é objeto são
-ignorados. Arquivo ausente dá lista vazia; link ou arquivo não regular
+ignorados, mas contam entre as 5.000 linhas. Arquivo ausente dá lista vazia; link ou arquivo não regular
 recusa a consulta. São devolvidas as 50 rodadas mais recentes. Rodada sem
 `data` legível fica antes das datadas. A saída não tem `NaN` nem texto
 `None`; valor inválido vira nulo.
