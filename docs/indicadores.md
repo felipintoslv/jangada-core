@@ -9,7 +9,7 @@ O objeto JSON tem `versao: 1` e três listas:
 - `tarefas`: uma entrada por sessão e execução, com `sessao`, `autor`, `tokens`
   (`entrada`, `saida`, `cache_lido`, `modelo` e `motivo`), `rodadas`,
   `ultimo_resultado`, `delegacoes` e `segundos_revisao`. Sessões abertas usam
-uma medição atual; sessões encerradas usam `consumo-tarefas.jsonl`.
+  uma medição atual; sessões encerradas usam `consumo-tarefas.jsonl`.
 - `revisores`: uma entrada por revisor e modelo, com `pareceres`, `apontamentos`,
   `procedentes`, `rejeitados`, `sem_classificacao`, `casos`, `casos_taxa` e
   `taxa_procedencia`. A taxa divide procedentes por procedentes mais rejeitados.

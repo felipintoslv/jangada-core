@@ -501,7 +501,6 @@ limpar() {
   local trava_revisoes
   exec {trava_revisoes}<"$JANGADA_ESTADO/revisoes/travas/$s"
   flock -w 15 "$trava_revisoes" || { echo "revisão ocupada; encerramento adiado" >&2; return 1; }
-  registrar_consumo_tarefa || true
   # Parar o agente não apaga os documentos nem o trabalho produzido.
   "${JANGADA_TMUX[@]}" kill-session -t "=$s" 2>/dev/null || true
   # O histórico protegido é publicado e conferido antes de qualquer remoção.
@@ -510,6 +509,7 @@ limpar() {
   arquivo_historico="$(python3 "$JANGADA_CORE_PATH/orquestracao/confianca.py" arquivar "$JANGADA_ESTADO" "$s")" \
     || { echo "encerramento bloqueado: evidências originais mantidas" >&2; return 1; }
   echo "evidências preservadas: $arquivo_historico"
+  registrar_consumo_tarefa || true
   if [[ -n "$worktree" && -d "$worktree" ]]; then
     if ((forcar)); then
       jangada_git_seguro -C "$raiz" worktree remove --force "$worktree"
@@ -563,8 +563,8 @@ registrar_consumo_tarefa() {
   local autor projeto execucao inicio fim medicao linha arquivo="$JANGADA_ESTADO/consumo-tarefas.jsonl"
   [[ -f "$arq" ]] || return 0
   execucao="$(jq -r '.execucao // ""' "$arq" 2>/dev/null || true)"
-  if grep -Fq "\"sessao\":\"$s\"" "$arquivo" 2>/dev/null && \
-      { [[ -z "$execucao" ]] || grep -Fq "\"execucao\":\"$execucao\"" "$arquivo"; }; then return 0; fi
+  if [[ -f "$arquivo" ]] && jq -e --arg sessao "$s" --arg execucao "$execucao" \
+      'select(.sessao == $sessao and (.execucao // "") == $execucao)' "$arquivo" >/dev/null 2>&1; then return 0; fi
   autor="$(jq -r '.agente // ""' "$arq" 2>/dev/null | awk '{print $1}')"
   projeto="$(basename "$(jq -r '.raiz // .dir // ""' "$arq" 2>/dev/null)")"
   inicio="$(jq -r '.desde // ""' "$arq" 2>/dev/null)"

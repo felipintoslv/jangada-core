@@ -64,13 +64,14 @@ def montar(estado, projeto='', desde=''):
             except (OSError, ValueError): continue
             chave = (m.get('sessao') or arq.stem, m.get('execucao'))
             if chave not in por_chave and m.get('estado') not in {'concluido', 'encerrado'}:
-                medido = medir(estado, chave[0], os.path.basename((m.get('agente') or '').split()[0]),
-                               m.get('worktree') or m.get('dir') or m.get('raiz'))
                 projeto_aberto = Path(m.get('raiz') or m.get('dir') or '').name
                 if projeto and projeto_aberto != projeto:
                     continue
                 if desde and (m.get('desde') or '')[:10] < desde:
                     continue
+                provedor = (m.get('agente') or '').split()
+                medido = medir(estado, chave[0], os.path.basename(provedor[0]) if provedor else '',
+                               m.get('worktree') or m.get('dir') or m.get('raiz'))
                 por_chave[chave] = dict(sessao=chave[0], projeto=projeto_aberto, execucao=chave[1],
                     autor=m.get('agente'), tokens=medido, inicio=m.get('desde'), fim=None)
     for (sessao, execucao), c in por_chave.items():
@@ -140,7 +141,20 @@ def main():
     if a.json:
         print(json.dumps(dados, ensure_ascii=False))
     else:
-        print(f"Tarefas: {len(dados['tarefas'])}; revisores: {len(dados['revisores'])}; combinações de papel e destino: {len(dados['local_vs_agy'])}.")
+        print(f"Tarefas: {len(dados['tarefas'])}")
+        for t in dados['tarefas']:
+            tokens = t['tokens']
+            print(f"  {t['sessao']}: entrada {tokens.get('entrada')}, saída {tokens.get('saida')}, "
+                  f"cache lido {tokens.get('cache_lido')}, rodadas {t['rodadas']}, revisão {t['segundos_revisao']} s")
+        print(f"Revisores: {len(dados['revisores'])}")
+        for r in dados['revisores']:
+            taxa = 'sem casos' if r['taxa_procedencia'] is None else f"{r['taxa_procedencia']:.0%} ({r['casos_taxa']} casos)"
+            print(f"  {r['revisor']} / {r['modelo']}: {r['procedentes']} procedentes, {r['rejeitados']} rejeitados, taxa {taxa}")
+        print('Local e agy:')
+        for d in dados['local_vs_agy']:
+            print(f"  {d['destino']} / {d['papel']}: {d['chamadas']} chamadas, {d['sucesso']} sucesso(s), "
+                  f"{d['recusas']} recusa(s), mediana {d['segundos_medianos']} s, "
+                  f"tokens entrada {d['tokens_entrada']}, saída {d['tokens_saida']}, local transferido {d['mudancas_local']}")
 
 
 if __name__ == '__main__': main()

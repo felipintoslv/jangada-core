@@ -119,13 +119,13 @@ fi
 registrar() {
   local itens=0 linha resumo resumo_erro resposta_json=''
   [[ -f "${saida:-}" ]] && itens="$(grep -cE '^[[:space:]]*[0-9]+\.[[:space:]]' "$saida" || true)"
-  if [[ -n "$resposta" ]]; then
+  if [[ -n "$resposta" && "$2" == revisor && ( "$1" == aprovado || "$1" == revisar ) ]]; then
     resposta_json="$(python3 - "$resposta" "$arq_metricas" "$rotulo" "$execucao" <<'PY'
 import json, re, sys
 texto, caminho, sessao, execucao = sys.argv[1:]
 contagens = {'corrigidos': 0, 'rejeitados': 0, 'sem_classificar': 0}
-for trecho in re.split(r';|\n', texto):
-    m = re.match(r'\s*\d+\s+(.*)', trecho)
+for trecho in re.split(r';\s*(?=\d+[.:)]?\s)|\n(?=\s*\d+[.:)]?\s)', texto):
+    m = re.match(r'\s*\d+[.:)]?\s*(.*)', trecho, re.S)
     if not m:
         continue
     item = m.group(1).strip().lower()
@@ -141,7 +141,8 @@ try:
         for linha in f:
             try: d = json.loads(linha)
             except ValueError: continue
-            if d.get('rotulo') == sessao and d.get('execucao') == (execucao or None) and d.get('etapa') == 'revisor':
+            if (d.get('rotulo') == sessao and d.get('execucao') == (execucao or None)
+                    and d.get('etapa') == 'revisor' and d.get('resultado') in {'aprovado', 'revisar'}):
                 if anterior is None or (d.get('rodada') or 0) > (anterior.get('rodada') or 0):
                     anterior = d
 except OSError:

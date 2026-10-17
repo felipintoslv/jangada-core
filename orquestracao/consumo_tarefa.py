@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 
 
@@ -23,7 +24,7 @@ def codex(estado, sessao):
                 except ValueError:
                     continue
                 corpo = d.get('payload') if isinstance(d.get('payload'), dict) else d
-                if corpo.get('type') == 'session_meta' or d.get('type') == 'session_meta':
+                if corpo.get('type') in {'session_meta', 'turn_context'} or d.get('type') in {'session_meta', 'turn_context'}:
                     modelo = corpo.get('model') or modelo
                 contagem = corpo.get('token_count')
                 if contagem is None and corpo.get('type') == 'token_count':
@@ -44,10 +45,8 @@ def codex(estado, sessao):
 
 def claude(home, projeto):
     projetos = home / '.claude' / 'projects'
-    chave = str(Path(projeto).resolve()).replace('/', '-')
-    pasta = projetos / chave.lstrip('-')
-    if not pasta.is_dir():
-        pasta = projetos / chave
+    chave = re.sub(r'[^A-Za-z0-9]', '-', str(Path(projeto).resolve()))
+    pasta = projetos / chave
     vistos, respostas = set(), []
     try:
         arquivos = pasta.rglob('*.jsonl')
