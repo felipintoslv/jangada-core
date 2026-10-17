@@ -134,6 +134,20 @@ mantida() { ! retirada "$1"; }
 conferir "ambiente mínimo: JANGADA_ISOLAR_AMBIENTE_MANTER fica" mantida R_LIBS_USER
 conferir "ambiente mínimo: o valor não aparece nos argumentos" bash -c '! grep -q "SENHA_DO_BANCO=" "$1"' _ "$tmp/args"
 
+# Variáveis de um coordenador que é sessão do Claude Code não chegam ao agente.
+for amb in "" JANGADA_ISOLAR_AMBIENTE=minimo; do
+  mostrar ${amb:+"$amb"} CLAUDECODE=1 CLAUDE_CODE_CHILD_SESSION=1 CLAUDE_CODE_SESSION_ID=s \
+    CLAUDE_CODE_MESSAGING_SOCKET=/tmp/s CLAUDE_CODE_MESSAGING_TOKEN=t \
+    CLAUDE_CODE_OAUTH_TOKEN=login CLAUDE_CODE_USE_VERTEX=1 CLAUDE_CODE_DISABLE_1M_CONTEXT=1 JANGADA_SESSAO_TESTE=x
+  for v in CLAUDECODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_SESSION_ID \
+           CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN; do
+    conferir "coordenador${amb:+ ($amb)}: $v não entra" retirada "$v"
+  done
+  for v in CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_DISABLE_1M_CONTEXT JANGADA_SESSAO_TESTE; do
+    conferir "coordenador${amb:+ ($amb)}: $v fica" mantida "$v"
+  done
+done
+
 # Casa mínima: a pasta pessoal some e volta só o que está na lista.
 conferir "caso 1: sem a opção, a pasta pessoal não é esvaziada" bash -c '! grep -A1 -xF -- --tmpfs "$1" | grep -qxF "$2"' _ "$tmp/args" "$casa"
 : >"$casa/.zshrc"; : >"$casa/.bashrc"

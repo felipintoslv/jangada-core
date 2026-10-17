@@ -161,6 +161,41 @@ class Seletor(unittest.TestCase):
                       if arquivo.name != 'historico.json')
         self.assertIn('jangada-isolar', estado.read_text())
 
+    def test_ambiente_do_coordenador_nao_chega_ao_tmux(self):
+        # O tmux falso registra o próprio ambiente (o que um servidor novo
+        # herdaria) e simula um servidor aberto que já guarda as variáveis.
+        self.script('tmux', 'printf "%s\\n" "$*" >>"$TESTE_PASTA/tmux-args"\n'
+                    'env >>"$TESTE_PASTA/tmux-env"\n'
+                    'case " $* " in\n'
+                    '  *" has-session "*) exit 1 ;;\n'
+                    '  *" show-environment "*) printf "%s\\n" CLAUDECODE=1 '
+                    'CLAUDE_CODE_SESSION_ID=velha -CLAUDE_CODE_CHILD_SESSION '
+                    'CLAUDE_CODE_OAUTH_TOKEN=login OUTRA=1 ;;\n'
+                    'esac\nexit 0\n')
+        coordenador = dict(CLAUDECODE='1', CLAUDE_CODE_CHILD_SESSION='1',
+                           CLAUDE_CODE_SESSION_ID='s', CLAUDE_CODE_MESSAGING_SOCKET='/tmp/s',
+                           CLAUDE_CODE_MESSAGING_TOKEN='t')
+        self.ambiente.update(coordenador, CLAUDE_CODE_OAUTH_TOKEN='login',
+                             CLAUDE_CODE_DISABLE_1M_CONTEXT='1')
+        resultado = subprocess.run([str(RAIZ / 'bin/jangada-agente'), '--agente', 'claude',
+                                   '--projeto', str(self.pasta), '--direto'],
+                                  capture_output=True, text=True, env=self.ambiente, timeout=15)
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+        nomes = {linha.split('=', 1)[0]
+                 for linha in (self.pasta / 'tmux-env').read_text().splitlines()}
+        for nome in coordenador:
+            self.assertNotIn(nome, nomes)
+        self.assertIn('CLAUDE_CODE_OAUTH_TOKEN', nomes)
+        self.assertIn('CLAUDE_CODE_DISABLE_1M_CONTEXT', nomes)
+        chamadas = (self.pasta / 'tmux-args').read_text().splitlines()
+        removidas = {c.rsplit(' ', 1)[1] for c in chamadas if 'set-environment -g -u' in c}
+        self.assertEqual(removidas, {'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID',
+                                     'CLAUDE_CODE_CHILD_SESSION'})
+        criacao = next(i for i, c in enumerate(chamadas) if ' new-session ' in f' {c} ')
+        self.assertTrue(all(i < criacao for i, c in enumerate(chamadas)
+                            if 'set-environment' in c))
+        self.assertFalse(any('CLAUDE_CODE_SESSION_ID' in c for c in chamadas[criacao:]))
+
     def regra_de_delegacao(self, perfil):
         self.script('tmux', '[[ " $* " == *" has-session "* ]] && exit 1\nexit 0\n')
         pasta = self.pasta / 'estado/jangada/agentes'

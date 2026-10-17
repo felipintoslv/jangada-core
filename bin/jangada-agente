@@ -45,6 +45,23 @@ set -euo pipefail
 # shellcheck source=bin/jangada-config
 source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
 
+# Variáveis de uma sessão do Claude Code que abriu este comando: o servidor
+# do tmux criado aqui as herdaria, e o agente com elas não grava a conversa e
+# recebe o socket e o token da sessão do coordenador. Ficam o login, a
+# escolha de provedor e os DISABLE_* do usuário. O jangada-isolar repete.
+# Lê nomes, um por linha (com "-" ou "=valor" do show-environment do tmux).
+ambiente_do_coordenador() {
+  local v
+  while IFS= read -r v; do
+    v="${v#-}"; v="${v%%=*}"
+    case "$v" in
+      CLAUDE_CODE_OAUTH_TOKEN | CLAUDE_CODE_USE_* | CLAUDE_CODE_DISABLE_*) ;;
+      CLAUDECODE | CLAUDE_CODE_*) printf '%s\n' "$v" ;;
+    esac
+  done
+}
+while IFS= read -r _v; do unset "$_v"; done < <(compgen -e | ambiente_do_coordenador)
+
 # Quem abre sessão principal. A Central e o --perfis leem daqui: o agy só
 # atende delegação e revisão.
 mapfile -t principais < <(jangada_provedores principal)
@@ -576,6 +593,11 @@ if ((sessao_nova)); then
     amb+=(-e "JANGADA_VALIDAR_MODELO=$(jq -r '.revisor.modelo' <<<"$modelos_tarefa")"
           -e "JANGADA_VALIDAR_ESFORCO=$(jq -r '.revisor.esforco' <<<"$modelos_tarefa")")
   fi
+  # Um servidor já aberto por outro coordenador guarda as variáveis no
+  # ambiente global, que toda sessão nova herda.
+  while IFS= read -r _v; do
+    "${JANGADA_TMUX[@]}" set-environment -g -u "$_v" || true
+  done < <("${JANGADA_TMUX[@]}" show-environment -g 2>/dev/null | ambiente_do_coordenador)
   if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$dir" "${amb[@]}"; then
     "$JANGADA_CORE_PATH/bin/jangada-projeto" --projeto "$raiz" sessao-abortar "$sessao" \
       --execucao "$execucao" >/dev/null

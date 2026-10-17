@@ -598,6 +598,16 @@ for v in GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITLAB_TOKEN AWS_ACCESS_KEY_I
          SOPS_AGE_KEY NPM_TOKEN TWINE_PASSWORD; do
   credenciais+=(--unsetenv "$v")
 done
+# Um coordenador que é sessão do Claude Code passa CLAUDECODE e CLAUDE_CODE_*
+# a quem ele abre: com elas o Claude do agente não grava a conversa, e o par
+# socket e token dá acesso à sessão do coordenador. Ficam o login, a escolha
+# de provedor e os DISABLE_* que o usuário exporta no perfil do shell.
+while IFS= read -r v; do
+  case "$v" in
+    CLAUDE_CODE_OAUTH_TOKEN | CLAUDE_CODE_USE_* | CLAUDE_CODE_DISABLE_*) ;;
+    CLAUDECODE | CLAUDE_CODE_*) credenciais+=(--unsetenv "$v") ;;
+  esac
+done < <(compgen -e)
 args+=(--unsetenv TMUX --unsetenv TMUX_PANE --unsetenv SSH_AUTH_SOCK
        --unsetenv HYPRLAND_INSTANCE_SIGNATURE --unsetenv HYPRLAND_CMD
        --unsetenv WAYLAND_DISPLAY --unsetenv DISPLAY --unsetenv GPG_AGENT_INFO
