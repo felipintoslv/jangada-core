@@ -14,9 +14,16 @@ repo_jangada="$PWD"
 falhas=0
 ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
-conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
+# shellcheck source=testes/isolamento.sh
+source testes/isolamento.sh
+conferir() {
+  local d="$1"; shift
+  if "$@"; then ok "$d"; conferencia_feita "${tmp:-}"
+  elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
+}
 
 tmp="$(mktemp -d)"
+erros_dos_pulados "$tmp"
 trap 'rm -rf "$tmp"' EXIT
 estado="$tmp/state/jangada/agentes"
 jp="$tmp/jangada"
@@ -90,6 +97,7 @@ chmod +x "$tmp/bin/"* "$jp/bin/jangada-isolar"
 uuid=0123abcd-4567-89ab-cdef-0123456789ab
 # restaurar JSON [env extra...]: grava o estado da sessão "s" e restaura.
 restaurar() {
+  novo_comando "$tmp"
   rm -f "$log" "$tmp/pasta" "$tmp/ambiente" "$tmp/digitado" "$invadido" "$estado/s.json"
   jq -n --arg dir "$tmp/projetos/proj" --argjson extra "$1" \
     '{sessao:"s", dir:$dir, agente:"claude", estado:"interrompido",

@@ -10,7 +10,13 @@ repo_jangada="$PWD"
 falhas=0
 ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
-conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
+# shellcheck source=testes/isolamento.sh
+source testes/isolamento.sh
+conferir() {
+  local d="$1"; shift
+  if "$@"; then ok "$d"; conferencia_feita "${tmp:-}"
+  elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
+}
 conferir "implementação: ambiente vazio, keyring por item sem criação ou acesso irrestrito" \
   env PYTHONDONTWRITEBYTECODE=1 python3 testes/implementacao-agy.py \
     Implementacao.test_perfil_isolamento_limita_keyring_e_limpa_ambiente
@@ -23,6 +29,7 @@ pular() {
 }
 
 tmp="$(mktemp -d)"
+erros_dos_pulados "$tmp"
 # Nome próprio por execução: duas suítes em paralelo não apagam a do outro.
 tmp_do_agente="/tmp/isolar-teste.$$"
 trap 'rm -rf "$tmp" "$tmp_do_agente"' EXIT
@@ -43,6 +50,7 @@ git -C "$tmp/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i
 git -C "$tmp/repo" worktree add -q -b agente/t "$tmp/wt"
 
 isolar() {
+  novo_comando "$tmp"
   (cd "$1" && env -u JANGADA_SESSAO -u CODEX_HOME -u XDG_CACHE_HOME -u JANGADA_ISOLADO HOME="$casa" XDG_STATE_HOME="$casa/.local/state" XDG_CONFIG_HOME="$tmp/config" \
     JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" "${@:2}")
 }
@@ -205,7 +213,7 @@ mostrar JANGADA_ISOLAR_PERFIL=verificacao-rede ANTHROPIC_API_KEY=chave
 conferir "verificação com rede: a rede fica" bash -c '! grep -qxF -- --unshare-net "$1"' _ "$tmp/args"
 conferir "verificação com rede: a chave do provedor não entra" retirada ANTHROPIC_API_KEY
 rc=0
-isolar "$tmp/wt" JANGADA_ISOLAR_PERFIL=qualquer "$repo_jangada/bin/jangada-isolar" --mostrar -- true >/dev/null 2>&1 || rc=$?
+isolar "$tmp/wt" JANGADA_ISOLAR_PERFIL=qualquer "$repo_jangada/bin/jangada-isolar" --mostrar -- true >/dev/null 2>>"$tmp/isolar.err" || rc=$?
 conferir "perfil desconhecido é recusado" [ "$rc" -ne 0 ]
 
 # Com reftable, as refs não se separam por pasta: o isolamento recusa.
@@ -264,7 +272,7 @@ conferir "caso 2b: sem bwrap, não roda o comando" [ -z "$saida" ]
 conferir "caso 2b: sem bwrap, sai com erro" [ "$rc" -ne 0 ]
 conferir "caso 2b: sem bwrap, diz que não há abertura sem isolamento" grep -q "não há abertura sem isolamento" "$tmp/erro"
 rc=0
-saida="$(isolar "$tmp/wt" PATH="$sem_bwrap" JANGADA_AGENTE_ISOLAR=0 "$repo_jangada/bin/jangada-isolar" -- sh -c 'echo rodou' 2>/dev/null)" || rc=$?
+saida="$(isolar "$tmp/wt" PATH="$sem_bwrap" JANGADA_AGENTE_ISOLAR=0 "$repo_jangada/bin/jangada-isolar" -- sh -c 'echo rodou' 2>>"$tmp/isolar.err")" || rc=$?
 conferir "caso 2b: sem bwrap e desligado, não roda o comando" [ -z "$saida" ]
 conferir "caso 2b: sem bwrap e desligado, sai com erro" [ "$rc" -ne 0 ]
 
@@ -339,7 +347,7 @@ EOF
   conferir "caso Codex real: revisor isolado mesmo com isolamento global desligado" [ "$?" = 0 ]
   conferir "caso Codex real: revisor grava apenas no próprio estado" test -f "$casa/.local/state/jangada/codex/teste-revisor/historico-teste"
   conferir "caso Codex real: revisor não grava na pasta global" test ! -e "$casa/.codex/historico-teste"
-  roda() { isolar "$tmp/wt" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>&1; }
+  roda() { isolar "$tmp/wt" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>>"$tmp/isolar.err"; }
   conferir "caso 3: grava na pasta" roda 'echo a >dentro.txt'
   conferir "caso 3: o arquivo chega ao disco" test -f "$tmp/wt/dentro.txt"
   conferir "caso 3: commit no worktree" \
@@ -443,7 +451,7 @@ EOF
   git -C "$tmp/wt" status >/dev/null 2>&1
   git -C "$tmp/repo" status >/dev/null 2>&1
   conferir "caso 3: git status de fora não roda o fsmonitor plantado" test ! -e "$marca"
-  rodap() { isolar "$tmp/repo" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>&1; }
+  rodap() { isolar "$tmp/repo" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>>"$tmp/isolar.err"; }
   conferir "caso 3: commit no repositório principal" \
     rodap 'echo p >p.txt && git add p.txt && git -c user.name=t -c user.email=t@t commit -qm p'
   conferir "caso 3: commondir do .git principal não é gravável" rodap '! echo mal >.git/commondir'
@@ -465,13 +473,13 @@ EOF
     echo "pulado caso 3 do D-Bus: sem sessão D-Bus, xdg-dbus-proxy ou busctl"
   fi
   echo guardado >"$casa/.cache/guardado.txt"
-  minima() { isolar "$tmp/wt" JANGADA_ISOLAR_CASA=minima "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>&1; }
+  minima() { isolar "$tmp/wt" JANGADA_ISOLAR_CASA=minima "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>>"$tmp/isolar.err"; }
   # O /tmp do agente é próprio e já esconde a casa do teste: a leitura só se
   # confere com uma casa fora dele.
   if casa_fora="$(mktemp -d -p /var/tmp 2>/dev/null)"; then
     echo pessoal >"$casa_fora/documento.txt"
-    le() { (cd "$tmp/wt" && env -u JANGADA_ISOLADO HOME="$casa_fora" JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" \
-      "${@:2}" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>&1); }
+    le() { novo_comando "$tmp"; (cd "$tmp/wt" && env -u JANGADA_ISOLADO HOME="$casa_fora" JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" \
+      "${@:2}" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>>"$tmp/isolar.err"); }
     conferir "casa mínima: sem ela o documento pessoal é legível" le "grep -q pessoal '$casa_fora/documento.txt'"
     conferir "casa mínima: documento pessoal fora de alcance" \
       le "! test -e '$casa_fora/documento.txt'" JANGADA_ISOLAR_CASA=minima
@@ -494,7 +502,7 @@ EOF
   chmod +x "$tmp/proxy-falso/xdg-dbus-proxy" "$tmp/agy-falso/agy"
   proxy() {
     isolar "$tmp/wt" PATH="$tmp/proxy-falso:$1/usr/bin:/bin" PROXY_ARGS="$tmp/proxy.args" XDG_RUNTIME_DIR="$tmp/run" \
-      DBUS_SESSION_BUS_ADDRESS=unix:path=/nada "${@:2}" "$repo_jangada/bin/jangada-isolar" -- true >/dev/null 2>&1
+      DBUS_SESSION_BUS_ADDRESS=unix:path=/nada "${@:2}" "$repo_jangada/bin/jangada-isolar" -- true >/dev/null 2>>"$tmp/isolar.err"
   }
   if PATH=/usr/bin:/bin command -v agy >/dev/null 2>&1; then
     echo "pulado caso 3 do keyring: agy instalado em /usr/bin"
@@ -586,7 +594,7 @@ PY
     for _ in {1..50}; do [[ -e "$tmp/kr/keyring.py.pronto" ]] && break; sleep 0.1; done
     keyring() {
       isolar "$tmp/wt" PATH="$tmp/agy-falso:$PATH" XDG_RUNTIME_DIR="$tmp/run" DBUS_SESSION_BUS_ADDRESS="unix:path=$tmp/kr/bus" \
-        "${@:2}" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>&1
+        "${@:2}" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>>"$tmp/isolar.err"
     }
     segredo() { printf 'gdbus call --session --dest org.freedesktop.secrets --object-path /org/freedesktop/secrets/collection/login/%s --method org.freedesktop.Secret.Item.GetSecret /' "$1"; }
     um="JANGADA_ISOLAR_KEYRING_ITEM=service=agy-teste"
@@ -631,7 +639,7 @@ PY
 
   # Dentro, com a marca montada, o jangada-isolar roda direto, sem aninhar.
   saida="$(isolar "$tmp/wt" "$repo_jangada/bin/jangada-isolar" -- \
-    "$repo_jangada/bin/jangada-isolar" --mostrar -- true 2>/dev/null)"
+    "$repo_jangada/bin/jangada-isolar" --mostrar -- true 2>>"$tmp/isolar.err")"
   conferir "caso 3: já isolado, roda direto sem aninhar" [ -z "$saida" ]
   for perfil in verificacao verificacao-rede; do
     conferir "verificação aninhada ($perfil): credenciais e D-Bus ficam ocultos" \
@@ -650,7 +658,7 @@ PY
 
   # Propagação de código de saída e sinais
   rc_prop=0
-  isolar "$tmp/wt" "$repo_jangada/bin/jangada-isolar" -- sh -c 'exit 42' 2>/dev/null || rc_prop=$?
+  isolar "$tmp/wt" "$repo_jangada/bin/jangada-isolar" -- sh -c 'exit 42' 2>>"$tmp/isolar.err" || rc_prop=$?
   conferir "caso 3: propaga código de saída" [ "$rc_prop" -eq 42 ]
 
   testar_sinal() {
@@ -967,9 +975,9 @@ sys.exit(0)
   conferir "caso 3: filho isolado captura SIGINT e encerra com código 0" testar_sigint_capturado_sucesso
 
   # Entrada padrão interativa / por pipe
-  saida_pipe="$(printf 'dados-stdin-123\n' | isolar "$tmp/wt" "$repo_jangada/bin/jangada-isolar" -- cat 2>/dev/null)"
+  saida_pipe="$(printf 'dados-stdin-123\n' | isolar "$tmp/wt" "$repo_jangada/bin/jangada-isolar" -- cat 2>>"$tmp/isolar.err")"
   conferir "caso 3: entrada padrão via pipe chega ao comando isolado" [ "$saida_pipe" = "dados-stdin-123" ]
-  saida_read="$(printf 'linha-lida\n' | isolar "$tmp/wt" "$repo_jangada/bin/jangada-isolar" -- sh -c 'read -r x && printf "%s" "$x"' 2>/dev/null)"
+  saida_read="$(printf 'linha-lida\n' | isolar "$tmp/wt" "$repo_jangada/bin/jangada-isolar" -- sh -c 'read -r x && printf "%s" "$x"' 2>>"$tmp/isolar.err")"
   conferir "caso 3: leitura interativa de linha via pipe funciona" [ "$saida_read" = "linha-lida" ]
 
   # Caso 3b: marcas do host (vram-livre e jogo-ativo) e monitor
@@ -1106,7 +1114,7 @@ EOF
       bash -c '! pgrep -f "^inotifywait .*${1}/agentes" >/dev/null' _ "$casa/.local/state/jangada"
     # O KILL não passa pelas armadilhas: o vigia tem de notar sozinho que o pai morreu.
     isolar "$tmp/wt" JANGADA_SESSAO=status-codex JANGADA_MONITOR_INTERVALO=1 \
-      "$repo_jangada/bin/jangada-isolar" -- sleep 20 >/dev/null 2>&1 &
+      "$repo_jangada/bin/jangada-isolar" -- sleep 20 >/dev/null 2>>"$tmp/isolar.err" &
     pid_morto=$!
     vigia_vivo() { pgrep -f "^inotifywait .*$casa/.local/state/jangada/agentes" >/dev/null; }
     for ((i = 0; i < 50; i++)); do vigia_vivo && break; sleep 0.1; done

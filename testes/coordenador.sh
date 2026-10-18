@@ -4,16 +4,20 @@
 # real do jangada.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+# shellcheck source=testes/isolamento.sh
+source testes/isolamento.sh
 repo_jangada="$PWD"
 if ! command -v tmux >/dev/null 2>&1; then
   echo "tmux ausente; teste do coordenador ignorado"
   exit 0
 fi
 tmp="$(mktemp -d)"
+erros_dos_pulados "$tmp"
 falhas=0
 conferir() {
   local nome="$1"; shift
-  if "$@"; then printf 'ok    %s\n' "$nome"; else printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
+  if "$@"; then printf 'ok    %s\n' "$nome"; conferencia_feita "${tmp:-}"
+  elif ! pulado_se_recusado "${tmp:-}" "$nome"; then printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
 }
 mkdir -p "$tmp/bin" "$tmp/home" "$tmp/config" "$tmp/state" "$tmp/projeto/sub" "$tmp/outro" "$tmp/codex"
 # O caminho do soquete do tmux tem limite de cerca de 100 bytes: com um TMPDIR

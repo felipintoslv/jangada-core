@@ -13,9 +13,16 @@ repo_jangada="$PWD"
 falhas=0
 ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
-conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
+# shellcheck source=testes/isolamento.sh
+source testes/isolamento.sh
+conferir() {
+  local d="$1"; shift
+  if "$@" >/dev/null; then ok "$d"; conferencia_feita "${tmp:-}"
+  elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
+}
 
 tmp="$(mktemp -d)"
+erros_dos_pulados "$tmp"
 vitima=""
 trap '[[ -n "$vitima" ]] && kill "$vitima" 2>/dev/null; rm -rf "$tmp"' EXIT
 
@@ -71,7 +78,7 @@ git -C "$outro" branch agente/x
 gravar() { # sessão e campos em JSON
   printf '%s\n' "$2" >"$estado/$1.json"
 }
-fim() { "$repo_jangada/bin/jangada-agente-fim" "$@" </dev/null >"$tmp/saida" 2>&1; rc=$?; }
+fim() { novo_comando "$tmp"; "$repo_jangada/bin/jangada-agente-fim" "$@" </dev/null >"$tmp/saida" 2>&1; rc=$?; }
 novo_worktree() { # repositório, nome
   git -C "$1" worktree add --quiet -b "agente/$2" "$wts/$(basename "$1")/$2" main
 }
@@ -299,6 +306,7 @@ chmod +x "$tmp/bin/git"
 integrar_teste() { # sessão, resposta à confirmação, opções extras
   local s="$1" r="$2"; shift 2
   rm -f "$tmp/verificar-chamado"
+  novo_comando "$tmp"
   "$repo_jangada/bin/jangada-agente-fim" --integrar "$@" "$s" <<<"$r" >"$tmp/saida" 2>&1; rc=$?
 }
 preparar() { # sessão
@@ -581,6 +589,7 @@ mantida "GUI" d2
 # e a outra é recusada porque a base andou.
 preparar s1; preparar s2
 marca s1 "$revisoes"; marca s2 "$revisoes"
+novo_comando "$tmp"
 for n in s1 s2; do
   ( "$repo_jangada/bin/jangada-agente-fim" --integrar "$n" <<<s >"$tmp/saida-$n" 2>&1
     echo $? >"$tmp/rc-$n" ) &
@@ -810,7 +819,7 @@ novo_worktree "$proj" viva
 # Outra sessão, viva no tmux, marcada como concluída pelo agente.
 printf 'viva\n' >"$tmp/sessoes"
 gravar viva "{\"raiz\": \"$proj\", \"worktree\": \"$wts/proj/viva\", \"ramo\": \"agente/viva\", \"base\": \"main\", \"estado\": \"concluido\", \"atualizado\": \"$agora\", \"dir\": \"$wts/proj/viva\"}"
-limpar() { "$repo_jangada/bin/jangada-agentes" --limpar-concluidos >"$tmp/saida" 2>&1; rc=$?; }
+limpar() { novo_comando "$tmp"; "$repo_jangada/bin/jangada-agentes" --limpar-concluidos >"$tmp/saida" 2>&1; rc=$?; }
 limpar <<<n
 conferir "resposta n: termina sem erro ($rc)" test "$rc" -eq 0
 conferir "resposta n: lista a sessão" grep -q 'viva.*sessão aberta no tmux' "$tmp/saida"

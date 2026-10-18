@@ -2,14 +2,18 @@
 # Codex falso: lançamento, protocolo e argumentos sem rede nem login real.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+# shellcheck source=testes/isolamento.sh
+source testes/isolamento.sh
 repo_jangada="$PWD"
 codex_real="$(command -v codex || true)"
 tmp="$(mktemp -d)"
+erros_dos_pulados "$tmp"
 trap 'rm -rf "$tmp"' EXIT
 falhas=0
 conferir() {
   local nome="$1"; shift
-  if "$@"; then printf 'ok    %s\n' "$nome"; else printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
+  if "$@" >/dev/null; then printf 'ok    %s\n' "$nome"; conferencia_feita "${tmp:-}"
+  elif ! pulado_se_recusado "${tmp:-}" "$nome"; then printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
 }
 mkdir -p "$tmp/bin" "$tmp/config/jangada" "$tmp/state/jangada/agentes" "$tmp/projeto" "$tmp/codex"
 python3 - "$tmp/codex/config.toml" "$repo_jangada" <<'PY'
@@ -42,6 +46,7 @@ for c in claude agy notify-send pkill; do
 done
 chmod +x "$tmp/bin/"*
 rodar() {
+  novo_comando "$tmp"
   env -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_DELEGAR -u JANGADA_VALIDAR_REVISOR \
     PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp" JANGADA_CORE_PATH="$repo_jangada" \
     CODEX_HOME="$tmp/codex" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
@@ -58,6 +63,9 @@ printf 'COMANDO=codex\nJANGADA_VALIDAR_REVISOR=agy\nJANGADA_VALIDAR_MODELO=gemin
 rodar "$repo_jangada/bin/jangada-agente" --perfil codex-mesmo --projeto "$tmp/projeto" \
   --nome tarefa --prompt $'primeira linha\nsegunda linha' >"$tmp/saida" 2>&1
 conferir "perfil de autorrevisão do Codex cria a sessão" [ "$?" = 0 ]
+# Dentro do isolamento esta sessão é recusada: os hooks e a falha de registro
+# adiante, que dependem dela, levam a mesma recusa.
+guardar_recusa "$tmp" tarefa
 conferir "worktree próprio" test -f "$tmp/worktrees/projeto/tarefa/.git"
 conferir "revisor e delegação no estado" jq -e '.agente == "codex" and .revisor == "codex" and .delegar == "local" and .isolar' \
   "$tmp/state/jangada/agentes/projeto--tarefa.json"
@@ -404,6 +412,7 @@ fi
 # não marcam o principal como concluído.
 hook() {
   printf '%s' "$2" | rodar JANGADA_SESSAO=projeto--tarefa "$repo_jangada/bin/jangada-hook-codex" "$1" >"$tmp/hook.saida"
+  repetir_recusa "$tmp" tarefa
 }
 hook inicio "{\"session_id\":\"$uuid\"}"
 hook trabalhando '{}'
@@ -483,6 +492,7 @@ for nome_recusa in recusa-nova tarefa; do
 done
 conferir "falha remove worktree novo" test ! -e "$tmp/worktrees/projeto/recusa-nova"
 conferir "falha remove ramo novo" test -z "$(git -C "$tmp/projeto" branch --list agente/recusa-nova)"
+repetir_recusa "$tmp" tarefa
 conferir "falha preserva worktree reaproveitado" test -f "$tmp/worktrees/projeto/tarefa/.git"
 conferir "falha preserva ramo reaproveitado" git -C "$tmp/projeto" show-ref --verify --quiet refs/heads/agente/tarefa
 printf '{"orcamento":{"chamadas":1}}\n' >"$tmp/politica.json"

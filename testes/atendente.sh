@@ -13,9 +13,16 @@ repo_jangada="$PWD"
 falhas=0
 ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
-conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
+# shellcheck source=testes/isolamento.sh
+source testes/isolamento.sh
+conferir() {
+  local d="$1"; shift
+  if "$@" >/dev/null; then ok "$d"; conferencia_feita "${tmp:-}"
+  elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
+}
 
 tmp="$(mktemp -d)"
+erros_dos_pulados "$tmp"
 # O bwrap também leva a pasta do soquete nos argumentos; o atendente é o python.
 atendente_vivo() { pgrep -f "^python3 -c import json, os, re, signal.* $tmp/run/jangada-isolar/atendente-" >/dev/null; }
 trap 'pkill -f "^python3 -c import json, os, re, signal.* $tmp/run/" 2>/dev/null; rm -rf "$tmp"' EXIT
@@ -97,6 +104,7 @@ command -v gitleaks >/dev/null 2>&1 || ambiente+=(JANGADA_VALIDAR_SEM_GITLEAKS=1
 # $extra vale para o atendente, fora.
 extra=()
 isolar() {
+  novo_comando "$tmp"
   (cd "$tmp/wt" && env "${limpar_ambiente[@]}" "${ambiente[@]}" "${extra[@]}" JANGADA_SESSAO="$1" \
     "$repo_jangada/bin/jangada-isolar" -- "${@:2}" </dev/null)
 }
@@ -276,6 +284,7 @@ conferir "caso 9: sessão sem cópia protegida não abre atendente" \
   bash -c '[ "$1" = 1 ] && grep -q "indisponível; peça ao coordenador" "$2"' _ "$(rc a3)" "$F/a3.err"
 sem_runtime=(); mkdir -p "$tmp/tmpdir"
 for v in "${ambiente[@]}"; do [[ "$v" == XDG_RUNTIME_DIR=* ]] || sem_runtime+=("$v"); done
+novo_comando "$tmp"
 (cd "$tmp/wt" && env "${limpar_ambiente[@]}" -u XDG_RUNTIME_DIR "${sem_runtime[@]}" TMPDIR="$tmp/tmpdir" \
   JANGADA_SESSAO=t "$repo_jangada/bin/jangada-isolar" -- \
   bash -c '"$1" >"$FALSO_DIR/a4.out" 2>"$FALSO_DIR/a4.err"; echo $? >"$FALSO_DIR/a4.rc"' _ "$validar" </dev/null)
@@ -287,7 +296,7 @@ conferir "caso 9: nada gravado" bash -c '[ "$1" = "$2" ] && [ "$3" = 4 ] && [ "$
   "$(pareceres)" "$(chamadas)" "$estado"
 
 # Caso 10: com o jangada-isolar morto por KILL, o atendente sai sozinho.
-( isolar t sleep 31 ) 2>/dev/null &
+( isolar t sleep 31 ) 2>"$F/c10.err" &
 for _ in $(seq 1 25); do atendente_vivo && break; sleep 0.2; done
 conferir "caso 10: o atendente abre com a sessão" atendente_vivo
 pkill -KILL -f "$repo_jangada/bin/jangada-isolar -- sleep 31"

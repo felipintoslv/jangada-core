@@ -12,13 +12,18 @@ if ! awk -v m="$marca" '$5 == m { a = 1 } END { exit !a }' /proc/self/mountinfo;
   exit "$rc"
 fi
 unset JANGADA_VALIDAR_REVISOR JANGADA_DELEGAR
+# shellcheck source=testes/isolamento.sh
+source testes/isolamento.sh
 falhas=0
 conferir() {
   local descricao="$1"; shift
-  if "$@"; then printf 'ok    %s\n' "$descricao"
-  else printf 'FALHA %s\n' "$descricao"; falhas=$((falhas + 1)); fi
+  if "$@"; then printf 'ok    %s\n' "$descricao"; conferencia_feita "${tmp:-}"
+  elif ! pulado_se_recusado "${tmp:-}" "$descricao"; then
+    printf 'FALHA %s\n' "$descricao"; falhas=$((falhas + 1))
+  fi
 }
 tmp="$(mktemp -d)"
+erros_dos_pulados "$tmp"
 trap 'rm -rf "$tmp"' EXIT
 copia="$tmp/jangada"
 mkdir -p "$copia/bin" "$tmp/bin" "$tmp/falso" \
@@ -88,6 +93,7 @@ nova_sessao() {
   cp "$tmp/estado/jangada/agentes/s.json" "$tmp/estado/jangada/revisoes/s.json"
 }
 validar() {
+  novo_comando "$tmp"
   "$copia/bin/jangada-validar" --revisor claude "$tmp/projeto" >"$tmp/saida" 2>&1
 }
 printf 'conteúdo sintético\n' >"$tmp/projeto/exemplo.txt"
