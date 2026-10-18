@@ -6,6 +6,11 @@ export LC_ALL=C.UTF-8
 unset JANGADA_ISOLADO JANGADA_DELEGAR JANGADA_VALIDAR_REVISOR
 cd "$(dirname "$0")/.." || exit 1
 falhas=0
+# Cada teste acrescenta aqui uma linha por caso pulado dentro do isolamento
+# (testes/isolamento.sh e testes/isolamento.py).
+JANGADA_TESTES_PULADOS="$(mktemp)"
+export JANGADA_TESTES_PULADOS
+trap 'rm -f "$JANGADA_TESTES_PULADOS"' EXIT
 passo() { printf '\n== %s\n' "$*"; }
 falha() { printf 'XX %s\n' "$*"; falhas=$((falhas + 1)); }
 
@@ -86,7 +91,7 @@ if command -v git >/dev/null && command -v jq >/dev/null; then
   testes/core-independente.sh
   rc_core=$?
   if ((rc_core == 77)); then
-    echo "IGNORADO: percurso R do Core independente não executado por falta de R ou lintr"
+    echo "pulado: R com lintr ausente"
   elif ((rc_core != 0)); then
     falha "testes/core-independente.sh"
   fi
@@ -150,5 +155,7 @@ passo "hooks com a configuração vazia ou inválida"
 testes/hooks.sh || falha "testes/hooks.sh"
 
 printf '\n'
+pulados="$(wc -l <"$JANGADA_TESTES_PULADOS")"
+((pulados == 0)) || echo "$((pulados)) caso(s) pulado(s) no isolamento"
 ((falhas == 0)) && echo "tudo certo" || echo "$falhas falha(s)"
 exit $((falhas > 0))
