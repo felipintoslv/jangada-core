@@ -15,7 +15,10 @@ conferir() {
   local nome="$1"; shift
   if "$@"; then printf 'ok    %s\n' "$nome"; else printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
 }
-mkdir -p "$tmp/bin" "$tmp/home" "$tmp/config" "$tmp/state" "$tmp/sock" "$tmp/projeto/sub" "$tmp/outro" "$tmp/codex"
+mkdir -p "$tmp/bin" "$tmp/home" "$tmp/config" "$tmp/state" "$tmp/projeto/sub" "$tmp/outro" "$tmp/codex"
+# O caminho do soquete do tmux tem limite de cerca de 100 bytes: com um TMPDIR
+# longo, ele fica numa pasta curta no /tmp.
+sock="$(mktemp -d /tmp/jangada-sock.XXXXXX)"
 estado="$tmp/state/jangada"
 reg="$estado/coordenadores"
 
@@ -52,11 +55,11 @@ chmod +x "$tmp/bin/"*
 rodar() {
   env -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_COORDENADOR -u TMUX -u WAYLAND_DISPLAY \
     -u HYPRLAND_INSTANCE_SIGNATURE -u DISPLAY \
-    PATH="$tmp/bin:$PATH" HOME="$tmp/home" SHELL=/bin/sh TMUX_TMPDIR="$tmp/sock" FALSO_DIR="$tmp" \
+    PATH="$tmp/bin:$PATH" HOME="$tmp/home" SHELL=/bin/sh TMUX_TMPDIR="$sock" FALSO_DIR="$tmp" \
     CODEX_HOME="$tmp/codex" JANGADA_CORE_PATH="$repo_jangada" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
 }
 tm() { rodar tmux -L jangada "$@"; }
-trap 'tm kill-server >/dev/null 2>&1; if [[ -n "${MANTER:-}" ]]; then echo "$tmp"; else rm -rf "$tmp"; fi' EXIT
+trap 'tm kill-server >/dev/null 2>&1; if [[ -n "${MANTER:-}" ]]; then echo "$tmp"; else rm -rf "$tmp"; fi; rm -rf "$sock"' EXIT
 esperar() {
   local i
   for ((i = 0; i < 50; i++)); do "$@" && return 0; sleep 0.1; done
@@ -76,7 +79,7 @@ tm set-environment -g JANGADA_SESSAO alheia--tarefa
 saida="$(rodar env JANGADA_SESSAO=alheia--tarefa "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"
 conferir "a abertura cria a sessão PROJETO--coordenador" [ "$saida" = projeto--coordenador ]
 conferir "a sessão existe no servidor do teste" tm has-session -t =projeto--coordenador
-conferir "o socket é o do teste" test -S "$tmp/sock/tmux-$(id -u)/jangada"
+conferir "o socket é o do teste" test -S "$sock/tmux-$(id -u)/jangada"
 conferir "a pasta dos registros tem modo 700" [ "$(stat -c %a "$reg")" = 700 ]
 conferir "o registro nasce com projeto, provedor e estado iniciado" \
   [ "$(campo '[.projeto, .provedor, .estado] | join(" ")')" = "$tmp/projeto claude iniciado" ]
@@ -191,7 +194,7 @@ conferir "nada chega ao Claude" [ ! -s "$tmp/claude.bytes" ]
 rodar "$repo_jangada/bin/jangada-coordenador" --fim projeto--coordenador >/dev/null 2>&1
 conferir "o --fim sai com 0" [ "$?" = 0 ]
 conferir "o --fim encerra a sessão" esperar bash -c '! "$@" has-session -t =projeto--coordenador 2>/dev/null' _ \
-  env TMUX_TMPDIR="$tmp/sock" tmux -L jangada
+  env TMUX_TMPDIR="$sock" tmux -L jangada
 conferir "o registro fica encerrado, com data" [ "$(campo .estado)" = encerrado -a -n "$(campo .encerrado)" ]
 conferir "a tarefa e a cópia dela continuam" tm has-session -t =projeto--tarefa
 conferir "a cópia da tarefa continua" test -f "$estado/revisoes/projeto--tarefa.json"
