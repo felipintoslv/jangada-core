@@ -42,11 +42,15 @@ PY
 }
 
 tmp="$(mktemp -d)"
+# Com --capacidade, cada linha da fonte leva o caminho absoluto, que conta no
+# contexto local. As fontes dos casos de fatiamento ficam numa pasta curta,
+# para o número de fatias não depender do tamanho do TMPDIR.
+curto="$(mktemp -d /tmp/jd.XXXXXX)"
 erros_dos_pulados "$tmp"
 pid_ollama=""
 limpar() {
   [[ -n "$pid_ollama" ]] && kill "$pid_ollama" 2>/dev/null || true
-  rm -rf "$tmp"
+  rm -rf "$tmp" "$curto"
 }
 trap limpar EXIT
 mkdir -p "$tmp/bin" "$tmp/home/.gemini/antigravity-cli/log" "$tmp/falso" "$tmp/projeto"
@@ -618,7 +622,7 @@ conferir "caso 29b: mantem o texto util da linha" grep -q "doc1.txt:1: trecho ut
 conferir "caso 29b: remove a tag think" [ "$(grep -c "<think>" "$tmp/saida" || true)" -eq 0 ]
 
 # 12. Fatiamento de documento maior que o contexto
-doc_grande="$tmp/projeto/doc_grande.txt"
+doc_grande="$curto/doc_grande.txt"
 : >"$doc_grande"
 for i in {1..8}; do
   printf 'Linha %02d com texto suficiente para ocupar caracteres e testar o fatiamento de blocos.\n' "$i" >>"$doc_grande"
@@ -1191,7 +1195,7 @@ conferir "extração: requisito textual é incompatível" [ "$(codigo)" = 2 ]
 delegar redator "extraia" --destino local --capacidade leitura_documental --extrair destino:texto \
   --arquivos "$tmp/projeto/doc1.txt"
 conferir "extração: papel diferente de leitor é incompatível" [ "$(codigo)" = 2 ]
-python3 - "$tmp/projeto/extracao.txt" "$ollama_resp.sequencia" <<'PY'
+python3 - "$curto/extracao.txt" "$ollama_resp.sequencia" <<'PY'
 import json, pathlib, sys
 pathlib.Path(sys.argv[1]).write_text('Destino local.\n' + ('Contexto sem novos fatos. ' * 8 + '\n') * 20 + 'Responsável Helena.\n')
 partes = [
@@ -1202,7 +1206,7 @@ pathlib.Path(sys.argv[2]).write_text(json.dumps(partes))
 PY
 : >"$ollama_reqs"
 CHAMADAS_MAX=2 LOCAL_CTX=3000 OLLAMA_URL="http://127.0.0.1:$porta_ollama" delegar leitor "extraia fatos" --destino local \
-  --capacidade leitura_documental --extrair destino:texto --extrair responsavel:texto --json --arquivos "$tmp/projeto/extracao.txt"
+  --capacidade leitura_documental --extrair destino:texto --extrair responsavel:texto --json --arquivos "$curto/extracao.txt"
 conferir "extração: consolida sem apagar fatos e sem chamada adicional" jqok -e \
   '.codigo_saida == 0 and .consolidacao == "deterministica" and .chamadas_executor == 2
     and (.relatorio | fromjson | .destino.valor == "local" and .responsavel.valor == "Helena")' "$tmp/saida"
@@ -1211,11 +1215,11 @@ conferir "citação: cada parte recebe exemplos do próprio trecho" exemplos_val
 printf '[{"destino":{"valor":"local","referencia":"extracao.txt:22"},"responsavel":{"valor":null,"referencia":null}}]\n' >"$ollama_resp.sequencia"
 : >"$ollama_reqs"
 CHAMADAS_MAX=2 LOCAL_CTX=3000 OLLAMA_URL="http://127.0.0.1:$porta_ollama" delegar leitor "extraia fatos" --destino local \
-  --capacidade leitura_documental --extrair destino:texto --extrair responsavel:texto --json --arquivos "$tmp/projeto/extracao.txt"
+  --capacidade leitura_documental --extrair destino:texto --extrair responsavel:texto --json --arquivos "$curto/extracao.txt"
 conferir "citação: referência de outra fatia mantém código 4" [ "$(codigo)" = 4 ]
 conferir "citação: recusa fora da fatia antes da segunda chamada" jqok -se 'length == 1' "$ollama_reqs"
 conferir "citação: diagnóstico informa referência de outra fatia" grep -Fq 'referência "extracao.txt:22" (fora do trecho)' "$tmp/erro"
-python3 - "$tmp/projeto/extracao.txt" "$ollama_resp.sequencia" <<'PY'
+python3 - "$curto/extracao.txt" "$ollama_resp.sequencia" <<'PY'
 import json, pathlib, sys
 fonte = pathlib.Path(sys.argv[1])
 linhas = fonte.read_text().splitlines()
@@ -1230,7 +1234,7 @@ PY
 printf 'preservar\n' >"$tmp/extracao-anterior.json"
 CHAMADAS_MAX=2 LOCAL_CTX=3000 OLLAMA_URL="http://127.0.0.1:$porta_ollama" delegar leitor "extraia fatos" --destino local \
   --capacidade leitura_documental --extrair destino:texto --extrair responsavel:texto --json \
-  --arquivo "$tmp/extracao-anterior.json" --arquivos "$tmp/projeto/extracao.txt"
+  --arquivo "$tmp/extracao-anterior.json" --arquivos "$curto/extracao.txt"
 conferir "extração: conflito recusa sem escolher um fato" jqok -e \
   '.tentativas[0].motivo_codigo == "saida_invalida" and .tentativas[0].chamadas == 2' "$tmp/saida"
 conferir "extração: recusa preserva arquivo anterior" grep -qx preservar "$tmp/extracao-anterior.json"
