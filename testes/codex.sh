@@ -15,6 +15,12 @@ conferir() {
   if "$@" >/dev/null; then printf 'ok    %s\n' "$nome"
   elif ! pulado_se_recusado "${tmp:-}" "$nome"; then printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
 }
+# Conferência que só vale com a sessão "tarefa" criada adiante.
+conferir_da_sessao() {
+  local nome="$1"; shift
+  if "$@" >/dev/null; then printf 'ok    %s\n' "$nome"
+  elif ! pulado_sem_o_passo "${tmp:-}" tarefa "$nome"; then printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
+}
 mkdir -p "$tmp/bin" "$tmp/config/jangada" "$tmp/state/jangada/agentes" "$tmp/projeto" "$tmp/codex"
 python3 - "$tmp/codex/config.toml" "$repo_jangada" <<'PY'
 import json, pathlib, sys
@@ -62,8 +68,8 @@ printf 'COMANDO=codex\nJANGADA_VALIDAR_REVISOR=agy\nJANGADA_VALIDAR_MODELO=gemin
 rodar "$repo_jangada/bin/jangada-agente" --perfil codex-mesmo --projeto "$tmp/projeto" \
   --nome tarefa --prompt $'primeira linha\nsegunda linha' >"$tmp/saida" 2>&1
 conferir "perfil de autorrevisão do Codex cria a sessão" [ "$?" = 0 ]
-# Dentro do isolamento esta sessão é recusada: os hooks e a falha de registro
-# adiante, que dependem dela, levam a mesma recusa.
+# Dentro do isolamento esta sessão é recusada: as conferências adiante que só
+# valem com ela usam o conferir_da_sessao.
 guardar_recusa "$tmp" tarefa
 conferir "worktree próprio" test -f "$tmp/worktrees/projeto/tarefa/.git"
 conferir "revisor e delegação no estado" jq -e '.agente == "codex" and .revisor == "codex" and .delegar == "local" and .isolar' \
@@ -411,21 +417,21 @@ fi
 # não marcam o principal como concluído.
 hook() {
   printf '%s' "$2" | rodar JANGADA_SESSAO=projeto--tarefa "$repo_jangada/bin/jangada-hook-codex" "$1" >"$tmp/hook.saida"
-  repetir_recusa "$tmp" tarefa
+  conferir "hook $1 sai com 0" [ "$?" = 0 ]
 }
 hook inicio "{\"session_id\":\"$uuid\"}"
 hook trabalhando '{}'
 hook trabalhando '{}'
 hook aguardando '{"tool_input":{"description":"permissão"}}'
 conferir "pedido de permissão mantém saída vazia" test ! -s "$tmp/hook.saida"
-conferir "permissão registra aguardando" jq -e '.estado == "aguardando"' "$tmp/state/jangada/agentes/projeto--tarefa.json"
+conferir_da_sessao "permissão registra aguardando" jq -e '.estado == "aguardando"' "$tmp/state/jangada/agentes/projeto--tarefa.json"
 hook concluido '{"agent_id":"filho"}'
-conferir "subagente não conclui a sessão" jq -e '.estado == "aguardando"' "$tmp/state/jangada/agentes/projeto--tarefa.json"
+conferir_da_sessao "subagente não conclui a sessão" jq -e '.estado == "aguardando"' "$tmp/state/jangada/agentes/projeto--tarefa.json"
 hook trabalhando '{}'
 hook concluido '{"last_assistant_message":"feito"}'
 hook fim '{}'
-conferir "conversa registrada" jq -e --arg c "$uuid" '.conversa == $c and .estado == "concluido"' "$tmp/state/jangada/agentes/projeto--tarefa.json"
-conferir "eventos sem repetição" jq -se '[.[] | select(.agente == "codex" and .sessao == "projeto--tarefa") | .estado] == ["inicio", "trabalhando", "aguardando", "trabalhando", "concluido", "fim"]' "$tmp/state/jangada/eventos-agentes.jsonl"
+conferir_da_sessao "conversa registrada" jq -e --arg c "$uuid" '.conversa == $c and .estado == "concluido"' "$tmp/state/jangada/agentes/projeto--tarefa.json"
+conferir_da_sessao "eventos sem repetição" jq -se '[.[] | select(.agente == "codex" and .sessao == "projeto--tarefa") | .estado] == ["inicio", "trabalhando", "aguardando", "trabalhando", "concluido", "fim"]' "$tmp/state/jangada/eventos-agentes.jsonl"
 antes="$(sha256sum "$tmp/state/jangada/agentes/projeto--tarefa.json")"
 hook trabalhando 'não é JSON'
 conferir "JSON inválido não altera o estado" [ "$(sha256sum "$tmp/state/jangada/agentes/projeto--tarefa.json")" = "$antes" ]
@@ -491,9 +497,8 @@ for nome_recusa in recusa-nova tarefa; do
 done
 conferir "falha remove worktree novo" test ! -e "$tmp/worktrees/projeto/recusa-nova"
 conferir "falha remove ramo novo" test -z "$(git -C "$tmp/projeto" branch --list agente/recusa-nova)"
-repetir_recusa "$tmp" tarefa
-conferir "falha preserva worktree reaproveitado" test -f "$tmp/worktrees/projeto/tarefa/.git"
-conferir "falha preserva ramo reaproveitado" git -C "$tmp/projeto" show-ref --verify --quiet refs/heads/agente/tarefa
+conferir_da_sessao "falha preserva worktree reaproveitado" test -f "$tmp/worktrees/projeto/tarefa/.git"
+conferir_da_sessao "falha preserva ramo reaproveitado" git -C "$tmp/projeto" show-ref --verify --quiet refs/heads/agente/tarefa
 printf '{"orcamento":{"chamadas":1}}\n' >"$tmp/politica.json"
 rodar "$repo_jangada/bin/jangada-projeto" --projeto "$tmp/pasta-anexar" \
   cadastrar --politica "$tmp/politica.json" >/dev/null
