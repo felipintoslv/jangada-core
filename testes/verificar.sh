@@ -81,6 +81,7 @@ for c in $(grep -ho '`jangada-[a-z-]*' agentes/perfis/protocolo*.md | tr -d '`' 
 done
 
 passo "registro de provedores"
+python3 -B testes/doctor.py || falha "testes/doctor.py"
 if command -v jq >/dev/null; then
   testes/provedores.sh || falha "testes/provedores.sh"
 else

@@ -23,6 +23,13 @@ na sessão e só lê o `JANGADA_CORE_PATH`.
 
 Depois, rode `testes/verificar.sh` para conferir a instalação.
 
+Use `jangada doctor` para consultar o ambiente sem alterá-lo, ou
+`jangada doctor --json` para obter o relatório estruturado. O resumo separa
+falhas, avisos e consultas não verificáveis. Saída 1 indica falha; saída 0
+pode conter avisos e itens não verificáveis. O comando não corrige o ambiente,
+não renova login nem cotas e não aplica migrações. Veja os
+[limites das consultas](comandos.md#diagnóstico-do-ambiente).
+
 ## Várias máquinas
 
 O repositório é o mesmo em todas as máquinas; o que muda de uma para outra
