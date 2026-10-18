@@ -22,14 +22,42 @@ fi
 unset JANGADA_VALIDAR_REVISOR JANGADA_DELEGAR
 # Sem o gitleaks, o portão reprovaria todos os casos; o 16e liga de novo.
 command -v gitleaks >/dev/null 2>&1 || export JANGADA_VALIDAR_SEM_GITLEAKS=1
+# shellcheck source=testes/isolamento.sh
+source testes/isolamento.sh
 falhas=0
+pulados=0
 ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
-conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
+# Numa sessão de agente, estes casos passam pelo que exige o controlador de
+# fora: o revisor, o lintr e o .jangada/validar.sh pelo jangada-isolar, e a
+# abertura do agente pelo registro de início. Fora dela nada é pulado.
+sem_controlador=0
+sem_autoridade && sem_controlador=1
+pela_isolar='^caso (1|2b?|3[bcd]?|4|5|6|7|9|11[bc]|12[abcdfgh]|14|15|16[acfgj]|17[bcd]?|18|19|20[bde]?|22b?|prazo)( \([^)]*\))?:'
+pelo_agente='^caso (10[a-e]|13[abegh]?)( \([^)]*\))?:'
+conferir() {
+  local d="$1"; shift
+  if ((sem_controlador)) && [[ $d =~ $pela_isolar ]]; then
+    pulado_no_isolamento "$d (o jangada-isolar do revisor, do lintr ou do .jangada/validar.sh exige o controlador)"
+    pulados=$((pulados + 1))
+  elif ((sem_controlador)) && [[ $d =~ $pelo_agente ]]; then
+    pulado_no_isolamento "$d (o jangada-agente registra o início e exige o controlador)"
+    pulados=$((pulados + 1))
+  elif "$@" >/dev/null; then ok "$d"; else falha "$d"; fi
+}
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/bin" "$tmp/config/jangada" "$tmp/estado/jangada/agentes" "$tmp/projeto" "$tmp/falso"
+# HOME própria: numa sessão de agente, a pasta do revisor na HOME real é
+# somente leitura e o jangada-validar sairia com 5. O lintr segue achado pela
+# biblioteca do usuário, guardada antes da troca.
+if [[ -z "${R_LIBS_USER:-}" ]] && command -v Rscript >/dev/null 2>&1; then
+  R_LIBS_USER="$(Rscript -e 'cat(Sys.getenv("R_LIBS_USER"))' 2>/dev/null)"
+  export R_LIBS_USER
+fi
+export HOME="$tmp/casa"
+erros_dos_pulados "$tmp"
+mkdir -p "$tmp/casa" "$tmp/bin" "$tmp/config/jangada" "$tmp/estado/jangada/agentes" "$tmp/projeto" "$tmp/falso"
 estado="$tmp/estado/jangada/agentes"
 # A revisão roda fora do isolamento, como o atendente a roda, e grava aqui; o
 # pedido de dentro pelo soquete fica em testes/atendente.sh.
@@ -169,13 +197,15 @@ conferir "caso 1: estado registra a rodada e o revisor" [ "$(jq -r .validacao "$
 conferir "caso 1: parecer gravado" grep -q "problema" "$rev/validacao-s-r1.md"
 
 # Caso 2: rodada 2 leva o parecer anterior e a resposta do agente.
+# Linha inválida de propósito: o validar segue, e as consultas que percorrem o
+# arquivo inteiro leem só os objetos.
 printf '[]\n' >>"$rev/validar.jsonl"
 validar 'STATUS: APROVADO\ntudo certo' --resposta "1 corrigido; 2 rejeitado: MARCA-RESPOSTA"; rc=$?
 conferir "caso 2: APROVADO sai com 0" [ "$rc" = 0 ]
 conferir "caso 2: pedido traz a resposta do agente" grep -q MARCA-RESPOSTA "$tmp/falso/agy.pedido"
 conferir "caso 2: pedido traz o parecer anterior" grep -q "problema" "$tmp/falso/agy.pedido"
 conferir "caso 2: registra classificação e rodada respondida" \
-  jq -e 'select(.rodada == 2) | .resposta == {corrigidos:1,rejeitados:1,sem_classificar:0} and .responde_a.rodada == 1 and .responde_a.revisor == "agy"' \
+  jq -e 'objects | select(.rodada == 2) | .resposta == {corrigidos:1,rejeitados:1,sem_classificar:0} and .responde_a.rodada == 1 and .responde_a.revisor == "agy"' \
   "$rev/validar.jsonl"
 
 conferir "caso 2: marca registra verificação local" jq -e '.local_verified == true' "$rev/validacao-s.aprovado"
@@ -188,7 +218,7 @@ sessao_de claude agy
 validar 'STATUS: REVISAR\n1. arquivo.txt:1: conferir'; rc=$?
 validar 'STATUS: APROVADO' --resposta "1: corrigido; 2. rejeitado: motivo; 3 talvez"; rc=$?
 conferir "caso 2b: resposta pontuada e item sem classe" jq -e \
-  'select(.resposta.corrigidos == 1 and .resposta.rejeitados == 1 and .resposta.sem_classificar == 1 and .responde_a.rodada == 1 and .responde_a.revisor == "agy")' \
+  'objects | select(.resposta.corrigidos == 1 and .resposta.rejeitados == 1 and .resposta.sem_classificar == 1 and .responde_a.rodada == 1 and .responde_a.revisor == "agy")' \
   "$rev/validar.jsonl"
 
 # Caso 3: sessão do agy, o revisor é o Claude; status com Markdown.
@@ -288,7 +318,7 @@ validar 'STATUS: APROVADO'; rc=$?
 conferir "tokens: Claude em texto vira nulo com motivo e a rodada segue" \
   bash -c '[ "$1" = 0 ] && jq -e "(.tokens_revisor | [.[]] | all(. == null)) and (.motivo_tokens_revisor | test(\"não é JSON\"))" <<<"$2" >/dev/null' _ "$rc" "$(ultima_tokens)"
 conferir "tokens: só a rodada com parecer ganha o campo" \
-  bash -c '! jq -e "select(.resultado == \"erro\" or .etapa == \"local\") | has(\"tokens_revisor\")" "$1" | grep -q true' _ "$rev/validar.jsonl"
+  bash -c '! jq -e "objects | select(.resultado == \"erro\" or .etapa == \"local\") | has(\"tokens_revisor\")" "$1" | grep -q true' _ "$rev/validar.jsonl"
 unset VALIDAR_PATH
 
 # Revisor preso: o prazo encerra a chamada, e a resposta que viria não aprova.
@@ -523,7 +553,9 @@ conferir "caso 11b: validação incompleta não cria marca" test ! -e "$rev/vali
 conferir "caso 11b: o revisor foi chamado com --pular-local" test -s "$tmp/falso/agy.pedido"
 
 git -C "$tmp/projeto" rm -qf conflito.txt
-git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "limpeza conflito"
+# Dentro do isolamento o caso anterior não deixa o que limpar, e o git avisa
+# na saída padrão.
+git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "limpeza conflito" >/dev/null
 
 # 11c: --reverter-se-limite restaura o worktree ao atingir o limite de rodadas
 sessao_de agy
@@ -535,7 +567,9 @@ conferir "caso 11c: limite de rodadas com reversão sai com 4" [ "$rc" = 4 ]
 conferir "caso 11c: arquivo pendente foi preservado" test -e "$tmp/projeto/pendente.txt"
 
 git -C "$tmp/projeto" rm -qf pendente.txt
-git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "limpeza sintética"
+# Dentro do isolamento o caso anterior não deixa o que limpar, e o git avisa
+# na saída padrão.
+git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "limpeza sintética" >/dev/null
 
 # 11d: arquivo novo, fora do git e com acento no nome, também passa pelo
 # portão: conflito e sintaxe de shell.
@@ -1454,6 +1488,7 @@ JANGADA_AGENTE_ISOLAR=0 agente_em "$tmp/semr"
 conferir "caso 13e: JANGADA_AGENTE_ISOLAR=0 não tira o jangada-isolar" \
   bash -c 'jq -r .comando "$1" | grep -q "bin/jangada-isolar -- claude"' _ "$estado/semr.json"
 
+((pulados == 0)) || echo "$pulados caso(s) pulado(s) no isolamento"
 if ((falhas)); then
   echo "$falhas falha(s); saídas em $tmp (mantido)"
   trap - EXIT
