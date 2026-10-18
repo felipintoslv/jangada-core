@@ -48,7 +48,7 @@ Grave o pedido num arquivo e passe por `--prompt-arquivo`. Ele traz:
 - critério de pronto que dê para verificar;
 - limites, restrições do projeto e autorização aplicável, com sua origem;
 - uma subtarefa útil e delimitada de apoio agy, conforme "Acompanhar";
-- "rode `jangada-validar`; pare no parecer ou limite, sem `--forcar`";
+- "rode `jangada-validar`; pare no parecer; no limite de rodadas, pare sem `--forcar`";
 - "não envie ao remoto e não integre".
 
 ## Abrir

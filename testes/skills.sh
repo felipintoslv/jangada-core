@@ -50,7 +50,7 @@ for trecho in '.jangada/regras-do-dono.md' '.jangada/estado.md' '.jangada/armadi
   'diário' 'sessões reais, ramos e worktrees' 'resumo antes de abrir tarefas' \
   'Autorizações registradas ainda válidas' 'ausentes não autorizam inventar decisões' \
   'passagem está pronta' 'Shell antigo' 'opus' 'gpt-6-astra' \
-  'aprovação do dono' 'Sem memória entre conversas'; do
+  'aprovação do dono' 'Sem memória entre conversas' 'no limite de rodadas'; do
   conferir "coordenador: passagem orienta $trecho" grep -Fq "$trecho" "$origem/coordenador/SKILL.md"
 done
 conferir "coordenador: sem arquivo auxiliar" [ "$(nomes "$origem/coordenador")" = SKILL.md ]
