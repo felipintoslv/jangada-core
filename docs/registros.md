@@ -555,7 +555,14 @@ subagente tem `.db` próprio.
   `JANGADA_COORDENADOR` definido, por arquivo temporário e `mv`. Ninguém
   apaga: o `--fim` só marca. Na mesma pasta, `codex-hooks-confianca.json`
   guarda a aprovação dos hooks do coordenador com Codex
-  (`bin/jangada-codex-hooks`).
+  (`bin/jangada-codex-hooks`). A passagem manual só abre outro provedor depois
+  da saída voluntária da sessão tmux anterior. Sob a trava, a presença real
+  no tmux prevalece sobre registro antigo; sessão viva exige registro regular
+  válido com projeto e provedor reconhecidos. O nome da sessão é associação
+  operacional por projeto, sem identidade histórica imutável. A nova abertura
+  reescreve os mesmos campos públicos, sem importar históricos. O estado da
+  passagem fica em `.jangada/estado.md` e `.jangada/coordenacao.md`; leituras e
+  conferências do sucessor estão no [ciclo da tarefa](ciclo-da-tarefa.md#coordenador).
 - `~/.claude/history.jsonl`: um pedido digitado por linha, `display`,
   `pastedContents`, `timestamp` (ms), `project` (cwd), `sessionId`. 2.617
   linhas desde 02/05/2026; não é apagado pela limpeza de 30 dias. Serve

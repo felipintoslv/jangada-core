@@ -46,6 +46,12 @@ conferir "coordenador: o comando de abertura declara quem coordena" \
   grep -q '^jangada-agente --janela --coordenador VOCE ' "$origem/coordenador/SKILL.md"
 conferir "coordenador: o nome declarado é claude ou codex" \
   grep -q '`VOCE` é `claude` ou `codex`' "$origem/coordenador/SKILL.md"
+for trecho in '.jangada/regras-do-dono.md' '.jangada/estado.md' '.jangada/armadilhas.md' \
+  'diário' 'sessões reais, ramos e worktrees' 'resumo antes de abrir tarefas' \
+  'Autorizações registradas ainda válidas' 'ausentes não autorizam inventar decisões' \
+  'passagem está pronta' 'shell tmux' 'opus' 'gpt-6-astra'; do
+  conferir "coordenador: passagem orienta $trecho" grep -Fq "$trecho" "$origem/coordenador/SKILL.md"
+done
 conferir "coordenador: sem arquivo auxiliar" [ "$(nomes "$origem/coordenador")" = SKILL.md ]
 
 instalar JANGADA_SIMULAR=1 -- 'ligar_skill_claude; ligar_skill_agy; ligar_skill_codex'

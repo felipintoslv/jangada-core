@@ -59,10 +59,38 @@ e, sem ela, "dono"; registro sem o campo é lido como "dono". O nome é só o
 que foi declarado: a Central de Tarefas e o grafo do painel o mostram ao lado
 do autor e do revisor, e ele não muda nenhuma permissão.
 
-Um coordenador por projeto é a prática do fluxo, sem identidade persistente
-ou isolamento de conversas implementados no Core por essa skill.
-O estado entre conversas fica em `.jangada/coordenacao.md`, na raiz do
-projeto e fora do controle de versão; históricos não são importados automaticamente.
+O `jangada-coordenador --projeto PASTA --provedor claude|codex` mantém um
+coordenador por projeto. Novas sessões usam explicitamente o modelo forte:
+Claude `opus`, Codex `gpt-6-astra`, conforme conferência de 18/10/2026.
+A escolha econômica de autor e revisor não altera o coordenador. O comando
+não consulta a rede nem substitui silenciosamente o modelo por outro mais fraco.
+
+Se a sessão tmux estiver viva com registro regular válido do mesmo projeto
+e provedor, o comando informa e foca a sessão atual. Outro provedor recebe
+erro de uso e a orientação de encerramento voluntário pelo dono, sem foco,
+reescrita do registro ou nova sessão. Registro inconsistente preserva a sessão
+e recebe erro; projetos homônimos continuam recusados. A presença real no tmux
+é conferida sob a trava, que também serializa chamadas concorrentes.
+
+A passagem é manual. O coordenador atual atualiza `.jangada/estado.md` e
+`.jangada/coordenacao.md` com decisões, autorizações e pendências e informa
+que a passagem está pronta. O dono encerra voluntariamente a sessão anterior.
+Sair do cliente pode deixar o shell da sessão tmux aberto; nesse caso, saia
+também desse shell. Desanexar do tmux não encerra a sessão. Só depois abra o
+provedor escolhido na pasta do projeto pelo mesmo comando. Um registro antigo
+sem sessão tmux viva não impede a abertura. O `--fim` conserva sua semântica
+existente e não participa dessa passagem.
+
+O processo novo recebe um texto inicial pelo argumento do cliente, identificando
+o papel e pedindo a leitura da skill, das regras e dos registros. Não há texto
+colado em agente aberto nem conteúdo de arquivo interpolado em código shell.
+O sucessor lê `.jangada/regras-do-dono.md`, `.jangada/estado.md`,
+`.jangada/armadilhas.md`, o diário e `.jangada/coordenacao.md`, quando presentes;
+confere sessões reais, ramos e worktrees e apresenta resumo antes de abrir
+tarefas já autorizadas. Autorizações registradas ainda válidas continuam sem
+reconfirmação; arquivos ausentes não autorizam inventar decisões.
+O estado fica fora do controle de versão, sem identidade persistente,
+memória global ou importação automática de históricos.
 Veja [exploração e exemplos](coordenacao-central/02-coordenador-contextos.md#exploração-antes-de-abrir-tarefas)
 e [M2.0](coordenacao-central/05-plano-incremental.md#fase-2-coordenador-mínimo-preservando-sessões).
 
