@@ -25,20 +25,27 @@ sem_autoridade && _sem_autoridade=1
 
 # Primeira recusa do isolamento no que o último comando gravou em PASTA. O
 # último comando começa no novo_comando do invólucro do teste; sem invólucro,
-# na última conferência que passou. Do arquivo que já existia só conta o que
-# veio depois, como no registro de delegações, que guarda recusas antigas. A
-# marca .conferencia só existe dentro do isolamento.
+# na última conferência que passou. Do arquivo que cresceu sem mudar o começo,
+# como o registro de delegações, que guarda recusas antigas, só conta o que
+# veio depois; o arquivo regravado, mesmo com o conteúdo igual, conta inteiro.
+# A marca .conferencia só existe dentro do isolamento.
 _recusa_nova() {
-  local pasta="$1" marca="$1/.conferencia" arq tamanho inicio linha
-  local -A antes=()
+  local pasta="$1" marca="$1/.conferencia" arq tamanho hash inicio linha
+  local -A tamanho_marcado=() hash_marcado=()
   local -a novos=()
   if [[ -e $marca ]]; then
     novos=(-newer "$marca")
-    while IFS=$'\t' read -r tamanho arq; do antes[$arq]=$tamanho; done <"$marca"
+    while IFS=$'\t' read -r tamanho hash arq; do
+      tamanho_marcado[$arq]=$tamanho
+      hash_marcado[$arq]=$hash
+    done <"$marca"
   fi
   while IFS=$'\t' read -r -d '' tamanho arq; do
-    inicio="${antes[$arq]:-0}"
-    ((tamanho >= inicio)) || inicio=0
+    inicio=0
+    if [[ -n ${tamanho_marcado[$arq]:-} ]] && ((tamanho > tamanho_marcado[$arq])) &&
+      [[ "$(head -c "${tamanho_marcado[$arq]}" "$arq" | md5sum)" == "${hash_marcado[$arq]}" ]]; then
+      inicio=${tamanho_marcado[$arq]}
+    fi
     linha="$(tail -c "+$((inicio + 1))" "$arq" 2>/dev/null | grep -soE "($RECUSAS_DO_ISOLAMENTO).*" | head -n 1)"
     [[ -n $linha ]] && printf '%s\n' "$linha" && return 0
   done < <(find "$pasta" -type f "${novos[@]}" ! -name .conferencia ! -name '.conferencia.*' \
@@ -68,11 +75,15 @@ repetir_recusa() {
   cat "$1/.recusa-$2" >>"$1/.recusa-repetida"
 }
 
-# Guarda o tamanho de cada arquivo da pasta, para a próxima conferência só
-# olhar o que vier depois.
+# Guarda tamanho e hash dos arquivos da pasta que já têm recusa, para a
+# próxima conferência saber se cresceram ou foram regravados.
 _marcar_conferencia() {
-  find "$1" -type f ! -name .conferencia ! -name '.conferencia.*' ! -name .por-comando \
-    -printf '%s\t%p\n' >"$1/.conferencia.$$" 2>/dev/null
+  local arq tamanho
+  grep -rlsE --exclude=.conferencia --exclude='.conferencia.*' --exclude=.por-comando \
+    "$RECUSAS_DO_ISOLAMENTO" "$1" | while IFS= read -r arq; do
+    tamanho="$(stat -c %s "$arq")"
+    printf '%s\t%s\t%s\n' "$tamanho" "$(head -c "$tamanho" "$arq" | md5sum)" "$arq"
+  done >"$1/.conferencia.$$"
   mv -f "$1/.conferencia.$$" "$1/.conferencia"
 }
 
