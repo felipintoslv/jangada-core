@@ -344,7 +344,24 @@ class Doctor:
 
     def hooks(self, provedor):
         if provedor == 'codex':
-            return 'nao_verificavel', 'Hooks fornecidos por argumentos pelo jangada-codex e aprovados por sessão; registro efetivo exige iniciar o cliente, o que não foi feito.'
+            candidatos = [self.codex / 'jangada-hooks-confianca.json',
+                          self.estado / 'coordenadores/codex-hooks-confianca.json']
+            sessao = os.environ.get('JANGADA_SESSAO', '')
+            if re.fullmatch('[A-Za-z0-9_.-]+', sessao) and sessao not in {'.', '..'}:
+                candidatos.insert(0, self.estado / 'codex' / sessao / 'jangada-hooks-confianca.json')
+            encontrados = [p for p in candidatos if p.exists()]
+            if not encontrados:
+                return 'nao_verificavel', 'Sem registro local de confiança no contexto consultado. Hooks do Codex são fornecidos por argumentos e aprovados por sessão; cliente não iniciado.'
+            total, desabilitados = 0, 0
+            for caminho in encontrados:
+                for entrada in objeto(caminho).values():
+                    if (not isinstance(entrada, dict) or not isinstance(entrada.get('trusted_hash'), str)
+                            or not entrada['trusted_hash'] or type(entrada.get('enabled', True)) is not bool):
+                        raise ValueError('registro de confiança inválido')
+                    total += 1
+                    desabilitados += entrada.get('enabled') is False
+            return ('aviso' if desabilitados else 'nao_verificavel',
+                    f'Registros locais de confiança: {total} entradas, {desabilitados} desabilitadas. Não comprovam o fornecimento dos hooks na execução; cliente não iniciado.')
         caminho = (self.casa / '.claude/settings.json' if provedor == 'claude'
                    else self.casa / '.gemini/config/hooks.json')
         if not caminho.exists():

@@ -179,6 +179,15 @@ class Diagnostico(unittest.TestCase):
         gravar(self.home / '.claude/settings.json', {'hooks': {}})
         self.assertEqual(self.d.hooks('claude')[0], 'aviso')
         self.assertEqual(self.d.hooks('codex')[0], 'nao_verificavel')
+        confianca = self.d.codex / 'jangada-hooks-confianca.json'
+        gravar(confianca, {'sessao': {'trusted_hash': 'sha256:teste', 'enabled': False}})
+        self.assertEqual(self.d.hooks('codex')[0], 'aviso')
+        gravar(confianca, {'sessao': {'trusted_hash': 'sha256:teste'}})
+        self.assertEqual(self.d.hooks('codex')[0], 'nao_verificavel')
+        self.assertIn('1 entradas', self.d.hooks('codex')[1])
+        gravar(confianca, {'sessao': []})
+        self.d.conferir('hooks.codex', lambda: self.d.hooks('codex'))
+        self.assertEqual(self.d.itens[-1]['estado'], 'nao_verificavel')
         pasta = self.d.estado / 'revisoes'
         pasta.mkdir(parents=True, mode=0o700)
         self.assertEqual(self.d.pasta('revisoes')[0], 'ok')

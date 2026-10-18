@@ -70,6 +70,8 @@ Sem assinantes ou referências locais, a comparação fica não verificável.
 
 Os hooks de Claude e agy são comparados com os padrões registrados em arquivo;
 isso não comprova execução. Os do Codex são fornecidos pelo adaptador em cada
-sessão e ficam não verificáveis sem iniciar o cliente. As pastas ausentes não
+sessão. O diagnóstico conta registros locais de confiança do contexto e avisa
+se há entradas desabilitadas; não comprova o fornecimento efetivo dos hooks.
+As pastas ausentes não
 são criadas. Dono e modos são observados, sem teste de escrita ou análise de ACL.
 Dentro de isolamento, os resultados descrevem apenas o ambiente visível ali.
