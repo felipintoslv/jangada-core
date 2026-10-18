@@ -1118,11 +1118,16 @@ EOF
     vigia_vivo() { pgrep -f "^inotifywait .*$casa/.local/state/jangada/agentes" >/dev/null; }
     for ((i = 0; i < 50; i++)); do vigia_vivo && break; sleep 0.1; done
     conferir "caso 3d: o vigia sobe com a sessão" vigia_vivo
-    # O alvo sai da árvore deste teste: o subshell de isolar() ou, se o bash
-    # trocou o subshell pelo comando, o próprio pid_morto.
-    alvo="$pid_morto"
-    grep -qz 'bin/jangada-isolar$' "/proc/$pid_morto/cmdline" 2>/dev/null \
-      || alvo="$(pgrep -P "$pid_morto" -f 'bin/jangada-isolar -- sleep 20$' | head -n 1)"
+    # O alvo é o primeiro jangada-isolar na árvore de pid_morto, a qualquer
+    # profundidade: o bash pode trocar o subshell pelo comando, e o executar
+    # acrescenta um nível dentro do isolamento.
+    descendentes() { local p; for p in $(pgrep -P "$1"); do echo "$p"; descendentes "$p"; done; }
+    alvo=''
+    for p in "$pid_morto" $(descendentes "$pid_morto"); do
+      if tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -q 'bin/jangada-isolar -- sleep 20 $'; then
+        alvo="$p"; break
+      fi
+    done
     kill -KILL "${alvo:-$pid_morto}" 2>/dev/null
     wait "$pid_morto" 2>/dev/null
     for ((i = 0; i < 50; i++)); do vigia_vivo || break; sleep 0.1; done
