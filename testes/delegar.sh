@@ -13,7 +13,7 @@ falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
 source testes/isolamento.sh
 conferir() {
   local d="$1"; shift
-  if "$@"; then ok "$d"; conferencia_feita "${tmp:-}"
+  if "$@"; then ok "$d"
   elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
 }
 # jq -e em silêncio: redirecionar a linha do conferir calaria o ok e a FALHA.
@@ -139,9 +139,8 @@ mkdir -p "$tmp/home/.gemini/config"
 sed "s|@JANGADA_CORE_PATH@|$repo_jangada|g" agentes/agy/hooks.json >"$tmp/home/.gemini/config/hooks.json"
 
 delegar() {
-  novo_comando "$tmp"
   rm -f "$tmp/falso/agy.args"
-  (cd "$tmp/projeto" && env -u JANGADA_DELEGAR -u JANGADA_DELEGAR_MODELOS -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
+  (cd "$tmp/projeto" && executar "$tmp" env -u JANGADA_DELEGAR -u JANGADA_DELEGAR_MODELOS -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
     -u JANGADA_DELEGAR_ROTEAMENTO_ID -u JANGADA_DELEGAR_TENTATIVAS -u JANGADA_DELEGAR_CHAMADAS_RESTANTES \
     HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
     FALSO_COTA="${COTA:-0.9}" FALSO_RESPOSTA="${RESPOSTA-relatorio em a.sh:1}" \
@@ -382,8 +381,7 @@ git init --quiet "$tmp/raiz"
 git -C "$tmp/raiz" -c user.name=t -c user.email=t@t commit --quiet --allow-empty -m inicio
 git -C "$tmp/raiz" worktree add --quiet -b agente/t "$tmp/wt"
 preparar() {
-  novo_comando "$tmp"
-  env -u JANGADA_ISOLADO HOME="$tmp/home" XDG_STATE_HOME="$tmp/estado" JANGADA_CORE_PATH="$repo_jangada" \
+  executar "$tmp" env -u JANGADA_ISOLADO HOME="$tmp/home" XDG_STATE_HOME="$tmp/estado" JANGADA_CORE_PATH="$repo_jangada" \
     "$repo_jangada/bin/jangada-worktree-preparar" "$tmp/raiz" "$tmp/wt" </dev/null >"$tmp/saida-preparar" 2>&1
 }
 echo '{"trustedWorkspaces": []}' >"$conf_agy"
@@ -398,8 +396,7 @@ conferir "caso 17: raiz confiável, worktree confiável" \
 # A recusa distingue a raiz sem autorização do worktree que ainda não recebeu
 # a confiança derivada, diz o passo de cada caso e não concede nada.
 delegar_wt() {
-  novo_comando "$tmp"
-  (cd "$tmp/wt" && env -u JANGADA_DELEGAR -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
+  (cd "$tmp/wt" && executar "$tmp" env -u JANGADA_DELEGAR -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
     HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
     FALSO_COTA=0.9 FALSO_RESPOSTA="relatorio em a.sh:1" JANGADA_SESSAO=raiz--t \
     "$repo_jangada/bin/jangada-delegar" --permitir-remoto explorador "mapeie" >/dev/null 2>"$tmp/erro-wt"

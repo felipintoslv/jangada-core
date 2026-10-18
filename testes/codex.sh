@@ -12,7 +12,7 @@ trap 'rm -rf "$tmp"' EXIT
 falhas=0
 conferir() {
   local nome="$1"; shift
-  if "$@" >/dev/null; then printf 'ok    %s\n' "$nome"; conferencia_feita "${tmp:-}"
+  if "$@" >/dev/null; then printf 'ok    %s\n' "$nome"
   elif ! pulado_se_recusado "${tmp:-}" "$nome"; then printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
 }
 mkdir -p "$tmp/bin" "$tmp/config/jangada" "$tmp/state/jangada/agentes" "$tmp/projeto" "$tmp/codex"
@@ -46,8 +46,7 @@ for c in claude agy notify-send pkill; do
 done
 chmod +x "$tmp/bin/"*
 rodar() {
-  novo_comando "$tmp"
-  env -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_DELEGAR -u JANGADA_VALIDAR_REVISOR \
+  executar "$tmp" env -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_DELEGAR -u JANGADA_VALIDAR_REVISOR \
     PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp" JANGADA_CORE_PATH="$repo_jangada" \
     CODEX_HOME="$tmp/codex" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
 }

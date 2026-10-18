@@ -15,9 +15,14 @@ unset JANGADA_VALIDAR_REVISOR JANGADA_DELEGAR
 # shellcheck source=testes/isolamento.sh
 source testes/isolamento.sh
 falhas=0
+# Dentro do isolamento, a parte com R real fica pulada: o jangada-isolar do
+# lintr exige o controlador, e a saída do jangada-validar só diz que o lintr
+# falhou.
+pulo_fixo=''
 conferir() {
   local descricao="$1"; shift
-  if "$@"; then printf 'ok    %s\n' "$descricao"; conferencia_feita "${tmp:-}"
+  if [[ -n $pulo_fixo ]]; then pulado_no_isolamento "$descricao ($pulo_fixo)"
+  elif "$@"; then printf 'ok    %s\n' "$descricao"
   elif ! pulado_se_recusado "${tmp:-}" "$descricao"; then
     printf 'FALHA %s\n' "$descricao"; falhas=$((falhas + 1))
   fi
@@ -93,8 +98,7 @@ nova_sessao() {
   cp "$tmp/estado/jangada/agentes/s.json" "$tmp/estado/jangada/revisoes/s.json"
 }
 validar() {
-  novo_comando "$tmp"
-  "$copia/bin/jangada-validar" --revisor claude "$tmp/projeto" >"$tmp/saida" 2>&1
+  executar "$tmp" "$copia/bin/jangada-validar" --revisor claude "$tmp/projeto" >"$tmp/saida" 2>&1
 }
 printf 'conteúdo sintético\n' >"$tmp/projeto/exemplo.txt"
 git -C "$tmp/projeto" add exemplo.txt
@@ -117,6 +121,7 @@ if ! Rscript --vanilla -e 'stopifnot(requireNamespace("lintr", quietly = TRUE))'
   echo 'UNAVAILABLE: prova R do Core independente não executada; exige R e lintr reais' >&2
   exit 77
 fi
+sem_autoridade && pulo_fixo='o jangada-isolar do lintr exige o controlador'
 printf 'cat("novo\\n")\n' >>"$tmp/projeto/exemplo.R"
 nova_sessao
 validar; rc=$?

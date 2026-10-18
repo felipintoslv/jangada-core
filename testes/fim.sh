@@ -17,7 +17,7 @@ falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
 source testes/isolamento.sh
 conferir() {
   local d="$1"; shift
-  if "$@" >/dev/null; then ok "$d"; conferencia_feita "${tmp:-}"
+  if "$@" >/dev/null; then ok "$d"
   elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
 }
 
@@ -78,7 +78,7 @@ git -C "$outro" branch agente/x
 gravar() { # sessão e campos em JSON
   printf '%s\n' "$2" >"$estado/$1.json"
 }
-fim() { novo_comando "$tmp"; "$repo_jangada/bin/jangada-agente-fim" "$@" </dev/null >"$tmp/saida" 2>&1; rc=$?; }
+fim() { executar "$tmp" "$repo_jangada/bin/jangada-agente-fim" "$@" </dev/null >"$tmp/saida" 2>&1; rc=$?; }
 novo_worktree() { # repositório, nome
   git -C "$1" worktree add --quiet -b "agente/$2" "$wts/$(basename "$1")/$2" main
 }
@@ -306,8 +306,7 @@ chmod +x "$tmp/bin/git"
 integrar_teste() { # sessão, resposta à confirmação, opções extras
   local s="$1" r="$2"; shift 2
   rm -f "$tmp/verificar-chamado"
-  novo_comando "$tmp"
-  "$repo_jangada/bin/jangada-agente-fim" --integrar "$@" "$s" <<<"$r" >"$tmp/saida" 2>&1; rc=$?
+  executar "$tmp" "$repo_jangada/bin/jangada-agente-fim" --integrar "$@" "$s" <<<"$r" >"$tmp/saida" 2>&1; rc=$?
 }
 preparar() { # sessão
   novo_worktree "$proj" "$1"
@@ -471,6 +470,9 @@ if command -v bwrap >/dev/null 2>&1 && bwrap --ro-bind / / --dev /dev --proc /pr
   FALSO_COMANDO='{ test -L atalho && cat atalho/dentro.txt; } >"$FALSO_DIR/lk-visto" 2>&1
     (cd "$FALSO_DIR/concorrente" && "$JANGADA_CORE_PATH/bin/jangada-isolar" -- true) </dev/null >"$FALSO_DIR/lk-concorrente.log" 2>&1
     echo "$?" >"$FALSO_DIR/lk-concorrente"' integrar_teste lk s
+  # O lançamento concorrente, dentro da suíte falsa, é o comando conferido.
+  [[ ! -f $tmp/lk-concorrente ]] ||
+    registrar_comando "$tmp" "$(cat "$tmp/lk-concorrente")" "$tmp/lk-concorrente.log" /dev/null
   conferir "link de pasta: lançamento concorrente não é recusado durante a suíte" \
     bash -c '[ "$(cat "$1/lk-concorrente" 2>/dev/null)" = 0 ] && ! grep -q AUTORIZACAO_RECUSADA "$1/lk-concorrente.log"' _ "$tmp"
 else
@@ -589,12 +591,21 @@ mantida "GUI" d2
 # e a outra é recusada porque a base andou.
 preparar s1; preparar s2
 marca s1 "$revisoes"; marca s2 "$revisoes"
-novo_comando "$tmp"
-for n in s1 s2; do
-  ( "$repo_jangada/bin/jangada-agente-fim" --integrar "$n" <<<s >"$tmp/saida-$n" 2>&1
-    echo $? >"$tmp/rc-$n" ) &
-done
-wait
+# As duas saídas e o primeiro código diferente de 0 formam o comando conferido.
+simultaneas() {
+  local n rc=0
+  for n in s1 s2; do
+    ( "$repo_jangada/bin/jangada-agente-fim" --integrar "$n" <<<s >"$tmp/saida-$n" 2>&1
+      echo $? >"$tmp/rc-$n" ) &
+  done
+  wait
+  for n in s1 s2; do
+    cat "$tmp/saida-$n"
+    ((rc)) || rc="$(cat "$tmp/rc-$n")"
+  done
+  return "$rc"
+}
+executar "$tmp" simultaneas >/dev/null
 conferir "simultâneas: só uma integra ($(cat "$tmp/rc-s1"), $(cat "$tmp/rc-s2"))" \
   bash -c 'a="$(cat "$1/rc-s1")"; b="$(cat "$1/rc-s2")"; { [ "$a" = 0 ] && [ "$b" != 0 ]; } || { [ "$a" != 0 ] && [ "$b" = 0 ]; }' _ "$tmp"
 for n in s1 s2; do
@@ -819,7 +830,7 @@ novo_worktree "$proj" viva
 # Outra sessão, viva no tmux, marcada como concluída pelo agente.
 printf 'viva\n' >"$tmp/sessoes"
 gravar viva "{\"raiz\": \"$proj\", \"worktree\": \"$wts/proj/viva\", \"ramo\": \"agente/viva\", \"base\": \"main\", \"estado\": \"concluido\", \"atualizado\": \"$agora\", \"dir\": \"$wts/proj/viva\"}"
-limpar() { novo_comando "$tmp"; "$repo_jangada/bin/jangada-agentes" --limpar-concluidos >"$tmp/saida" 2>&1; rc=$?; }
+limpar() { executar "$tmp" "$repo_jangada/bin/jangada-agentes" --limpar-concluidos >"$tmp/saida" 2>&1; rc=$?; }
 limpar <<<n
 conferir "resposta n: termina sem erro ($rc)" test "$rc" -eq 0
 conferir "resposta n: lista a sessão" grep -q 'viva.*sessão aberta no tmux' "$tmp/saida"

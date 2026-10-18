@@ -17,7 +17,7 @@ falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
 source testes/isolamento.sh
 conferir() {
   local d="$1"; shift
-  if "$@" >/dev/null; then ok "$d"; conferencia_feita "${tmp:-}"
+  if "$@" >/dev/null; then ok "$d"
   elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
 }
 
@@ -104,16 +104,17 @@ command -v gitleaks >/dev/null 2>&1 || ambiente+=(JANGADA_VALIDAR_SEM_GITLEAKS=1
 # $extra vale para o atendente, fora.
 extra=()
 isolar() {
-  novo_comando "$tmp"
-  (cd "$tmp/wt" && env "${limpar_ambiente[@]}" "${ambiente[@]}" "${extra[@]}" JANGADA_SESSAO="$1" \
+  (cd "$tmp/wt" && executar "$tmp" env "${limpar_ambiente[@]}" "${ambiente[@]}" "${extra[@]}" JANGADA_SESSAO="$1" \
     "$repo_jangada/bin/jangada-isolar" -- "${@:2}" </dev/null)
 }
 validar="$repo_jangada/bin/jangada-validar"
 # Pedido do agente: a saída fica em $F/NOME.out e .err, o código em $F/NOME.rc.
 pedir() {
   local nome="$1"; shift
+  rm -f "$F/$nome.rc"
   isolar t bash -c '"$@" >"$FALSO_DIR/$0.out" 2>"$FALSO_DIR/$0.err"; echo $? >"$FALSO_DIR/$0.rc"' \
     "$nome" "$@"
+  [[ ! -f $F/$nome.rc ]] || registrar_comando "$tmp" "$(rc "$nome")" "$F/$nome.out" "$F/$nome.err"
 }
 rc() { cat "$F/$1.rc" 2>/dev/null; }
 pareceres() { find "$estado/revisoes" -maxdepth 1 -name 'validacao-t-r*.md' | wc -l; }
@@ -284,8 +285,7 @@ conferir "caso 9: sessão sem cópia protegida não abre atendente" \
   bash -c '[ "$1" = 1 ] && grep -q "indisponível; peça ao coordenador" "$2"' _ "$(rc a3)" "$F/a3.err"
 sem_runtime=(); mkdir -p "$tmp/tmpdir"
 for v in "${ambiente[@]}"; do [[ "$v" == XDG_RUNTIME_DIR=* ]] || sem_runtime+=("$v"); done
-novo_comando "$tmp"
-(cd "$tmp/wt" && env "${limpar_ambiente[@]}" -u XDG_RUNTIME_DIR "${sem_runtime[@]}" TMPDIR="$tmp/tmpdir" \
+(cd "$tmp/wt" && executar "$tmp" env "${limpar_ambiente[@]}" -u XDG_RUNTIME_DIR "${sem_runtime[@]}" TMPDIR="$tmp/tmpdir" \
   JANGADA_SESSAO=t "$repo_jangada/bin/jangada-isolar" -- \
   bash -c '"$1" >"$FALSO_DIR/a4.out" 2>"$FALSO_DIR/a4.err"; echo $? >"$FALSO_DIR/a4.rc"' _ "$validar" </dev/null)
 conferir "caso 9: sem XDG_RUNTIME_DIR o atendente não abre e o pedido diz indisponível" \

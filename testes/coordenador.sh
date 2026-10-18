@@ -16,7 +16,7 @@ erros_dos_pulados "$tmp"
 falhas=0
 conferir() {
   local nome="$1"; shift
-  if "$@"; then printf 'ok    %s\n' "$nome"; conferencia_feita "${tmp:-}"
+  if "$@"; then printf 'ok    %s\n' "$nome"
   elif ! pulado_se_recusado "${tmp:-}" "$nome"; then printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
 }
 mkdir -p "$tmp/bin" "$tmp/home" "$tmp/config" "$tmp/state" "$tmp/projeto/sub" "$tmp/outro" "$tmp/codex"

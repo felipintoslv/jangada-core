@@ -18,7 +18,7 @@ falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
 source testes/isolamento.sh
 conferir() {
   local d="$1"; shift
-  if "$@"; then ok "$d"; conferencia_feita "${tmp:-}"
+  if "$@"; then ok "$d"
   elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
 }
 
@@ -83,7 +83,7 @@ path_sem_sistema() {
   done
   printf '%s' "$out"
 }
-atualizar() { novo_comando "$tmp"; (cd "$tmp" && PATH="$(path_sem_sistema)" "$instalado/bin/jangada-update" "$@") >"$tmp/saida" 2>&1; rc=$?; }
+atualizar() { (cd "$tmp" && executar "$tmp" env PATH="$(path_sem_sistema)" "$instalado/bin/jangada-update" "$@") >"$tmp/saida" 2>&1; rc=$?; }
 head_instalado() { git -C "$instalado" rev-parse HEAD; }
 
 echo "== jangada-update"
@@ -126,7 +126,7 @@ echo "== opções"
 atualizar --ajuda
 conferir "--ajuda sai com 0" test "$rc" -eq 0
 conferir "opção desconhecida é recusada" bash -c '! "$1" --nada >/dev/null 2>&1' _ "$instalado/bin/jangada-update"
-novo_comando "$tmp"; (cd "$tmp" && JANGADA_SIMULAR=1 "$instalado/bin/jangada-update") >"$tmp/saida" 2>&1; rc=$?
+(cd "$tmp" && executar "$tmp" env JANGADA_SIMULAR=1 "$instalado/bin/jangada-update") >"$tmp/saida" 2>&1; rc=$?
 conferir "simulação é recusada" bash -c '[ "$1" -ne 0 ] && grep -q "não oferece simulação" "$2"' _ "$rc" "$tmp/saida"
 
 echo "== jangada-sistema-update"
@@ -142,19 +142,19 @@ echo s2 >"$origem/s2.txt"
 git -C "$origem" add s2.txt
 git -C "$origem" commit --quiet -m "feat(teste): s2"
 : >"$registro"
-novo_comando "$tmp"; (cd "$tmp" && PATH="$sistema:$PATH" "$instalado/bin/jangada-update" --so-core <<<s) >"$tmp/saida" 2>&1; rc=$?
+(cd "$tmp" && executar "$tmp" env PATH="$sistema:$PATH" "$instalado/bin/jangada-update" --so-core <<<s) >"$tmp/saida" 2>&1; rc=$?
 conferir "--so-core com o comando no PATH: não chama ($rc)" bash -c '[ "$1" -eq 0 ] && ! test -s "$2"' _ "$rc" "$registro"
 
 echo s3 >"$origem/s3.txt"
 git -C "$origem" add s3.txt
 git -C "$origem" commit --quiet -m "feat(teste): s3"
 : >"$registro"
-novo_comando "$tmp"; (cd "$tmp" && PATH="$sistema:$PATH" "$instalado/bin/jangada-update" <<<s) >"$tmp/saida" 2>&1; rc=$?
+(cd "$tmp" && executar "$tmp" env PATH="$sistema:$PATH" "$instalado/bin/jangada-update" <<<s) >"$tmp/saida" 2>&1; rc=$?
 conferir "sem --so-core, com o comando: chama sem argumentos ($rc)" bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2")" = "sistema " ]' _ "$rc" "$registro"
 conferir "sem --so-core: o código novo vem antes" test "$(head_instalado)" = "$(git -C "$origem" rev-parse HEAD)"
 
 : >"$registro"
-novo_comando "$tmp"; (cd "$tmp" && PATH="$sistema:$PATH" FALSO_SISTEMA_RC=7 "$instalado/bin/jangada-update" <<<s) >"$tmp/saida" 2>&1; rc=$?
+(cd "$tmp" && executar "$tmp" env PATH="$sistema:$PATH" FALSO_SISTEMA_RC=7 "$instalado/bin/jangada-update" <<<s) >"$tmp/saida" 2>&1; rc=$?
 conferir "repassa o código de saída do sistema ($rc)" test "$rc" -eq 7
 
 atualizar </dev/null
@@ -165,7 +165,7 @@ echo s4 >"$origem/s4.txt"
 git -C "$origem" add s4.txt
 git -C "$origem" commit --quiet -m "feat(teste): s4"
 : >"$registro"
-novo_comando "$tmp"; (cd "$tmp" && PATH="$sistema:$PATH" "$instalado/bin/jangada-update" <<<n) >"$tmp/saida" 2>&1; rc=$?
+(cd "$tmp" && executar "$tmp" env PATH="$sistema:$PATH" "$instalado/bin/jangada-update" <<<n) >"$tmp/saida" 2>&1; rc=$?
 conferir "código recusado: o sistema roda e o código de saída é de erro ($rc)" \
   bash -c '[ "$1" -ne 0 ] && [ -s "$2" ]' _ "$rc" "$registro"
 atualizar --so-core <<<s

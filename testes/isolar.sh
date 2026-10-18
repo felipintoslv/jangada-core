@@ -14,7 +14,7 @@ falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
 source testes/isolamento.sh
 conferir() {
   local d="$1"; shift
-  if "$@"; then ok "$d"; conferencia_feita "${tmp:-}"
+  if "$@"; then ok "$d"
   elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
 }
 conferir "implementação: ambiente vazio, keyring por item sem criação ou acesso irrestrito" \
@@ -50,8 +50,7 @@ git -C "$tmp/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i
 git -C "$tmp/repo" worktree add -q -b agente/t "$tmp/wt"
 
 isolar() {
-  novo_comando "$tmp"
-  (cd "$1" && env -u JANGADA_SESSAO -u CODEX_HOME -u XDG_CACHE_HOME -u JANGADA_ISOLADO HOME="$casa" XDG_STATE_HOME="$casa/.local/state" XDG_CONFIG_HOME="$tmp/config" \
+  (cd "$1" && executar "$tmp" env -u JANGADA_SESSAO -u CODEX_HOME -u XDG_CACHE_HOME -u JANGADA_ISOLADO HOME="$casa" XDG_STATE_HOME="$casa/.local/state" XDG_CONFIG_HOME="$tmp/config" \
     JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" "${@:2}")
 }
 mostrar() { isolar "$tmp/wt" "$@" "$repo_jangada/bin/jangada-isolar" --mostrar -- true >"$tmp/args"; }
@@ -478,7 +477,7 @@ EOF
   # confere com uma casa fora dele.
   if casa_fora="$(mktemp -d -p /var/tmp 2>/dev/null)"; then
     echo pessoal >"$casa_fora/documento.txt"
-    le() { novo_comando "$tmp"; (cd "$tmp/wt" && env -u JANGADA_ISOLADO HOME="$casa_fora" JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" \
+    le() { (cd "$tmp/wt" && executar "$tmp" env -u JANGADA_ISOLADO HOME="$casa_fora" JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" \
       "${@:2}" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>>"$tmp/isolar.err"); }
     conferir "casa mínima: sem ela o documento pessoal é legível" le "grep -q pessoal '$casa_fora/documento.txt'"
     conferir "casa mínima: documento pessoal fora de alcance" \
