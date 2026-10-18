@@ -28,22 +28,24 @@ falhas=0
 pulados=0
 ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
-# Numa sessão de agente, estes casos passam pelo que exige o controlador de
-# fora: o revisor, o lintr e o .jangada/validar.sh pelo jangada-isolar, e a
-# abertura do agente pelo registro de início. Fora dela nada é pulado.
-sem_controlador=0
-sem_autoridade && sem_controlador=1
-pela_isolar='^caso (1|2b?|3[bcd]?|4|5|6|7|9|11[bc]|12[abcdfgh]|14|15|16[acfgj]|17[bcd]?|18|19|20[bde]?|22b?|prazo)( \([^)]*\))?:'
-pelo_agente='^caso (10[a-e]|13[abegh]?)( \([^)]*\))?:'
+# Numa sessão de agente, o caso cujo próprio comando foi recusado por exigir
+# o controlador de fora fica pulado (testes/isolamento.sh). O jangada-validar
+# reprova com 3 quando o jangada-isolar do revisor, do lintr ou do
+# .jangada/validar.sh recusa, e cita a recusa na saída.
+CODIGOS_DA_RECUSA+=' 3'
 conferir() {
   local d="$1"; shift
-  if ((sem_controlador)) && [[ $d =~ $pela_isolar ]]; then
-    pulado_no_isolamento "$d (o jangada-isolar do revisor, do lintr ou do .jangada/validar.sh exige o controlador)"
-    pulados=$((pulados + 1))
-  elif ((sem_controlador)) && [[ $d =~ $pelo_agente ]]; then
-    pulado_no_isolamento "$d (o jangada-agente registra o início e exige o controlador)"
-    pulados=$((pulados + 1))
-  elif "$@" >/dev/null; then ok "$d"; else falha "$d"; fi
+  if "$@" >/dev/null; then ok "$d"
+  elif pulado_se_recusado "${tmp:-}" "$d"; then pulados=$((pulados + 1))
+  else falha "$d"; fi
+}
+# Uso: conferir_apos PASSO DESCRICAO COMANDO..., na conferência que só vale
+# com o que o passo guardado por guardar_recusa PASSO fez.
+conferir_apos() {
+  local passo="$1" d="$2"; shift 2
+  if "$@" >/dev/null; then ok "$d"
+  elif pulado_sem_o_passo "${tmp:-}" "$passo" "$d"; then pulados=$((pulados + 1))
+  else falha "$d"; fi
 }
 
 tmp="$(mktemp -d)"
@@ -151,6 +153,9 @@ validar() {
   env -u JANGADA_VALIDAR_REVISOR -u JANGADA_ISOLADO PATH="$tmp/bin:$(path_limpo)" FALSO_DIR="$tmp/falso" JANGADA_ISOLAR_ESCRITA="$tmp/falso" FALSO_RESPOSTA="$1" JANGADA_SESSAO=s \
     XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="${VALIDAR_PATH:-$repo_jangada}" \
     "$repo_jangada/bin/jangada-validar" "${@:2}" "$tmp/projeto" >"$tmp/saida.log" 2>&1
+  local rc=$?
+  registrar_comando "$tmp" "$rc" "$tmp/saida.log" /dev/null
+  return "$rc"
 }
 
 # Seleção por tarefa passa modelo/esforço e recusa divergência antes do cliente.
@@ -475,7 +480,7 @@ conferir "caso 8: nenhum perfil pronto abre o agy como agente principal" \
 
 # Caso 9: auto-revisão fora de sessão com --revisor mesmo.
 rm -f "$tmp/falso/"*.pedido
-env -u JANGADA_ISOLADO JANGADA_ISOLAR_ESCRITA="$tmp/falso" PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' \
+executar "$tmp" env -u JANGADA_ISOLADO JANGADA_ISOLAR_ESCRITA="$tmp/falso" PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' \
   XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
   "$repo_jangada/bin/jangada-validar" --revisor mesmo "$tmp/projeto" >"$tmp/saida.log" 2>&1; rc=$?
 conferir "caso 9: autorrevisão fora de sessão não aprova" [ "$rc" = 3 ]
@@ -493,7 +498,7 @@ chmod +x "$tmp/bin/tmux"
 
 # 10a: Perfil com revisor agy prevalece sobre JANGADA_VALIDAR_REVISOR=claude global
 rm -f "$estado/"*.json
-env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE PATH="$tmp/bin:$PATH" \
+executar "$tmp" env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE PATH="$tmp/bin:$PATH" \
   XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
   JANGADA_AGENTE_ESCOLHER=0 JANGADA_VALIDAR_REVISOR=claude \
   "$repo_jangada/bin/jangada-agente" --projeto "$tmp/projeto" --direto --perfil codex-flash </dev/null >/dev/null 2>&1
@@ -502,7 +507,7 @@ conferir "caso 10a: revisor agy do perfil prevalece sobre global claude" \
 
 # 10b: Perfil de autorrevisão prevalece sobre JANGADA_VALIDAR_REVISOR=agy global
 rm -f "$estado/"*.json
-env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE PATH="$tmp/bin:$PATH" \
+executar "$tmp" env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE PATH="$tmp/bin:$PATH" \
   XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
   JANGADA_AGENTE_ESCOLHER=0 JANGADA_VALIDAR_REVISOR=agy \
   "$repo_jangada/bin/jangada-agente" --projeto "$tmp/projeto" --direto --perfil claude-mesmo </dev/null >/dev/null 2>&1
@@ -511,7 +516,7 @@ conferir "caso 10b: revisor claude do perfil prevalece sobre global agy" \
 
 # 10c: Opção explícita --revisor prevalece sobre o perfil
 rm -f "$estado/"*.json
-env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE PATH="$tmp/bin:$PATH" \
+executar "$tmp" env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE PATH="$tmp/bin:$PATH" \
   XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
   JANGADA_AGENTE_ESCOLHER=0 \
   "$repo_jangada/bin/jangada-agente" --projeto "$tmp/projeto" --direto --perfil claude-mesmo --revisor agy </dev/null >/dev/null 2>&1
@@ -520,7 +525,7 @@ conferir "caso 10c: --revisor agy explícito prevalece sobre o perfil" \
 
 # 10d: JANGADA_VALIDAR_REVISOR=mesmo global resolve para o agente padrão
 rm -f "$estado/"*.json
-env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE PATH="$tmp/bin:$PATH" \
+executar "$tmp" env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE PATH="$tmp/bin:$PATH" \
   XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
   JANGADA_AGENTE_ESCOLHER=0 JANGADA_VALIDAR_REVISOR=mesmo \
   "$repo_jangada/bin/jangada-agente" --projeto "$tmp/projeto" --direto </dev/null >/dev/null 2>&1
@@ -529,7 +534,7 @@ conferir "caso 10d: JANGADA_VALIDAR_REVISOR=mesmo global resolve para o agente d
 
 # 10e: Revisor do estado prevalece sobre JANGADA_VALIDAR_REVISOR global no jangada-validar
 sessao_de agy agy
-env -u JANGADA_ISOLADO JANGADA_ISOLAR_ESCRITA="$tmp/falso" PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' JANGADA_SESSAO=s \
+executar "$tmp" env -u JANGADA_ISOLADO JANGADA_ISOLAR_ESCRITA="$tmp/falso" PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' JANGADA_SESSAO=s \
   XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
   JANGADA_VALIDAR_REVISOR=claude \
   "$repo_jangada/bin/jangada-validar" "$tmp/projeto" >/dev/null 2>&1
@@ -975,6 +980,7 @@ printf '<<<<<<< HEAD\n>>>>>>> outro\n' >>"$tmp/projeto/metricas.txt"
 validar 'STATUS: APROVADO' --resposta "1 corrigido"
 git -C "$tmp/projeto" checkout -q -- metricas.txt
 validar 'STATUS: APROVADO' --resposta "conflito resolvido"
+guardar_recusa "$tmp" 17
 conferir "caso 17: uma linha por rodada" [ "$(wc -l <"$metricas")" = 3 ]
 conferir "caso 17: REVISAR do revisor com itens e tamanho" \
   jq -e 'select(.rodada == 1) | .resultado == "revisar" and .etapa == "revisor" and .revisor == "agy"
@@ -983,10 +989,10 @@ conferir "caso 17: falha local registrada" \
   jq -e 'select(.rodada == 2) | .resultado == "revisar" and .etapa == "local"' "$metricas"
 conferir "caso 17: APROVADO na rodada 3" jq -e 'select(.rodada == 3) | .resultado == "aprovado"' "$metricas"
 validar x --metricas
-cp "$tmp/saida.log" "$tmp/metricas17.log"
-conferir "caso 17: --metricas resume" \
+conferir_apos 17 "caso 17: --metricas resume" \
   grep -q "projeto: 1 entrega(s) aprovada(s), 3 rodada(s) em média, 0% na primeira; 1 barrada(s) na verificação local" "$tmp/saida.log"
-conferir "caso 17: --metricas separa por revisor" grep -q "^  agy: 2 revisão(ões), 50% aprovadas" "$tmp/saida.log"
+conferir_apos 17 "caso 17: --metricas separa por revisor" grep -q "^  agy: 2 revisão(ões), 50% aprovadas" "$tmp/saida.log"
+cp "$tmp/saida.log" "$tmp/metricas17.log"
 # Resposta vazia do agy, duas vezes, é falha do revisor.
 echo "m3" >>"$tmp/projeto/metricas.txt"
 validar '' --revisor agy --forcar
@@ -1003,7 +1009,7 @@ conferir "caso 17: no worktree, o projeto é o repositório e não a tarefa" \
   [ "$(tail -n1 "$metricas" | jq -r .projeto)" = projeto ]
 echo '{"projeto":"projeto","rodada":' >>"$metricas"
 validar x --metricas; rc=$?
-conferir "caso 17: linha corrompida não derruba o --metricas" \
+conferir_apos 17 "caso 17: linha corrompida não derruba o --metricas" \
   bash -c '[ "$1" = 0 ] && grep -q "^projeto: 2 entrega(s).* 1 no limite de rodadas, 1 falha(s) do revisor" "$2"' _ "$rc" "$tmp/saida.log"
 
 # Caso 17b: a linha do validar.jsonl ganha o resumo dos subagentes da entrega
@@ -1096,15 +1102,22 @@ sessao_de claude agy
 antes="$(wc -l <"$metricas")"
 for i in 1 2 3 4; do
   jq --arg s "p$i" '.sessao = $s' "$estado/s.json" >"$estado/p$i.json"
-  env -u JANGADA_VALIDAR_REVISOR -u JANGADA_ISOLADO PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' \
+  mkdir -p "$tmp/par$i"
+  executar "$tmp/par$i" env -u JANGADA_VALIDAR_REVISOR -u JANGADA_ISOLADO PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso" FALSO_RESPOSTA='STATUS: APROVADO' \
     JANGADA_SESSAO="p$i" XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
     "$repo_jangada/bin/jangada-validar" "$tmp/projeto" >"$tmp/par$i.log" 2>&1 &
 done
 wait
-conferir "caso 17c: uma linha por rodada simultânea" [ "$(wc -l <"$metricas")" = $((antes + 4)) ]
+# A contagem só vale com as quatro rodadas: basta uma recusada para pular.
+rm -f "$tmp"/.recusa-17c.*
+for i in 1 2 3 4; do
+  guardar_recusa "$tmp/par$i" 17c
+  if [ -f "$tmp/par$i/.recusa-17c.rc" ]; then cp "$tmp/par$i"/.recusa-17c.* "$tmp/"; fi
+done
+conferir_apos 17c "caso 17c: uma linha por rodada simultânea" [ "$(wc -l <"$metricas")" = $((antes + 4)) ]
 conferir "caso 17c: as linhas novas são JSON válido" \
   bash -c 'tail -n +"$2" "$1" | jq -e . >/dev/null' _ "$metricas" $((antes + 1))
-rm -f "$estado"/p[1-4].json "$rev"/validacao-p[1-4]-* "$tmp"/par[1-4].log
+rm -rf "$estado"/p[1-4].json "$rev"/validacao-p[1-4]-* "$tmp"/par[1-4].log "$tmp"/par[1-4]
 
 # Caso 18: arquivo novo que é link simbólico vai ao revisor como link, sem o
 # conteúdo do alvo.
@@ -1269,6 +1282,7 @@ git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "caso 20d"
 printf '%s 1 limpo\n' "$(git -C "$tmp/projeto" rev-parse HEAD)" >"$estado/validacao-s.aprovado"
 metricas_antes="$(cat "$tmp/estado/jangada/validar.jsonl" 2>/dev/null | wc -l)"
 validar 'STATUS: APROVADO'; rc=$?
+guardar_recusa "$tmp" 20d
 conferir "caso 20d: aprovado fora do isolamento" [ "$rc" = 0 ]
 conferir "caso 20d: o autor vem da cópia (claude, revisado pelo agy)" test -s "$tmp/falso/agy.pedido"
 conferir "caso 20d: a tarefa vem da cópia" grep -q "tarefa da copia" "$tmp/falso/agy.pedido"
@@ -1285,7 +1299,7 @@ conferir "caso 20d: a métrica vai para revisoes/validar.jsonl" \
   bash -c '[ "$(cat "$1" 2>/dev/null | wc -l)" = "$2" ] && [ "$(tail -n1 "$3" | jq -r .resultado)" = aprovado ]' \
   _ "$tmp/estado/jangada/validar.jsonl" "$metricas_antes" "$revisoes/validar.jsonl"
 env XDG_STATE_HOME="$tmp/estado" JANGADA_CORE_PATH="$repo_jangada" "$repo_jangada/bin/jangada-validar" --metricas >"$tmp/metricas.log" 2>&1
-conferir "caso 20d: --metricas conta a aprovação de fora à parte" grep -q "1 aprovada(s) fora do isolamento" "$tmp/metricas.log"
+conferir_apos 20d "caso 20d: --metricas conta a aprovação de fora à parte" grep -q "1 aprovada(s) fora do isolamento" "$tmp/metricas.log"
 rm -f "$revisoes/s.json"
 
 # Caso 22: a pasta do agente muda enquanto o revisor trabalha. O revisor lê a
@@ -1383,7 +1397,7 @@ rm -f "$estado/p--fix.json" "$estado/validacao-p--fix-"* "$revisoes/p--fix.json"
 # Caso 13: o jangada-agente acrescenta as regras de R só em projeto com arquivos R.
 agente_em() {
   rm -f "$estado/"*.json "$estado/"protocolo-*.md "$estado/"prompt-*.md
-  env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE -u JANGADA_ISOLADO PATH="$tmp/bin:$PATH" \
+  executar "$tmp" env -u TMUX -u HYPRLAND_INSTANCE_SIGNATURE -u JANGADA_ISOLADO PATH="$tmp/bin:$PATH" \
     XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config" JANGADA_CORE_PATH="$repo_jangada" \
     JANGADA_AGENTE_ESCOLHER=0 "$repo_jangada/bin/jangada-agente" --projeto "$1" --direto "${@:2}" </dev/null >/dev/null 2>&1
 }

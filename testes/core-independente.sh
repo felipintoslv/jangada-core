@@ -15,13 +15,15 @@ unset JANGADA_VALIDAR_REVISOR JANGADA_DELEGAR
 # shellcheck source=testes/isolamento.sh
 source testes/isolamento.sh
 falhas=0
-# Dentro do isolamento, a parte com R real fica pulada: o jangada-isolar do
-# lintr exige o controlador, e a saída do jangada-validar só diz que o lintr
-# falhou.
-pulo_fixo=''
+# Na parte com R real, o jangada-isolar do lintr recusa dentro do isolamento:
+# o jangada-validar reprova com 3 e cita a recusa na saída. Ali, cada
+# conferência do validar recusado fica pulada, mesmo a que passaria, porque o
+# lintr não rodou.
+CODIGOS_DA_RECUSA+=' 3'
+r_real=0
 conferir() {
   local descricao="$1"; shift
-  if [[ -n $pulo_fixo ]]; then pulado_no_isolamento "$descricao ($pulo_fixo)"
+  if ((r_real)) && pulado_se_recusado "${tmp:-}" "$descricao"; then :
   elif "$@"; then printf 'ok    %s\n' "$descricao"
   elif ! pulado_se_recusado "${tmp:-}" "$descricao"; then
     printf 'FALHA %s\n' "$descricao"; falhas=$((falhas + 1))
@@ -121,7 +123,7 @@ if ! Rscript --vanilla -e 'stopifnot(requireNamespace("lintr", quietly = TRUE))'
   echo 'UNAVAILABLE: prova R do Core independente não executada; exige R e lintr reais' >&2
   exit 77
 fi
-sem_autoridade && pulo_fixo='o jangada-isolar do lintr exige o controlador'
+r_real=1
 printf 'cat("novo\\n")\n' >>"$tmp/projeto/exemplo.R"
 nova_sessao
 validar; rc=$?
