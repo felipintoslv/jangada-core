@@ -14,6 +14,7 @@ jangada-config
 jangada-consumo
 jangada-coordenador
 jangada-delegar
+jangada-doctor
 jangada-executar
 jangada-fila
 jangada-filtrar

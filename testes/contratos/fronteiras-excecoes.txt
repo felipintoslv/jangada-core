@@ -8,6 +8,8 @@
 # K6: comandos do jangada-shell e do jangada-monitor procurados no PATH, com
 # command -v, e tratados sem erro na ausência. Nenhum é chamado por
 # $JANGADA_CORE_PATH.
+# O doctor só procura notify-send no PATH com shutil.which, sem executá-lo.
+K3 orquestracao/doctor.py 'notify-send': 'notificações', 'inotifywait': 'observação das sessões',
 K3 bin/jangada-config if command -v waybar >/dev/null 2>&1; then pkill -RTMIN+10 -x waybar 2>/dev/null || true; fi ;;
 K3 bin/jangada-config if command -v notify-send >/dev/null 2>&1; then
 K3 bin/jangada-config notify-send -a "$app" "${opcoes[@]}" "$1" "$2" 2>/dev/null || true

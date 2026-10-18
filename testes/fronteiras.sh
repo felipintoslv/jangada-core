@@ -45,7 +45,8 @@ ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
 conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
 
-declare -A teto=([K3]=8 [K6]=7 [permanente]=0)
+# Uma consulta de presença no doctor foi autorizada na tarefa N, sem execução.
+declare -A teto=([K3]=9 [K6]=7 [permanente]=0)
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
