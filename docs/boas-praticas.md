@@ -118,19 +118,26 @@ fim. Fora do isolamento nenhum caso é pulado.
 
 - A recusa só conta quando sai do próprio comando conferido: ele terminou
   com o código da recusa (1, 2 ou 4) e a escreveu no stdout ou no stderr.
-  Texto de recusa num fonte, num registro ou na linha do teste não conta.
+  O `jangada-validar` reprova com 3 quando o isolamento do revisor, do
+  `lintr` ou do `.jangada/validar.sh` recusa, e cita a recusa; as suítes que
+  o chamam aceitam também o 3. Texto de recusa num fonte, num registro ou na
+  linha do teste não conta. Qualquer outra falha continua falha.
 - Em bash, use `testes/isolamento.sh`. O invólucro roda o comando conferido
   por `executar PASTA COMANDO...`, que guarda a saída e o código dele; o
   `conferir` chama `pulado_se_recusado` na falha. Comando que roda dentro de
-  outro e grava a saída à parte entra por `registrar_comando`.
+  outro e grava a saída à parte entra por `registrar_comando`. O registro
+  vale até o próximo comando do teste: entre o passo e a conferência só
+  cabem outro `conferir` e o `rc=$?`.
+- Conferência que exige o que um passo anterior criaria guarda a recusa
+  dele com `guardar_recusa PASTA NOME` logo depois do passo e pula por
+  `pulado_sem_o_passo PASTA NOME DESCRICAO`. A falha própria do comando
+  seguinte continua falha.
   `erros_dos_pulados` leva o stderr do teste para um arquivo da pasta
   temporária.
 - Em Python, chame `isolamento.instalar()` antes do `unittest.main()`. Conta
   o último processo que o caso rodou, ou a parada em `exigir_controlador`
-  depois de a recusa sair no stderr.
-- Caso que depende do controlador sem que a recusa chegue à saída do
-  comando, como o `lintr` dentro do `jangada-validar`, é pulado por nome,
-  com o motivo.
+  depois de a recusa sair no stderr. A falha precisa estar na linha que
+  rodou o processo ou citar o resultado dele.
 - `testes/isolamento-ajudantes.sh` e `.py` provam que só a recusa do comando
   pula o caso.
 - O pulo vale só para a recusa do isolamento. Outra falha dentro dele é
