@@ -7,8 +7,10 @@ pulado, com uma linha "pulado no isolamento: MOTIVO". Fora dela nada muda.
 Uso: import isolamento; isolamento.instalar()
 """
 
+import contextlib
 import os
 import sys
+import tempfile
 import traceback
 import unittest
 
@@ -47,13 +49,17 @@ def instalar(motivo=MOTIVO, sempre=()):
     if not sem_autoridade():
         return
     original_run = unittest.TestCase.run
+    # A recusa que o código testado imprime no sys.stderr fica neste arquivo;
+    # o executor do unittest guardou o stderr original e segue nele.
+    erros = tempfile.TemporaryFile('w+', encoding='utf-8')
 
     def run(self, result=None):
         nome = self._testMethodName
         if nome in sempre:
             pular(f'{type(self).__name__}.{nome} ({motivo})')
             setattr(self, nome, unittest.skip('pulado no isolamento')(getattr(self, nome)))
-        return original_run(self, result)
+        with contextlib.redirect_stderr(erros):
+            return original_run(self, result)
 
     unittest.TestCase.run = run
     # O TextTestResult imprime a falha antes de chamar a base: as duas classes
