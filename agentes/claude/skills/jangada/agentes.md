@@ -362,6 +362,10 @@ porque o hook engole o erro.
 - `read -p` só mostra o texto quando a entrada é um terminal. Aviso que um
   teste precisa ver (ou quem responde por cano) sai num `echo` antes da
   pergunta.
+- Testes de abertura que herdam `TMUX` e `HYPRLAND_INSTANCE_SIGNATURE`
+  fazem o `jangada-agente` buscar outro terminal, mesmo com tmux falso.
+  Controle `TMUX` no ambiente do teste, como `TMUX=''` em
+  `testes/agente-seletor.py`, para usar o `attach` falso.
 
 ## Avaliação local (`jangada-avaliar-ollama`)
 
