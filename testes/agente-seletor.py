@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Confere o seletor em terminal sem executar modelos ou criar sessões reais."""
 
-import json
 import os
 import pathlib
 import pty
@@ -30,13 +29,9 @@ class Seletor(unittest.TestCase):
         config = self.pasta / 'config/jangada'
         config.mkdir(parents=True)
         self.config = config
-        agy = self.pasta / '.gemini/antigravity-cli'
-        agy.mkdir(parents=True)
-        (agy / 'settings.json').write_text(
-            json.dumps({'trustedWorkspaces': [str(self.pasta)]}))
         self.ambiente = {chave: valor for chave, valor in os.environ.items()
                          if not chave.startswith('JANGADA_')}
-        self.ambiente.update(PATH=str(self.bin), HOME=str(self.pasta),
+        self.ambiente.update(PATH=str(self.bin), HOME=str(self.pasta), TMUX='',
                              XDG_CONFIG_HOME=str(self.pasta / 'config'),
                              XDG_STATE_HOME=str(self.pasta / 'estado'),
                              JANGADA_CORE_PATH=str(RAIZ), TESTE_PASTA=str(self.pasta))
@@ -193,6 +188,7 @@ class Seletor(unittest.TestCase):
         self.assertIn('CLAUDE_CODE_OAUTH_TOKEN', nomes)
         self.assertIn('CLAUDE_CODE_DISABLE_1M_CONTEXT', nomes)
         chamadas = (self.pasta / 'tmux-args').read_text().splitlines()
+        self.assertTrue(any(' attach ' in f' {c} ' for c in chamadas))
         removidas = {c.rsplit(' ', 1)[1] for c in chamadas if 'set-environment -g -u' in c}
         self.assertEqual(removidas, {'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID',
                                      'CLAUDE_CODE_CHILD_SESSION'})
