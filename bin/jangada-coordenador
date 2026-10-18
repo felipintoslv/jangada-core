@@ -9,8 +9,8 @@
 #   jangada-coordenador --executar-codex     uso interno; abre o Codex com os hooks
 #
 # Um coordenador por projeto: a sessão se chama PROJETO--coordenador e um
-# segundo pedido só avisa e foca a janela. Outra pasta de mesmo nome é
-# recusada. A sessão recebe
+# segundo pedido do mesmo provedor só avisa e foca a janela. Outro provedor
+# ou outra pasta de mesmo nome é recusado. A sessão recebe
 # JANGADA_COORDENADOR com o próprio nome (e não JANGADA_SESSAO): os hooks
 # gravam estado e última linha em $JANGADA_ESTADO/coordenadores/SESSAO.json.
 #
@@ -109,6 +109,10 @@ registrar() {
   return 0
 }
 
+texto_inicial() {
+  printf '%s' 'Você é o coordenador deste projeto. Leia a skill coordenador e as regras do projeto. Leia .jangada/regras-do-dono.md, .jangada/estado.md, .jangada/armadilhas.md e o diário indicado nos registros, quando presentes, além de .jangada/coordenacao.md. Confira as sessões reais, os ramos e os worktrees. Apresente um resumo do estado e das autorizações registradas antes de abrir tarefas. Continue ações já autorizadas e registradas sem pedir novamente permissões de tarefa que permanecem válidas. Arquivos ausentes não autorizam inventar decisões.'
+}
+
 # Abre o Codex com os hooks do jangada passados na chamada, como faz o
 # jangada-codex, mas fora do isolamento. A aprovação dos hooks fica no
 # estado do jangada, separada da das sessões isoladas.
@@ -129,16 +133,16 @@ executar_codex() {
   preparar_pasta
   estado_hooks="$(bash "$JANGADA_CORE_PATH/bin/jangada-codex-hooks" codex \
     "$reg_dir/codex-hooks-confianca.json" "${args_hooks[@]}")" || exit 1
-  exec codex "${args_hooks[@]}" -c "$estado_hooks"
+  exec codex "${args_hooks[@]}" -c "$estado_hooks" --model gpt-6-astra "$(texto_inicial)"
 }
 
 abrir() {
-  local projeto="$1" provedor="$2" janela="$3" raiz repo sessao arq cmd existente=0 rc outro
+  local projeto="$1" provedor="$2" janela="$3" raiz repo sessao arq rc
+  local -a cmd=()
   [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "o coordenador abre fora do isolamento"
   case "$provedor" in claude|codex) ;; *) erro "provedor deve ser claude ou codex" 2 ;; esac
   jangada_provedor "$provedor" && [[ " $PROVEDOR_FUNCOES " == *" principal "* ]] \
     || erro "provedor $provedor sem a função principal no registro"
-  command -v "$PROVEDOR_COMANDO" >/dev/null 2>&1 || erro "$PROVEDOR_COMANDO não instalado; nenhuma sessão criada"
   [[ -d "$projeto" ]] || erro "diretório não encontrado: $projeto"
   raiz="$(realpath "$projeto")"
   raiz="$(git -C "$raiz" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$raiz")"
@@ -149,21 +153,10 @@ abrir() {
   arq="$reg_dir/$sessao.json"
   preparar_pasta
 
-  while IFS= read -r _v; do unset "$_v"; done < <(compgen -e | ambiente_do_coordenador)
-  while IFS= read -r _v; do
-    "${JANGADA_TMUX[@]}" set-environment -g -u "$_v" || true
-  done < <("${JANGADA_TMUX[@]}" show-environment -g 2>/dev/null | ambiente_do_coordenador)
-  # O coordenador não é tarefa: chamado de dentro de uma, os hooks gravariam
-  # no registro dela.
-  unset JANGADA_SESSAO
-  if "${JANGADA_TMUX[@]}" show-environment -g JANGADA_SESSAO >/dev/null 2>&1; then
-    "${JANGADA_TMUX[@]}" set-environment -g -u JANGADA_SESSAO || true
-  fi
-
   if [[ "$provedor" == codex ]]; then
-    cmd="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-coordenador") --executar-codex"
+    cmd=("$JANGADA_CORE_PATH/bin/jangada-coordenador" --executar-codex)
   else
-    cmd="$(printf '%q' "$PROVEDOR_COMANDO")"
+    cmd=("$PROVEDOR_COMANDO" --model opus "$(texto_inicial)")
   fi
   # Conferência e criação sob a trava: dois pedidos juntos não abrem duas.
   # A trava roda em subshell: a sessão já existente volta pelo código 10.
@@ -171,8 +164,36 @@ abrir() {
   # trava e a seguraria enquanto vivesse.
   _abrir() {
     if "${JANGADA_TMUX[@]}" has-session -t "=$sessao" 2>/dev/null 9<&-; then
+      local outro atual
+      if ! registro "$sessao" >/dev/null || ! jq -se --arg s "$sessao" '
+        length == 1 and (.[0] | type == "object" and .sessao == $s
+          and (.projeto | type == "string" and startswith("/") and length > 0)
+          and (.provedor == "claude" or .provedor == "codex"))' "$arq" >/dev/null 2>&1; then
+        erro "sessão viva $sessao com registro inconsistente: faltam projeto e provedor reconhecidos em arquivo regular válido; sessão preservada" 2
+      fi
+      outro="$(campo "$arq" .projeto)"
+      atual="$(campo "$arq" .provedor)"
+      if [[ "$outro" != "$raiz" ]]; then
+        erro "a sessão $sessao já é o coordenador de $outro, não de $raiz; sessão preservada" 2
+      fi
+      if [[ "$atual" != "$provedor" ]]; then
+        erro "o coordenador de $raiz já está aberto com $atual ($sessao); o dono precisa encerrar voluntariamente essa sessão antes de abrir $provedor" 2
+      fi
+      echo "o coordenador de $raiz já está aberto com $atual: $sessao" >&2
       return 10
     fi
+    command -v "$PROVEDOR_COMANDO" >/dev/null 2>&1 || erro "$PROVEDOR_COMANDO não instalado; nenhuma sessão criada"
+    while IFS= read -r _v; do unset "$_v"; done < <(compgen -e | ambiente_do_coordenador)
+    while IFS= read -r _v; do
+      "${JANGADA_TMUX[@]}" set-environment -g -u "$_v" || true
+    done < <("${JANGADA_TMUX[@]}" show-environment -g 2>/dev/null | ambiente_do_coordenador)
+    # O coordenador não é tarefa: chamado de dentro de uma, os hooks gravariam
+    # no registro dela.
+    unset JANGADA_SESSAO
+    if "${JANGADA_TMUX[@]}" show-environment -g JANGADA_SESSAO >/dev/null 2>&1; then
+      "${JANGADA_TMUX[@]}" set-environment -g -u JANGADA_SESSAO || true
+    fi
+
     local agora tmp
     agora="$(jangada_data_iso)"
     tmp="$(mktemp "$reg_dir/.reg.XXXXXX")" || return 1
@@ -183,29 +204,20 @@ abrir() {
       rm -f "$tmp"
       return 1
     fi
-    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" 9<&-; then
+    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" "${cmd[@]}" 9<&-; then
       rm -f "$arq"
       return 1
     fi
-    "${JANGADA_TMUX[@]}" send-keys -t "=$sessao:" "$cmd" Enter 9<&-
   }
   rc=0
   jangada_com_trava_dir "$reg_dir" _abrir || rc=$?
   if ((rc == 10)); then
-    existente=1
-  elif ((rc != 0)); then
-    erro "não foi possível criar a sessão $sessao"
-  fi
-
-  if ((existente)); then
-    # Pastas de mesmo nome dão o mesmo nome de sessão: a outra fica intocada.
-    outro="$(campo "$arq" .projeto)"
-    if [[ "$outro" != "$raiz" ]]; then
-      erro "a sessão $sessao já é o coordenador de ${outro:-outra pasta}, não de $raiz; encerre aquele com --fim ou renomeie a pasta" 2
-    fi
-    echo "o coordenador de $raiz já está aberto: $sessao" >&2
     focar "$sessao"
     return 0
+  elif ((rc == 2)); then
+    return 2
+  elif ((rc != 0)); then
+    erro "não foi possível criar a sessão $sessao"
   fi
   jangada_avisar_interface estado-sessao
   echo "$sessao"

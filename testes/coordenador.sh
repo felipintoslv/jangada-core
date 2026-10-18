@@ -29,7 +29,9 @@ reg="$estado/coordenadores"
 # Claude falso: grava os bytes recebidos sem interpretar nada.
 cat >"$tmp/bin/claude" <<'EOF'
 #!/usr/bin/env python3
-import os, tty
+import os, sys, tty
+with open(os.environ['FALSO_DIR'] + '/claude.args', 'wb') as args:
+    args.write(b'\0'.join(a.encode() for a in sys.argv[1:]) + b'\0')
 tty.setraw(0)
 caminho = os.environ['FALSO_DIR'] + '/claude.bytes'
 open(caminho, 'wb').close()
@@ -38,6 +40,8 @@ with open(caminho, 'ab', buffering=0) as log:
     while True:
         dados = os.read(0, 4096)
         if not dados:
+            break
+        if dados == b'\x04':
             break
         log.write(dados)
 EOF
@@ -49,18 +53,33 @@ for arg in "$@"; do
   [[ "$arg" == app-server ]] && exec python3 "$JANGADA_CORE_PATH/testes/falso-codex-hooks.py" "$@"
 done
 printf '%s\0' "$@" >"$FALSO_DIR/codex.args"
-exec cat >/dev/null
+exec python3 -c 'import os, tty; tty.setraw(0); os.read(0, 1)'
+EOF
+tmux_real="$(command -v tmux)"
+cat >"$tmp/bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$FALSO_DIR/tmux.chamadas"
+exec "$TMUX_REAL" "$@"
 EOF
 for c in notify-send pkill hyprctl; do
   printf '#!/bin/sh\nexit 0\n' >"$tmp/bin/$c"
 done
+cat >"$tmp/bin/hyprctl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$FALSO_DIR/foco.chamadas"
+[[ "$1" != clients ]] || printf '[{"title":"projeto--coordenador","address":"0x1"}]\n'
+EOF
+cat >"$tmp/bin/jangada-terminal" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$FALSO_DIR/foco.chamadas"
+EOF
 chmod +x "$tmp/bin/"*
 
 rodar() {
   env -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_COORDENADOR -u TMUX -u WAYLAND_DISPLAY \
     -u HYPRLAND_INSTANCE_SIGNATURE -u DISPLAY \
     PATH="$tmp/bin:$PATH" HOME="$tmp/home" SHELL=/bin/sh TMUX_TMPDIR="$sock" FALSO_DIR="$tmp" \
-    CODEX_HOME="$tmp/codex" JANGADA_CORE_PATH="$repo_jangada" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
+    TMUX_REAL="$tmux_real" CODEX_HOME="$tmp/codex" JANGADA_CORE_PATH="$repo_jangada" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
 }
 tm() { rodar tmux -L jangada "$@"; }
 trap 'tm kill-server >/dev/null 2>&1; if [[ -n "${MANTER:-}" ]]; then echo "$tmp"; else rm -rf "$tmp"; fi; rm -rf "$sock"' EXIT
@@ -80,7 +99,7 @@ git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -q --allow-empty -
 # global do servidor: o coordenador não a herda.
 rodar tmux -L jangada -f "$repo_jangada/agentes/tmux/agentes.conf" new-session -d -s base
 tm set-environment -g JANGADA_SESSAO alheia--tarefa
-saida="$(rodar env JANGADA_SESSAO=alheia--tarefa "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"
+saida="$(rodar env JANGADA_AUTOR_MODELO=haiku JANGADA_VALIDAR_MODELO=haiku JANGADA_SESSAO=alheia--tarefa "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"
 conferir "a abertura cria a sessão PROJETO--coordenador" [ "$saida" = projeto--coordenador ]
 conferir "a sessão existe no servidor do teste" tm has-session -t =projeto--coordenador
 conferir "o socket é o do teste" test -S "$sock/tmux-$(id -u)/jangada"
@@ -99,28 +118,117 @@ conferir "a sessão roda na raiz do projeto" \
   [ "$(tm display-message -p -t =projeto--coordenador: '#{pane_start_path}')" = "$tmp/projeto" ]
 conferir "o Claude falso abre na sessão" esperar test -f "$tmp/claude.pronto"
 
+args_claude="$(tr '\0' '\n' <"$tmp/claude.args")"
+conferir "Claude recebe opus apesar do modelo econômico da tarefa" \
+  [ "$(head -n 2 <<<"$args_claude" | paste -sd ' ')" = '--model opus' ]
+prompt_inicial="$(tail -n 1 <<<"$args_claude")"
+conferir "o texto inicial é um único argumento após o modelo" \
+  [ "$(tr -cd '\0' <"$tmp/claude.args" | wc -c)" = 3 ]
+for trecho in 'coordenador deste projeto' '.jangada/regras-do-dono.md' '.jangada/estado.md' \
+  '.jangada/armadilhas.md' 'diário' '.jangada/coordenacao.md' 'sessões reais' 'ramos' 'worktrees' \
+  'antes de abrir tarefas' 'permissões de tarefa que permanecem válidas' 'não autorizam inventar decisões'; do
+  conferir "o argumento inicial orienta: $trecho" grep -Fq "$trecho" <<<"$prompt_inicial"
+done
+conferir "a abertura não usa send-keys nem buffers" \
+  bash -c '! grep -Eq "send-keys|load-buffer|paste-buffer" "$1"' _ "$tmp/tmux.chamadas"
+
 # Segundo pedido para o mesmo projeto: avisa e não abre outra.
-saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" 2>&1)"; rc=$?
+antes="$(cat "$reg/projeto--coordenador.json")"
+: >"$tmp/foco.chamadas"
+saida="$(rodar env HYPRLAND_INSTANCE_SIGNATURE=teste WAYLAND_DISPLAY=teste "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" 2>&1)"; rc=$?
 conferir "o segundo pedido sai com 0 e avisa" [ "$rc" = 0 ]
 conferir "o aviso diz que já está aberto" grep -q "já está aberto" <<<"$saida"
+conferir "mesmo provedor mantém o registro" test "$(cat "$reg/projeto--coordenador.json")" = "$antes"
+conferir "mesmo provedor foca a sessão correta" grep -q 'dispatch.*0x1' "$tmp/foco.chamadas"
 conferir "continua uma sessão só" [ "$(tm list-sessions -F '#S' | grep -c coordenador)" = 1 ]
+
+# Outro provedor preserva o registro, a sessão e o ambiente, sem focar.
+: >"$tmp/foco.chamadas"
+antes="$(cat "$reg/projeto--coordenador.json")"
+painel="$(tm display-message -p -t =projeto--coordenador: '#{pane_id} #{pane_pid}')"
+tm set-environment -g JANGADA_SESSAO marcador
+tm set-environment -g CLAUDE_CODE_TESTE preservar
+: >"$tmp/tmux.chamadas"
+saida="$(rodar env HYPRLAND_INSTANCE_SIGNATURE=teste WAYLAND_DISPLAY=teste "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" --provedor codex 2>&1)"; rc=$?
+conferir "provedor divergente sai com 2" [ "$rc" = 2 ]
+conferir "a recusa informa o provedor vivo e a saída voluntária" \
+  grep -q 'aberto com claude.*encerrar voluntariamente.*codex' <<<"$saida"
+conferir "a divergência não consulta nem altera o foco" test ! -s "$tmp/foco.chamadas"
+conferir "a divergência preserva o registro" [ "$(cat "$reg/projeto--coordenador.json")" = "$antes" ]
+conferir "a divergência preserva o processo" \
+  [ "$(tm display-message -p -t =projeto--coordenador: '#{pane_id} #{pane_pid}')" = "$painel" ]
+conferir "a divergência não foca, cria ou envia entrada" \
+  bash -c '! grep -Eq "select-|attach|new-session|send-keys|buffer|set-environment" "$1"' _ "$tmp/tmux.chamadas"
+conferir "a divergência não limpa o ambiente de outra sessão" \
+  [ "$(tm show-environment -g CLAUDE_CODE_TESTE)" = CLAUDE_CODE_TESTE=preservar ]
+tm set-environment -g -u JANGADA_SESSAO
+tm set-environment -g -u CLAUDE_CODE_TESTE
+
+# Registro inválido nunca é substituído enquanto o tmux está vivo.
+cp "$reg/projeto--coordenador.json" "$tmp/registro.valido"
+for caso in ausente link json lista multiplos sem-projeto tipo-projeto relativo sem-provedor desconhecido tipo-provedor sessao; do
+  rm -f "$reg/projeto--coordenador.json"
+  case "$caso" in
+    ausente) ;;
+    link) ln -s "$tmp/registro.valido" "$reg/projeto--coordenador.json" ;;
+    json) printf '{' >"$reg/projeto--coordenador.json" ;;
+    lista) printf '[]' >"$reg/projeto--coordenador.json" ;;
+    multiplos) cat "$tmp/registro.valido" "$tmp/registro.valido" >"$reg/projeto--coordenador.json" ;;
+    *)
+      case "$caso" in
+        sem-projeto) filtro='del(.projeto)' ;;
+        tipo-projeto) filtro='.projeto = 12' ;;
+        relativo) filtro='.projeto = "projeto"' ;;
+        sem-provedor) filtro='del(.provedor)' ;;
+        desconhecido) filtro='.provedor = "agy"' ;;
+        tipo-provedor) filtro='.provedor = ["claude"]' ;;
+        sessao) filtro='.sessao = "outra"' ;;
+      esac
+      jq "$filtro" "$tmp/registro.valido" >"$reg/projeto--coordenador.json" ;;
+  esac
+  antes="$(cat "$reg/projeto--coordenador.json" 2>/dev/null)"
+  : >"$tmp/tmux.chamadas"
+  : >"$tmp/foco.chamadas"
+  saida="$(rodar env HYPRLAND_INSTANCE_SIGNATURE=teste WAYLAND_DISPLAY=teste "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" 2>&1)"; rc=$?
+  conferir "registro $caso: recusa por inconsistência" \
+    test "$rc" = 2
+  conferir "registro $caso: explica a preservação" grep -q 'registro inconsistente.*sessão preservada' <<<"$saida"
+  conferir "registro $caso: não foca" test ! -s "$tmp/foco.chamadas"
+  conferir "registro $caso: preserva dados" [ "$(cat "$reg/projeto--coordenador.json" 2>/dev/null)" = "$antes" ]
+  conferir "registro $caso: sem foco, criação ou entrada" \
+    bash -c '! grep -Eq "select-|attach|new-session|send-keys|buffer|set-environment" "$1"' _ "$tmp/tmux.chamadas"
+  conferir "registro $caso: mantém o processo vivo" \
+    [ "$(tm display-message -p -t =projeto--coordenador: '#{pane_id} #{pane_pid}')" = "$painel" ]
+  if [[ "$caso" = ausente ]]; then conferir "não recria registro ausente" test ! -e "$reg/projeto--coordenador.json"; fi
+  if [[ "$caso" = link ]]; then conferir "não substitui registro com link" test -L "$reg/projeto--coordenador.json"; fi
+done
+rm -f "$reg/projeto--coordenador.json"
+cp "$tmp/registro.valido" "$reg/projeto--coordenador.json"
 
 # Outra pasta com o mesmo nome: recusa, sem focar nem mexer no coordenador
 # que existe.
 git init -q -b main "$tmp/a/projeto"
 antes="$(cat "$reg/projeto--coordenador.json")"
-saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/a/projeto" 2>&1)"; rc=$?
+: >"$tmp/foco.chamadas"
+saida="$(rodar env HYPRLAND_INSTANCE_SIGNATURE=teste WAYLAND_DISPLAY=teste "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/a/projeto" 2>&1)"; rc=$?
 conferir "pasta de mesmo nome sai com 2" [ "$rc" = 2 ]
 conferir "a recusa nomeia a pasta do coordenador existente" grep -q "coordenador de $tmp/projeto, não de $tmp/a/projeto" <<<"$saida"
-conferir "a recusa não foca a janela" bash -c '! grep -q "foc" <<<"$1"' _ "$saida"
+conferir "a recusa não foca a janela" test ! -s "$tmp/foco.chamadas"
 conferir "o registro do outro fica intacto" [ "$(cat "$reg/projeto--coordenador.json")" = "$antes" ]
 conferir "nenhuma sessão nova" [ "$(tm list-sessions -F '#S' | grep -c coordenador)" = 1 ]
 
 # Codex: os hooks do jangada vão na chamada, com a aprovação no estado.
-saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/outro" --provedor codex 2>&1)"
+saida="$(rodar env JANGADA_AUTOR_MODELO=gpt-6.1-sol JANGADA_VALIDAR_MODELO=gpt-6.1-sol "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/outro" --provedor codex 2>&1)"
 conferir "a abertura com Codex cria a sessão" [ "$saida" = outro--coordenador ]
 conferir "o Codex abre com os hooks do coordenador" esperar test -s "$tmp/codex.args"
 args_codex="$(tr '\0' '\n' <"$tmp/codex.args" 2>/dev/null)"
+conferir "Codex recebe o modelo forte e o mesmo texto inicial" \
+  python3 - "$tmp/codex.args" "$prompt_inicial" <<'PYTEST'
+import sys
+from pathlib import Path
+args = Path(sys.argv[1]).read_bytes().decode().split('\0')[:-1]
+assert args[-3:] == ['--model', 'gpt-6-astra', sys.argv[2]], args
+PYTEST
 conferir "o Stop do Codex chama o jangada-hook-codex" grep -q "^hooks.Stop=.*jangada-hook-codex' concluido" <<<"$args_codex"
 conferir "a aprovação dos hooks vai na chamada" grep -q "^hooks.state=" <<<"$args_codex"
 conferir "a aprovação fica na pasta dos coordenadores" test -f "$reg/codex-hooks-confianca.json"
@@ -206,6 +314,62 @@ hook trabalhando '{"prompt":"tarde"}' JANGADA_COORDENADOR=projeto--coordenador
 conferir "hook depois do --fim não reabre o registro" [ "$(campo .estado)" = encerrado ]
 conferir "a consulta mostra o coordenador encerrado e morto" [ "$(rodar "$repo_jangada/bin/jangada-agentes" \
   --coordenadores-json | jq -c '.coordenadores[0] | [.estado, .viva]')" = '["encerrado",false]' ]
+
+# Saída voluntária do cliente falso, com registro antigo ainda no disco.
+rm -f "$tmp/claude.pronto"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" >/dev/null 2>&1
+conferir "o cliente anterior está pronto para sair" esperar test -f "$tmp/claude.pronto"
+tm send-keys -t =projeto--coordenador: C-d
+conferir "a saída voluntária termina a sessão anterior" esperar bash -c '! "$@" has-session -t =projeto--coordenador 2>/dev/null' _ \
+  env TMUX_TMPDIR="$sock" tmux -L jangada
+conferir "registro antigo sozinho não torna a sessão viva" test -f "$reg/projeto--coordenador.json"
+rm -f "$tmp/codex.args"
+: >"$tmp/tmux.chamadas"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" --provedor codex >"$tmp/concorrente1" 2>&1 &
+pid1=$!
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" --provedor codex >"$tmp/concorrente2" 2>&1 &
+pid2=$!
+wait "$pid1"; rc1=$?
+wait "$pid2"; rc2=$?
+conferir "pedidos simultâneos compatíveis passam" test "$rc1:$rc2" = 0:0
+conferir "a trava permite uma única criação" [ "$(grep -c 'new-session' "$tmp/tmux.chamadas")" = 1 ]
+conferir "a passagem cria o processo Codex" esperar test -s "$tmp/codex.args"
+conferir "o sucessor mantém a raiz e atualiza o provedor" \
+  [ "$(campo '[.projeto, .provedor, .estado] | join(" ")')" = "$tmp/projeto codex iniciado" ]
+conferir "a sessão sucessora nasce na pasta do projeto" \
+  [ "$(tm display-message -p -t =projeto--coordenador: '#{pane_start_path}')" = "$tmp/projeto" ]
+: >"$tmp/foco.chamadas"
+antes="$(cat "$reg/projeto--coordenador.json")"
+saida="$(rodar env HYPRLAND_INSTANCE_SIGNATURE=teste WAYLAND_DISPLAY=teste "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" --provedor claude 2>&1)"; rc=$?
+conferir "Codex vivo também recusa Claude" test "$rc" = 2
+conferir "a recusa identifica Codex e a saída voluntária" grep -q 'aberto com codex.*encerrar voluntariamente.*claude' <<<"$saida"
+conferir "a recusa inversa preserva o registro e o foco" \
+  test "$(cat "$reg/projeto--coordenador.json"):$(cat "$tmp/foco.chamadas")" = "$antes:"
+tm send-keys -t =projeto--coordenador: C-d
+esperar bash -c '! "$@" has-session -t =projeto--coordenador 2>/dev/null' _ env TMUX_TMPDIR="$sock" tmux -L jangada
+rm -f "$tmp/claude.pronto"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" >/dev/null 2>&1
+conferir "a passagem de volta abre Claude" esperar test -f "$tmp/claude.pronto"
+conferir "a passagem de volta registra Claude" test "$(campo .provedor)" = claude
+
+# Provedores divergentes disputando a criação: um só ganha sob a trava.
+mkdir -p "$tmp/disputa"
+: >"$tmp/tmux.chamadas"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/disputa" --provedor claude >"$tmp/disputa1" 2>&1 &
+pid1=$!
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/disputa" --provedor codex >"$tmp/disputa2" 2>&1 &
+pid2=$!
+wait "$pid1"; rc1=$?
+wait "$pid2"; rc2=$?
+conferir "concorrência divergente admite somente um provedor" \
+  bash -c '[[ "$1:$2" = 0:2 || "$1:$2" = 2:0 ]]' _ "$rc1" "$rc2"
+conferir "concorrência divergente cria uma única sessão" [ "$(grep -c 'new-session' "$tmp/tmux.chamadas")" = 1 ]
+conferir "concorrência divergente informa a saída voluntária" \
+  grep -q 'encerrar voluntariamente' "$tmp/disputa1" "$tmp/disputa2"
+if ((rc1 == 0)); then vencedor=claude; else vencedor=codex; fi
+conferir "o registro mantém o provedor vencedor" \
+  test "$(jq -r .provedor "$reg/disputa--coordenador.json")" = "$vencedor"
+tm kill-session -t =disputa--coordenador
 
 # --fim espera a trava da abertura antes de fechar a sessão.
 rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" >/dev/null 2>&1
