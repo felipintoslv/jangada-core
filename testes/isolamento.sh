@@ -7,7 +7,9 @@
 #
 # A recusa só conta quando sai do próprio comando conferido: o último comando
 # rodado pelo executar terminou com o código da recusa e a escreveu no stdout
-# ou no stderr. Texto de recusa em outro arquivo da pasta não conta.
+# ou no stderr. Texto de recusa em outro arquivo da pasta não conta. Qualquer
+# comando do nível de cima do teste entre esse passo e a conferência, fora o
+# conferir e o rc=$?, anula o registro.
 #
 # Uso: source testes/isolamento.sh
 
@@ -28,7 +30,23 @@ RECUSAS_DO_ISOLAMENTO='AUTORIZACAO_RECUSADA|exige controlador fora do isolamento
 # o orquestracao/cli.py (jangada-fila e afins), com 2; o jangada-delegar, com 4.
 CODIGOS_DA_RECUSA='1 2 4'
 _sem_autoridade=0
-sem_autoridade && _sem_autoridade=1
+_comandos=0
+
+# Conta os comandos do nível de cima do teste. Não contam o conferir, o
+# rc=$?, o guardar_recusa nem o cabeçalho do for e do case. O trap DEBUG não
+# entra nas funções nem nos subshells: o executar dentro do rodar ou de um
+# $(...) vê a contagem do comando que o chamou.
+_contar_comando() {
+  case $BASH_COMMAND in
+    conferir* | guardar_recusa* | 'for '* | 'case '*) ;;
+    *) [[ $BASH_COMMAND =~ ^[A-Za-z_]+=\$\?$ ]] || _comandos=$((_comandos + 1)) ;;
+  esac
+}
+vigiar_comandos() {
+  _sem_autoridade=1
+  trap _contar_comando DEBUG
+}
+sem_autoridade && vigiar_comandos
 
 # Uso: executar PASTA COMANDO..., no invólucro que roda o comando conferido.
 # Dentro do isolamento, guarda o stdout, o stderr e o código do comando em
@@ -45,6 +63,7 @@ executar() {
   "$@" >"$pasta/.comando.saida" 2>"$pasta/.comando.erro"
   rc=$?
   printf '%s\n' "$rc" >"$pasta/.comando.rc"
+  printf '%s\n' "$_comandos" >"$pasta/.comando.n"
   cat "$pasta/.comando.saida"
   cat "$pasta/.comando.erro" >&2
   return "$rc"
@@ -57,6 +76,7 @@ registrar_comando() {
   cat "$3" >"$1/.comando.saida" 2>/dev/null
   cat "$4" >"$1/.comando.erro" 2>/dev/null
   printf '%s\n' "$2" >"$1/.comando.rc"
+  printf '%s\n' "$_comandos" >"$1/.comando.n"
 }
 
 # Uso: novo_comando PASTA, antes de um comando conferido rodado sem o
@@ -66,11 +86,11 @@ novo_comando() {
   rm -f "$1/.comando.rc"
 }
 
-# Uso: recusa_do_comando PASTA. Imprime a primeira recusa do último comando
-# registrado em PASTA, se ele saiu com o código da recusa; senão falha. Não
-# olha a marca do isolamento, para ser testada fora dele.
+# Uso: recusa_do_comando PASTA [REGISTRO]. Imprime a primeira recusa do
+# último comando registrado em PASTA, se ele saiu com o código da recusa;
+# senão falha. Não olha a marca do isolamento, para ser testada fora dele.
 recusa_do_comando() {
-  local registro="$1/.comando" codigo
+  local registro="$1/.${2:-comando}" codigo
   [[ -f $registro.rc ]] || return 1
   codigo="$(<"$registro.rc")"
   [[ " $CODIGOS_DA_RECUSA " == *" $codigo "* ]] || return 1
@@ -78,18 +98,19 @@ recusa_do_comando() {
 }
 
 # Uso: pulado_se_recusado PASTA DESCRICAO
-# Dentro do isolamento, pula o caso quando o último comando foi recusado.
+# Dentro do isolamento, pula o caso quando o último comando foi recusado e
+# nenhum outro rodou depois dele.
 pulado_se_recusado() {
   ((_sem_autoridade)) && [[ -d ${1:-} ]] || return 1
+  [[ -f $1/.comando.n && "$(<"$1/.comando.n")" == "$_comandos" ]] || return 1
   local recusa
   recusa="$(recusa_do_comando "$1")" || return 1
   pulado_no_isolamento "$2 (recusa: $recusa)"
 }
 
-# Uso: guardar_recusa PASTA NOME, logo depois do comando que cria o que
-# conferências adiante usam. Dentro do isolamento, guarda o registro desse
-# comando, se ele foi recusado. repetir_recusa PASTA NOME o devolve como
-# último comando, para as conferências que dependem do que ele não criou.
+# Uso: guardar_recusa PASTA NOME, logo depois do passo que cria o que
+# conferências adiante exigem. Dentro do isolamento, guarda o registro desse
+# passo, se ele foi recusado.
 guardar_recusa() {
   ((_sem_autoridade)) && [[ -d $1 ]] || return 0
   local parte
@@ -99,12 +120,16 @@ guardar_recusa() {
     cp "$1/.comando.$parte" "$1/.recusa-$2.$parte" 2>/dev/null
   done
 }
-repetir_recusa() {
-  ((_sem_autoridade)) && [[ -f $1/.recusa-$2.rc ]] || return 0
-  local parte
-  for parte in saida erro rc; do
-    cp "$1/.recusa-$2.$parte" "$1/.comando.$parte" 2>/dev/null
-  done
+
+# Uso: pulado_sem_o_passo PASTA NOME DESCRICAO, na conferência que só vale
+# com o que o passo guardado como NOME criaria. Dentro do isolamento, pula
+# quando esse passo foi recusado. Não olha o último comando: a falha própria
+# dele fica com as conferências dele.
+pulado_sem_o_passo() {
+  ((_sem_autoridade)) && [[ -d ${1:-} ]] || return 1
+  local recusa
+  recusa="$(recusa_do_comando "$1" "recusa-$2")" || return 1
+  pulado_no_isolamento "$3 (recusa de $2: $recusa)"
 }
 
 # Uso: erros_dos_pulados PASTA

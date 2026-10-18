@@ -20,9 +20,10 @@ trap 'rm -rf "$tmp"' EXIT
 recusa='AUTORIZACAO_RECUSADA: executor isolado não possui autoridade'
 sai() { printf '%s\n' "$2"; printf '%s\n' "$3" >&2; return "$1"; }
 pulou() { pulado_se_recusado "$tmp" "$1" >/dev/null; }
+pulou_sem() { pulado_sem_o_passo "$tmp" tarefa "$1" >/dev/null; }
 nao() { ! "$@"; }
 
-_sem_autoridade=1
+vigiar_comandos
 
 executar "$tmp" sai 1 "na saída" "no erro" >"$tmp/out" 2>"$tmp/err"
 conferir "executar devolve o código do comando" [ "$?" = 1 ]
@@ -67,16 +68,35 @@ registrar_comando "$tmp" 5 "$tmp/interno.out" "$tmp/interno.err"
 conferir "registrar_comando com outro código não pula" nao pulou interno-5
 
 executar "$tmp" sai 1 "" "$recusa" >/dev/null 2>&1
+rc=$?
+conferir "o rc=\$? não anula o registro" pulou rc
+executar "$tmp" sai 1 "" "$recusa" >/dev/null 2>&1
+printf 'x\n' >"$tmp/preparo"
+conferir "comando entre o passo e a conferência anula o registro" nao pulou preparo
+executar "$tmp" sai 1 "" "$recusa" >/dev/null 2>&1
+_="$(cat "$tmp/preparo")"
+conferir "\$(...) sem executar também anula o registro" nao pulou substituicao
+_="$(executar "$tmp" sai 1 "" "$recusa" 2>&1)"
+conferir "executar dentro de \$(...) vale como passo" pulou substituicao-passo
+executar "$tmp" sai 1 "" "$recusa" >/dev/null 2>&1
+for vez in 1 2; do
+  conferir "o cabeçalho do for não anula o registro ($vez)" pulou "laco-$vez"
+done
+passo() { executar "$tmp" sai 1 "" "$recusa"; }
+passo >/dev/null 2>&1
+conferir "executar dentro de função vale como passo" pulou funcao
+
+executar "$tmp" sai 1 "" "$recusa" >/dev/null 2>&1
 guardar_recusa "$tmp" tarefa
-executar "$tmp" true
-repetir_recusa "$tmp" tarefa
-conferir "repetir_recusa devolve a recusa guardada" pulou repetida
+conferir "guardar_recusa não anula o registro do passo" pulou guardado
+executar "$tmp" sai 1 "" "falha do hook" >/dev/null 2>&1
+conferir "recusa guardada e falha própria do comando seguinte continua falha" nao pulou hook
+conferir "conferência que exige o passo recusado pula" pulou_sem sessao
 executar "$tmp" sai 1 "" "outro erro" >/dev/null 2>&1
 guardar_recusa "$tmp" tarefa
-executar "$tmp" sai 1 "" "falha do hook" >/dev/null 2>&1
-repetir_recusa "$tmp" tarefa
-conferir "sem recusa guardada, repetir_recusa não muda nada" nao pulou nao-repetida
+conferir "passo sem recusa não é guardado" nao pulou_sem sem-recusa
 
+trap - DEBUG
 _sem_autoridade=0
 rm -f "$tmp"/.comando.*
 executar "$tmp" sai 1 "" "$recusa" >/dev/null 2>&1

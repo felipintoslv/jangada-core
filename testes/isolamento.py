@@ -167,12 +167,8 @@ def recusado(comandos, erro):
             and tem_recusa(comandos.stderr_do_teste()))
 
 
-def instalar(motivo=MOTIVO, sempre=()):
-    """Troca falha por pulo quando a falha vem da recusa do controlador.
-
-    sempre: nomes de casos que dependem do controlador sem que a recusa
-    apareça na falha (o caso só vê o código de saída do comando).
-    """
+def instalar(motivo=MOTIVO):
+    """Troca falha por pulo quando a falha vem da recusa do controlador."""
     if not sem_autoridade():
         return
     comandos = Comandos()
@@ -188,10 +184,6 @@ def instalar(motivo=MOTIVO, sempre=()):
     original_run = unittest.TestCase.run
 
     def run(self, result=None):
-        nome = self._testMethodName
-        if nome in sempre:
-            pular(f'{type(self).__name__}.{nome} ({motivo})')
-            setattr(self, nome, unittest.skip('pulado no isolamento')(getattr(self, nome)))
         comandos.novo_teste()
         # A recusa que o código testado imprime no sys.stderr fica neste arquivo;
         # o executor do unittest guardou o stderr original e segue nele.
