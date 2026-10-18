@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.." || exit 1
 falhas=0
 ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
-conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
+conferir() { local d="$1"; shift; if "$@" >/dev/null; then ok "$d"; else falha "$d"; fi; }
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -78,7 +78,8 @@ printf '{"antigo": 2}\n' >"$claude_cfg"
 mkdir -p "$tmp/mata"
 printf '#!/bin/sh\nkill -KILL "$PPID"\n' >"$tmp/mata/mv"
 chmod +x "$tmp/mata/mv"
-PATH="$tmp/mata:$PATH" bash -c 'source install/lib.sh && mesclar_hooks_claude' >/dev/null 2>&1
+# O aviso "Killed" do bash fica no arquivo do teste.
+(PATH="$tmp/mata:$PATH" bash -c 'source install/lib.sh && mesclar_hooks_claude' >/dev/null 2>&1; :) 2>"$tmp/mescla-morta.err"
 conferir "interrompida, a mescla deixa o arquivo antigo inteiro" \
   bash -c '[ "$(cat "$1")" = "{\"antigo\": 2}" ]' _ "$claude_cfg"
 rm -f "$claude_cfg".jangada-*

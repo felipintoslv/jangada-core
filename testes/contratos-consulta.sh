@@ -306,8 +306,12 @@ with patch.object(modulo.os, 'open', side_effect=abrir_sessao):
         assert [s['nome'] for s in selecionadas[:3]] == [
             'revisao-um-r1', 'validacao-um-r1.contexto', 'delegacao-exemplo']
 with patch.object(modulo.os, 'scandir', side_effect=OSError('varredura indisponível')):
-    legado = modulo.selecionar(pasta, ['viva'], 24, 168, False)
+    import contextlib
+    import io
+    with contextlib.redirect_stderr(io.StringIO()) as erros:
+        legado = modulo.selecionar(pasta, ['viva'], 24, 168, False)
     assert [s['nome'] for s in legado] == ['viva']
+    assert 'Varredura da pasta de sessões falhou' in erros.getvalue(), erros.getvalue()
     try:
         modulo.selecionar(pasta, ['viva'], 24, 168, True)
     except OSError:
