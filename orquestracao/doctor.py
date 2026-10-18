@@ -23,6 +23,12 @@ LIMITE = 1024 * 1024
 ESTADOS = ('ok', 'aviso', 'falha', 'nao_verificavel')
 
 
+class ConsultaRecusada(ValueError):
+    def __init__(self, erro):
+        super().__init__('consulta recusada')
+        self.erro = erro
+
+
 def ler(caminho, limite=LIMITE):
     # O_NONBLOCK impede que um FIFO no lugar de uma configuração trave o relatório.
     fd = os.open(caminho, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
@@ -46,21 +52,32 @@ def numero(valor, minimo=0, maximo=math.inf):
     return type(valor) in (int, float) and math.isfinite(valor) and minimo <= valor <= maximo
 
 
-def executar(args, prazo=3, capturar=False, ambiente=None):
+def executar(args, prazo=3, capturar=False, ambiente=None, capturar_erro=False):
     processo = subprocess.Popen(args, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE if capturar else subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, env=ambiente, start_new_session=True)
+                                stderr=subprocess.PIPE if capturar_erro else subprocess.DEVNULL,
+                                env=ambiente, start_new_session=True)
     try:
-        saida, _ = processo.communicate(timeout=prazo)
+        saida, erro = processo.communicate(timeout=prazo)
         if processo.returncode:
-            raise ValueError('consulta recusada')
+            raise ConsultaRecusada(erro or b'')
         return (saida or b'').decode('utf-8')
     finally:
+        if processo.poll() is None:
+            try:
+                # O Git remove seus temporários ao tratar TERM, inclusive no prazo vencido.
+                os.killpg(processo.pid, signal.SIGTERM)
+                processo.wait(timeout=.5)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                pass
         try:
             os.killpg(processo.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         processo.wait()
+        for fluxo in (processo.stdout, processo.stderr):
+            if fluxo is not None:
+                fluxo.close()
 
 
 class Doctor:
@@ -312,11 +329,38 @@ class Doctor:
         return ('aviso' if pendentes else 'ok',
                 f'{pendentes} migrações pendentes entre {len(scripts)} scripts; nenhum script executado.')
 
-    def git(self, *args, verificador=None):
+    def temporario_git(self):
+        if not self.estado.is_absolute() or any(p.is_symlink() for p in (self.estado, *self.estado.parents)):
+            return 'Pasta de estado relativa ou com link simbólico; cópia temporária não permitida.'
+        try:
+            info = self.estado.stat()
+        except FileNotFoundError:
+            return 'Pasta de estado ausente; nenhuma pasta foi criada para a cópia temporária.'
+        except OSError:
+            return 'Pasta de estado não acessível; cópia temporária não permitida.'
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) & 0o022):
+            return 'Pasta de estado insegura: exige pasta real do usuário, sem escrita de grupo ou outros.'
+        try:
+            for ancestral in self.estado.parents:
+                info_ancestral = ancestral.stat()
+                if ((info_ancestral.st_uid not in {0, os.getuid()}
+                     and not os.statvfs(ancestral).f_flag & os.ST_RDONLY)
+                        or (info_ancestral.st_mode & 0o022 and not info_ancestral.st_mode & stat.S_ISVTX)):
+                    return 'Pasta de estado com ancestral inseguro para a cópia temporária.'
+        except OSError:
+            return 'Não foi possível conferir os ancestrais da pasta de estado; cópia temporária não permitida.'
+        if stat.S_IMODE(info.st_mode) & 0o300 != 0o300 or not os.access(self.estado, os.W_OK | os.X_OK):
+            return 'Pasta de estado sem acesso de escrita ou travessia para a cópia temporária.'
+        return None
+
+    def git(self, *args, verificador=None, temporario=None):
         # Configuração do repositório não pode escolher executáveis nem gravar índice.
         ambiente = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
         ambiente.update(GIT_OPTIONAL_LOCKS='0', GIT_NO_REPLACE_OBJECTS='1', GIT_TERMINAL_PROMPT='0',
                         GIT_NO_LAZY_FETCH='1', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null')
+        if temporario is not None:
+            ambiente.update(TMPDIR=str(temporario), LC_ALL='C')
         fixos = ['core.fsmonitor=false', 'core.hooksPath=/dev/null', 'core.pager=cat',
                  'core.untrackedCache=false', 'gpg.program=/usr/bin/false',
                  'gpg.x509.program=/usr/bin/false', 'gpg.ssh.program=' + (verificador or '/usr/bin/false'),
@@ -325,7 +369,8 @@ class Doctor:
         comando = ['git', '--no-pager', '--no-optional-locks', '-C', str(self.core)]
         for fixo in fixos:
             comando += ['-c', fixo]
-        return executar(comando + list(args), prazo=5, capturar=True, ambiente=ambiente).strip()
+        return executar(comando + list(args), prazo=5, capturar=True, ambiente=ambiente,
+                        capturar_erro=temporario is not None).strip()
 
     def versao(self):
         canal = self.valores['JANGADA_CANAL']
@@ -343,14 +388,21 @@ class Doctor:
         verificador = shutil.which('ssh-keygen')
         if not verificador:
             return 'nao_verificavel', f'Cópia em {tag}; ssh-keygen ausente no PATH, assinatura não conferida.'
+        motivo = self.temporario_git()
+        if motivo:
+            return 'nao_verificavel', motivo
         commits = self.git('rev-list', '--max-count=513', atual + '..' + destino).splitlines()
         if len(commits) > 512:
             return 'nao_verificavel', 'Comparação excede 512 commits; nenhuma busca ou atualização realizada.'
         try:
             for sha in set(commits + [destino]):
-                self.git('verify-commit', sha, verificador=verificador)
+                self.git('verify-commit', sha, verificador=verificador, temporario=self.estado)
+        except ConsultaRecusada as erro:
+            if any(m in erro.erro for m in (b'could not create temporary file', b'failed writing detached signature')):
+                return 'nao_verificavel', 'O Git não conseguiu criar ou gravar a cópia temporária na pasta de estado; assinatura não conferida.'
+            return 'nao_verificavel', 'O Git não confirmou a assinatura; consulta recusada ou indisponível, sem afirmar que a assinatura é inválida.'
         except ValueError:
-            return 'aviso', 'Origem local contém commit sem assinatura SSH válida pelos assinantes configurados; nada atualizado.'
+            return 'nao_verificavel', 'Não foi possível conferir a assinatura pelo Git; nenhum ajuste realizado.'
         if atual == destino:
             return 'ok', f'Cópia em {tag}, igual à referência local assinada da origem; atualidade remota não consultada.'
         try:

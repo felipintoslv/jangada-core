@@ -28,13 +28,14 @@ def gravar(caminho, dados):
     caminho.write_text(json.dumps(dados), encoding='utf-8')
 
 
-def retrato(pasta):
+def retrato(pasta, ignorar_datas=()):
     itens = {}
     for p in [pasta, *sorted(pasta.rglob('*'))]:
         info = p.lstat()
         conteudo = (os.readlink(p) if p.is_symlink() else
                     hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None)
-        itens[str(p.relative_to(pasta))] = (info.st_mode, info.st_uid, info.st_gid, info.st_mtime_ns, conteudo)
+        data = None if p in ignorar_datas else info.st_mtime_ns
+        itens[str(p.relative_to(pasta))] = (info.st_mode, info.st_uid, info.st_gid, data, conteudo)
     return itens
 
 
@@ -329,21 +330,64 @@ class Diagnostico(unittest.TestCase):
         git('update-ref', 'refs/remotes/origin/main', primeiro)
         self.d.config.mkdir(parents=True)
         (self.d.config / 'allowed_signers').write_text('teste@example.invalid ' + chave.with_suffix('.pub').read_text())
+        antes = retrato(self.base)
+        self.assertEqual(self.d.versao()[0], 'nao_verificavel')
+        self.assertIn('Pasta de estado ausente', self.d.versao()[1])
+        self.assertEqual(antes, retrato(self.base))
+        self.assertFalse(self.d.estado.exists())
+        self.d.estado.mkdir(parents=True, mode=0o700)
+        gravar(self.d.estado / 'registro.json', {'manter': 'SEGREDO_SENTINELA'})
+        antes = retrato(self.base, ignorar_datas=(self.d.estado,))
         self.assertEqual(self.d.versao()[0], 'ok')
+        self.assertEqual(antes, retrato(self.base, ignorar_datas=(self.d.estado,)))
+        self.assertFalse(list(self.d.estado.glob('.git_vtag_tmp*')))
         verificador = shutil.which('ssh-keygen')
         programas = self.base / 'programas'
         programas.mkdir()
         (programas / 'git').symlink_to(shutil.which('git'))
-        with patch.dict(os.environ, PATH=str(programas)), patch.object(doctor, 'executar', wraps=doctor.executar) as executar:
+        herdado = self.base / 'temporario-proibido'
+        with patch.dict(os.environ, PATH=str(programas), TMPDIR=str(herdado)), patch.object(doctor, 'executar', wraps=doctor.executar) as executar:
             estado, detalhe = self.d.versao()
             self.assertEqual(estado, 'nao_verificavel')
             self.assertIn('ssh-keygen ausente', detalhe)
             self.assertFalse(any('verify-commit' in c.args[0] for c in executar.call_args_list))
-            (programas / 'ssh-keygen').symlink_to(verificador)
+            conferir = programas / 'ssh-keygen'
+            conferir.write_text(f'''#!{sys.executable}
+import os
+from pathlib import Path
+import sys
+import time
+assinatura = Path(sys.argv[sys.argv.index('-s') + 1])
+if assinatura.parent != Path({str(self.d.estado)!r}) or not assinatura.is_file():
+    raise SystemExit(91)
+if os.environ['TMPDIR'] != {str(self.d.estado)!r}:
+    raise SystemExit(92)
+if os.environ.get('DOCTOR_TESTE_ESPERAR'):
+    time.sleep(10)
+os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
+''')
+            conferir.chmod(0o755)
             self.assertEqual(self.d.versao()[0], 'ok')
             conferencias = [c.args[0] for c in executar.call_args_list if 'verify-commit' in c.args[0]]
             self.assertTrue(conferencias)
             self.assertTrue(all('gpg.ssh.program=' + str(programas / 'ssh-keygen') in c for c in conferencias))
+            self.assertEqual(os.environ['TMPDIR'], str(herdado))
+            self.assertFalse(herdado.exists())
+            self.assertFalse(list(self.d.estado.glob('.git_vtag_tmp*')))
+        original = doctor.executar
+
+        def prazo_curto(args, **kwargs):
+            if 'verify-commit' in args:
+                kwargs['prazo'] = .15
+            return original(args, **kwargs)
+
+        antes = retrato(self.base, ignorar_datas=(self.d.estado,))
+        with patch.dict(os.environ, PATH=str(programas), DOCTOR_TESTE_ESPERAR='1'), \
+                patch.object(doctor, 'executar', side_effect=prazo_curto):
+            self.d.conferir('versao.origem', self.d.versao)
+            self.assertEqual(self.d.itens[-1]['estado'], 'nao_verificavel')
+        self.assertFalse(list(self.d.estado.glob('.git_vtag_tmp*')))
+        self.assertEqual(antes, retrato(self.base, ignorar_datas=(self.d.estado,)))
         git('commit', '-q', '--allow-empty', '-m', 'feat(teste): segunda versão')
         segundo = git('rev-parse', 'HEAD')
         git('update-ref', 'refs/remotes/origin/main', segundo)
@@ -353,7 +397,11 @@ class Diagnostico(unittest.TestCase):
         git('commit', '-q', '--allow-empty', '-m', 'feat(teste): ponta assinada')
         git('update-ref', 'refs/remotes/origin/main', git('rev-parse', 'HEAD'))
         git('update-ref', 'refs/heads/main', primeiro)
-        self.assertIn('sem assinatura SSH válida', self.d.versao()[1])
+        antes = retrato(self.base, ignorar_datas=(self.d.estado,))
+        self.assertEqual(self.d.versao()[0], 'nao_verificavel')
+        self.assertIn('Git não confirmou a assinatura', self.d.versao()[1])
+        self.assertFalse(list(self.d.estado.glob('.git_vtag_tmp*')))
+        self.assertEqual(antes, retrato(self.base, ignorar_datas=(self.d.estado,)))
         git('update-ref', 'refs/remotes/origin/main', segundo)
         hostil = self.base / 'hostil'
         marca = self.base / 'PROIBIDO'
@@ -361,9 +409,9 @@ class Diagnostico(unittest.TestCase):
         hostil.chmod(0o755)
         git('config', 'core.fsmonitor', str(hostil))
         git('config', 'gpg.ssh.program', str(hostil))
-        antes = retrato(self.base)
+        antes = retrato(self.base, ignorar_datas=(self.d.estado,))
         self.assertIn('1 commits pendentes', self.d.versao()[1])
-        self.assertEqual(antes, retrato(self.base))
+        self.assertEqual(antes, retrato(self.base, ignorar_datas=(self.d.estado,)))
         self.assertFalse(marca.exists())
 
     def test_versao_sem_verificador_nao_avalia_assinatura(self):
@@ -375,6 +423,59 @@ class Diagnostico(unittest.TestCase):
         self.assertEqual(estado, 'nao_verificavel')
         self.assertIn('ssh-keygen ausente', detalhe)
         self.assertFalse(any('verify-commit' in c.args for c in git.call_args_list))
+
+    def test_versao_recusa_pasta_temporaria_ausente_ou_insegura(self):
+        self.d.config.mkdir(parents=True)
+        (self.d.config / 'allowed_signers').touch()
+
+        def conferir(motivo):
+            antes = retrato(self.home)
+            with patch.object(self.d, 'git', side_effect=['a' * 40, 'a' * 40, 'v1.2.3']) as git, \
+                    patch.object(doctor.shutil, 'which', return_value='/ssh-keygen'):
+                estado, detalhe = self.d.versao()
+            self.assertEqual(estado, 'nao_verificavel')
+            self.assertIn(motivo, detalhe)
+            self.assertFalse(any('verify-commit' in c.args for c in git.call_args_list))
+            self.assertEqual(antes, retrato(self.home))
+
+        conferir('ausente')
+        self.d.estado.parent.mkdir(parents=True)
+        self.d.estado.write_text('manter')
+        conferir('insegura')
+        self.d.estado.unlink()
+        self.d.estado.mkdir(mode=0o700)
+        for modo in (0o777, 0o720, 0o702):
+            self.d.estado.chmod(modo)
+            conferir('insegura')
+        for modo in (0o500, 0o600):
+            self.d.estado.chmod(modo)
+            conferir('sem acesso')
+        self.d.estado.chmod(0o700)
+        self.d.estado.parent.chmod(0o777)
+        conferir('ancestral inseguro')
+        self.d.estado.parent.chmod(0o755)
+        with patch('os.getuid', return_value=os.getuid() + 1):
+            conferir('insegura')
+        with patch.object(doctor.os, 'access', return_value=False):
+            conferir('sem acesso')
+        self.d.estado.rmdir()
+        self.d.estado.symlink_to(self.home, target_is_directory=True)
+        conferir('link simbólico')
+
+    def test_falha_no_temporario_nao_acusa_assinatura_invalida(self):
+        self.d.config.mkdir(parents=True)
+        (self.d.config / 'allowed_signers').touch()
+        self.d.estado.mkdir(parents=True, mode=0o700)
+        for erro in (b'error: could not create temporary file: SEGREDO_SENTINELA',
+                     b'error: failed writing detached signature to SEGREDO_SENTINELA',
+                     b'fatal: SEGREDO_SENTINELA'):
+            with patch.object(self.d, 'git', side_effect=['a' * 40, 'a' * 40, 'v1.2.3', '', doctor.ConsultaRecusada(erro)]), \
+                    patch.object(doctor.shutil, 'which', return_value='/ssh-keygen'):
+                estado, detalhe = self.d.versao()
+            self.assertEqual(estado, 'nao_verificavel')
+            self.assertNotIn('SEGREDO_SENTINELA', detalhe)
+            if b'error:' in erro:
+                self.assertIn('cópia temporária na pasta de estado', detalhe)
 
     def test_processo_prazo_real_e_dados_invalidos_continuam(self):
         inicio = time.monotonic()

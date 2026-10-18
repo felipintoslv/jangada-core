@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Diagnóstico somente de leitura do ambiente do Core.
+# Diagnóstico do Core, sem corrigir configuração ou estado persistente.
 set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 exec python3 -B "$dir/orquestracao/doctor.py" "$@"

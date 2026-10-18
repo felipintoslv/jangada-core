@@ -7,7 +7,7 @@ Os comandos da área de trabalho (jangada-shell) e do painel e dos indicadores
 
 | Comando | Função |
 |---|---|
-| `jangada doctor` ou `jangada-doctor` | diagnóstico somente de leitura do Core, com resumo por resultado; `--json` imprime o contrato versão 1 e `--ajuda` descreve o uso; não atualiza cotas, credenciais, hooks nem migrações |
+| `jangada doctor` ou `jangada-doctor` | diagnóstico do Core, com resumo por resultado; `--json` imprime o contrato versão 1 e `--ajuda` descreve o uso; não atualiza cotas, credenciais, hooks nem migrações; a conferência Git usa uma cópia temporária na pasta de estado existente |
 | `jangada-versao` | mostra a versão da cópia (`0.1.0`, ou `0.1.0-3-gabc1234` com commits depois da tag); `--novidades [DE [ATE]]` lista as mudanças, `--registro` imprime o registro completo e `--lancar X.Y.Z` grava o `CHANGELOG.md`, faz o commit e cria a tag `vX.Y.Z` (sem push); `-C DIR` opera em outro repositório |
 | `jangada-assinar` | assina com a chave SSH (`JANGADA_ASSINATURA_CHAVE`) os commits da cópia de trabalho ainda não enviados e sem assinatura válida, depois da confirmação; roda num terminal comum, porque o isolamento oculta o `~/.ssh` |
 | `jangada-agente` | escolhe o agente (Claude ou Codex; o agy fica só de suporte), o projeto e cria um worktree, e abre o agente numa sessão tmux, isolado pelo `jangada-isolar` (`--prompt`, `--prompt-arquivo`, `--perfil`) |
@@ -52,7 +52,9 @@ O saldo do agy vem apenas de `agy-usage.json`, dentro do prazo do cache;
 o do Codex vem da observação ainda válida em `agentes/runtime/tarefas.sqlite`.
 O banco é lido para memória, sem abrir a origem com SQLite; com WAL presente,
 o saldo fica não verificável. Claude não tem contrato de saldo local vigente.
-Cota ausente, vencida ou inválida fica não verificável, sem atualização pela rede.
+Sem saldo válido no prazo, a cota fica não verificável, sem atualização pela rede.
+No cache parcial do agy, os saldos válidos são relatados e os grupos ausentes
+ou inválidos recebem aviso, sem descartar os grupos utilizáveis.
 Credencial presente comprova só o formato local; login no servidor e keyring
 do agy não são consultados. Nenhum segredo ou configuração completa é impresso.
 
@@ -68,10 +70,28 @@ assinatura SSH da referência e dos commits pendentes por `allowed_signers`,
 até 512 commits. Não busca referências na rede nem garante atualidade remota.
 Sem assinantes ou referências locais, a comparação fica não verificável.
 
+A conferência criptográfica continua sendo feita pelo `git verify-commit`.
+O Git copia a assinatura para `.git_vtag_tmp*` e remove a cópia ao terminar,
+inclusive na recusa da assinatura. Se o prazo vencer, recebe TERM para executar
+sua limpeza antes do encerramento forçado.
+Somente esse subprocesso recebe `TMPDIR` apontando para a pasta de estado
+existente do Jangada. Ela deve ser absoluta, sem links simbólicos no caminho,
+pertencer ao usuário, não permitir escrita de grupo ou outros e oferecer
+escrita e travessia ao dono. Os ancestrais devem pertencer ao usuário ou ao root,
+ou estar em sistema de arquivos somente leitura,
+e impedir escrita alheia, salvo pastas protegidas pelo bit de diretório restrito,
+como `/tmp`. Nenhuma pasta é criada nem suas permissões são
+alteradas. A criação e remoção do temporário podem atualizar as datas da pasta;
+não mudam o conteúdo dos registros, configurações ou arquivos instalados.
+Pasta ausente, insegura ou sem acesso, erro no temporário, verificador ausente
+e falha da conferência deixam a assinatura não verificável, com motivo.
+Uma falha operacional não é apresentada como assinatura inválida. Os erros
+brutos do Git não são impressos.
+
 Os hooks de Claude e agy são comparados com os padrões registrados em arquivo;
 isso não comprova execução. Os do Codex são fornecidos pelo adaptador em cada
 sessão. O diagnóstico conta registros locais de confiança do contexto e avisa
 se há entradas desabilitadas; não comprova o fornecimento efetivo dos hooks.
 As pastas ausentes não
-são criadas. Dono e modos são observados, sem teste de escrita ou análise de ACL.
+são criadas. Dono e modos são observados, sem criar arquivos de teste ou analisar ACL.
 Dentro de isolamento, os resultados descrevem apenas o ambiente visível ali.
