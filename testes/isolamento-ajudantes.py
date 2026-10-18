@@ -78,6 +78,12 @@ class Interna(unittest.TestCase):
         with self.subTest('sem recusa'):
             self.assertEqual(sair(1, erro='outro erro').returncode, 0)
 
+    def test_subteste_sem_comando(self):
+        with self.subTest('recusado'):
+            self.assertEqual(sair(1, erro=RECUSA).returncode, 0)
+        with self.subTest('sem comando'):
+            self.fail('nenhum processo neste subteste')
+
 
 def rodar_interna():
     isolamento.sem_autoridade = lambda: True
@@ -130,6 +136,10 @@ class Ajudante(unittest.TestCase):
         self.assertTrue(self.pulou('test_subteste'))
         self.assertIn('Interna.test_subteste [recusado]', '\n'.join(self.linhas))
         self.assertTrue(self.falhou('test_subteste [sem recusa]'))
+
+    def test_subteste_sem_comando_depois_de_recusa(self):
+        self.assertIn('Interna.test_subteste_sem_comando [recusado]', '\n'.join(self.linhas))
+        self.assertTrue(self.falhou('test_subteste_sem_comando [sem comando]'))
 
     def test_linha_do_pulo(self):
         self.assertIn('pulado no isolamento: ', '\n'.join(self.linhas))

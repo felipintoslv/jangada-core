@@ -159,7 +159,10 @@ def _trocar_sub(classe, motivo, comandos):
         return
 
     def novo(self, teste, sub, erro):
-        if erro is not None and recusado(comandos, erro):
+        recusa = erro is not None and recusado(comandos, erro)
+        # O subteste seguinte não herda o processo nem o stderr deste.
+        comandos.novo_teste()
+        if recusa:
             pular(f'{sub.id()} ({motivo})')
             return self.addSkip(teste, 'pulado no isolamento')
         return original(self, teste, sub, erro)
