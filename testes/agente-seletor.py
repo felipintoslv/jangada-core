@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere o seletor em terminal sem executar modelos ou criar sessões reais."""
 
+import json
 import os
 import pathlib
 import pty
@@ -29,6 +30,10 @@ class Seletor(unittest.TestCase):
         config = self.pasta / 'config/jangada'
         config.mkdir(parents=True)
         self.config = config
+        agy = self.pasta / '.gemini/antigravity-cli'
+        agy.mkdir(parents=True)
+        (agy / 'settings.json').write_text(
+            json.dumps({'trustedWorkspaces': [str(self.pasta)]}))
         self.ambiente = {chave: valor for chave, valor in os.environ.items()
                          if not chave.startswith('JANGADA_')}
         self.ambiente.update(PATH=str(self.bin), HOME=str(self.pasta),
