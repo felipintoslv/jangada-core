@@ -116,14 +116,23 @@ isolamento do revisor, do `lintr` e do `.jangada/validar.sh`, rodar o
 `pulado no isolamento: MOTIVO`, e o `testes/verificar.sh` mostra o total no
 fim. Fora do isolamento nenhum caso é pulado.
 
-- Em bash, use `testes/isolamento.sh`. O `conferir` chama
-  `pulado_se_recusado` na falha e `conferencia_feita` no acerto. O invólucro
-  que roda o comando conferido chama `novo_comando`: assim, uma conferência
-  que passa por acaso, como "termina com erro", não esconde a recusa das
-  seguintes. `erros_dos_pulados` leva o stderr do teste para um arquivo da
-  pasta temporária.
-- Em Python, chame `isolamento.instalar()` antes do `unittest.main()`. A
-  falha cujo traceback traz a recusa vira pulada.
+- A recusa só conta quando sai do próprio comando conferido: ele terminou
+  com o código da recusa (1, 2 ou 4) e a escreveu no stdout ou no stderr.
+  Texto de recusa num fonte, num registro ou na linha do teste não conta.
+- Em bash, use `testes/isolamento.sh`. O invólucro roda o comando conferido
+  por `executar PASTA COMANDO...`, que guarda a saída e o código dele; o
+  `conferir` chama `pulado_se_recusado` na falha. Comando que roda dentro de
+  outro e grava a saída à parte entra por `registrar_comando`.
+  `erros_dos_pulados` leva o stderr do teste para um arquivo da pasta
+  temporária.
+- Em Python, chame `isolamento.instalar()` antes do `unittest.main()`. Conta
+  o último processo que o caso rodou, ou a parada em `exigir_controlador`
+  depois de a recusa sair no stderr.
+- Caso que depende do controlador sem que a recusa chegue à saída do
+  comando, como o `lintr` dentro do `jangada-validar`, é pulado por nome,
+  com o motivo.
+- `testes/isolamento-ajudantes.sh` e `.py` provam que só a recusa do comando
+  pula o caso.
 - O pulo vale só para a recusa do isolamento. Outra falha dentro dele é
   defeito do teste e se corrige: HOME real somente leitura, soquete em
   caminho longo, `JANGADA_ISOLADO` herdado de quem roda.
