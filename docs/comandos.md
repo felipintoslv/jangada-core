@@ -52,9 +52,10 @@ O saldo do agy vem apenas de `agy-usage.json`, dentro do prazo do cache;
 o do Codex vem da observação ainda válida em `agentes/runtime/tarefas.sqlite`.
 O banco é lido para memória, sem abrir a origem com SQLite; com WAL presente,
 o saldo fica não verificável. Claude não tem contrato de saldo local vigente.
-Sem saldo válido no prazo, a cota fica não verificável, sem atualização pela rede.
-No cache parcial do agy, os saldos válidos são relatados e os grupos ausentes
-ou inválidos recebem aviso, sem descartar os grupos utilizáveis.
+Cache ausente, vencido, ilegível ou sem estrutura observável fica não verificável,
+sem atualização pela rede. No cache observável do agy, todo grupo configurado
+ausente, inválido ou abaixo da reserva recebe aviso e é identificado no detalhe,
+mesmo quando há outro grupo saudável. Os saldos utilizáveis continuam relatados.
 Credencial presente comprova só o formato local; login no servidor e keyring
 do agy não são consultados. Nenhum segredo ou configuração completa é impresso.
 
@@ -70,7 +71,12 @@ assinatura SSH da referência e dos commits pendentes por `allowed_signers`,
 até 512 commits. Não busca referências na rede nem garante atualidade remota.
 Sem assinantes ou referências locais, a comparação fica não verificável.
 
-A conferência criptográfica continua sendo feita pelo `git verify-commit`.
+A conferência criptográfica continua sendo feita pelo Git. O doctor consulta
+`git log --format=%G?`, como o contrato de atualização, sem assuntos de commits.
+Somente resultados `G` em todos os commits confirmam as assinaturas. `N`, `B`,
+`U`, `X`, `Y` e `R` geram aviso com a contagem de commits que o `jangada-update`
+recusaria aplicar. `E`, erro do processo, resultado desconhecido ou quantidade
+incompatível de resultados ficam não verificáveis, inclusive em saídas mistas.
 O Git copia a assinatura para `.git_vtag_tmp*` e remove a cópia ao terminar,
 inclusive na recusa da assinatura. Se o prazo vencer, recebe TERM para executar
 sua limpeza antes do encerramento forçado.
@@ -84,7 +90,7 @@ como `/tmp`. Nenhuma pasta é criada nem suas permissões são
 alteradas. A criação e remoção do temporário podem atualizar as datas da pasta;
 não mudam o conteúdo dos registros, configurações ou arquivos instalados.
 Pasta ausente, insegura ou sem acesso, erro no temporário, verificador ausente
-e falha da conferência deixam a assinatura não verificável, com motivo.
+e falha operacional da conferência deixam a assinatura não verificável, com motivo.
 Uma falha operacional não é apresentada como assinatura inválida. Os erros
 brutos do Git não são impressos.
 

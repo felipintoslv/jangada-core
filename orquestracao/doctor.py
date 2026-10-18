@@ -24,9 +24,10 @@ ESTADOS = ('ok', 'aviso', 'falha', 'nao_verificavel')
 
 
 class ConsultaRecusada(ValueError):
-    def __init__(self, erro):
+    def __init__(self, erro, codigo=None):
         super().__init__('consulta recusada')
         self.erro = erro
+        self.codigo = codigo
 
 
 def ler(caminho, limite=LIMITE):
@@ -60,7 +61,7 @@ def executar(args, prazo=3, capturar=False, ambiente=None, capturar_erro=False):
     try:
         saida, erro = processo.communicate(timeout=prazo)
         if processo.returncode:
-            raise ConsultaRecusada(erro or b'')
+            raise ConsultaRecusada(erro or b'', processo.returncode)
         return (saida or b'').decode('utf-8')
     finally:
         if processo.poll() is None:
@@ -193,6 +194,8 @@ class Doctor:
             raise ValueError('grupos inválidos')
         usados = {'gemini' if m.startswith('gemini-') else '3p'
                   for m in self.valores['JANGADA_DELEGAR_MODELOS'].split()}
+        if not usados:
+            return 'nao_verificavel', 'Nenhum modelo agy configurado para observar a cota; sem consulta remota.'
         cotas = {}
         for grupo in grupos:
             baldes = grupo.get('buckets', [])
@@ -209,6 +212,10 @@ class Doctor:
                   if all(numero(v, 0, 1) for v in valores)}
         ausentes = usados - cotas.keys()
         invalidos = cotas.keys() - saldos.keys()
+        minimo = float(self.valores['JANGADA_DELEGAR_COTA_MIN'])
+        if not numero(minimo, 0, 100):
+            raise ValueError('reserva inválida')
+        abaixo = {g for g, saldo in saldos.items() if saldo == 0 or saldo < minimo}
         detalhes = []
         if saldos:
             detalhes.append('Saldos observados: ' + ', '.join(f'{g}: {saldos[g]:.2f}%' for g in sorted(saldos)))
@@ -216,14 +223,11 @@ class Doctor:
             detalhes.append('grupos ausentes: ' + ', '.join(sorted(ausentes)))
         if invalidos:
             detalhes.append('grupos inválidos: ' + ', '.join(sorted(invalidos)))
+        if abaixo:
+            detalhes.append('grupos abaixo da reserva: ' + ', '.join(sorted(abaixo)))
         if not saldos:
-            return 'nao_verificavel', 'Nenhum saldo válido de grupo configurado; ' + '; '.join(detalhes) + '; sem atualização pela rede.'
-        minimo = float(self.valores['JANGADA_DELEGAR_COTA_MIN'])
-        if not numero(minimo, 0, 100):
-            raise ValueError('reserva inválida')
-        # Cada modelo exige seu grupo; a seleção pode usar o maior saldo válido.
-        melhor = max(saldos.values())
-        return ('aviso' if ausentes or invalidos or melhor < minimo or melhor == 0 else 'ok',
+            return 'aviso', 'Nenhum saldo válido de grupo configurado; ' + '; '.join(detalhes) + '; sem atualização pela rede.'
+        return ('aviso' if ausentes or invalidos or abaixo else 'ok',
                 '; '.join(detalhes) + '; registro local ainda no prazo, sem consulta remota.')
 
     def cota_codex(self):
@@ -354,7 +358,7 @@ class Doctor:
             return 'Pasta de estado sem acesso de escrita ou travessia para a cópia temporária.'
         return None
 
-    def git(self, *args, verificador=None, temporario=None):
+    def git(self, *args, verificador=None, temporario=None, aparar=True):
         # Configuração do repositório não pode escolher executáveis nem gravar índice.
         ambiente = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
         ambiente.update(GIT_OPTIONAL_LOCKS='0', GIT_NO_REPLACE_OBJECTS='1', GIT_TERMINAL_PROMPT='0',
@@ -369,8 +373,9 @@ class Doctor:
         comando = ['git', '--no-pager', '--no-optional-locks', '-C', str(self.core)]
         for fixo in fixos:
             comando += ['-c', fixo]
-        return executar(comando + list(args), prazo=5, capturar=True, ambiente=ambiente,
-                        capturar_erro=temporario is not None).strip()
+        saida = executar(comando + list(args), prazo=5, capturar=True, ambiente=ambiente,
+                         capturar_erro=temporario is not None)
+        return saida.strip() if aparar else saida
 
     def versao(self):
         canal = self.valores['JANGADA_CANAL']
@@ -394,21 +399,37 @@ class Doctor:
         commits = self.git('rev-list', '--max-count=513', atual + '..' + destino).splitlines()
         if len(commits) > 512:
             return 'nao_verificavel', 'Comparação excede 512 commits; nenhuma busca ou atualização realizada.'
+        if (len(set(commits)) != len(commits) or any(not re.fullmatch('[0-9a-f]{40,64}', c) for c in commits)
+                or (commits and (destino not in commits or atual in commits))):
+            return 'nao_verificavel', 'Lista de commits inválida; assinatura não conferida.'
+        conferir = commits or [destino]
         try:
-            for sha in set(commits + [destino]):
-                self.git('verify-commit', sha, verificador=verificador, temporario=self.estado)
+            resultados = self.git('log', '--no-walk=unsorted', '--no-show-signature', '--no-notes',
+                                  '--no-decorate', '--no-patch', '--no-color', '--format=%G?',
+                                  '--end-of-options', *conferir, verificador=verificador,
+                                  temporario=self.estado, aparar=False).splitlines(keepends=True)
         except ConsultaRecusada as erro:
             if any(m in erro.erro for m in (b'could not create temporary file', b'failed writing detached signature')):
                 return 'nao_verificavel', 'O Git não conseguiu criar ou gravar a cópia temporária na pasta de estado; assinatura não conferida.'
             return 'nao_verificavel', 'O Git não confirmou a assinatura; consulta recusada ou indisponível, sem afirmar que a assinatura é inválida.'
         except ValueError:
             return 'nao_verificavel', 'Não foi possível conferir a assinatura pelo Git; nenhum ajuste realizado.'
+        if (len(resultados) != len(conferir)
+                or any(r not in {'G\n', 'N\n', 'B\n', 'U\n', 'X\n', 'Y\n', 'R\n', 'E\n'} for r in resultados)):
+            return 'nao_verificavel', 'Resultado da conferência Git ausente, incompleto ou inválido; nenhum ajuste realizado.'
+        if 'E\n' in resultados:
+            return 'nao_verificavel', 'Git retornou E: houve conferência indeterminada ou falha operacional; nenhum ajuste realizado.'
+        recusados = sum(r != 'G\n' for r in resultados)
+        if recusados:
+            return 'aviso', f'{recusados} commits sem assinatura válida por allowed_signers; o jangada-update recusaria aplicá-los.'
         if atual == destino:
             return 'ok', f'Cópia em {tag}, igual à referência local assinada da origem; atualidade remota não consultada.'
         try:
             self.git('merge-base', '--is-ancestor', atual, destino)
-        except ValueError:
-            return 'aviso', f'Cópia em {tag} diverge ou está à frente da referência local assinada; sem consulta remota.'
+        except ConsultaRecusada as erro:
+            if erro.codigo == 1:
+                return 'aviso', f'Cópia em {tag} diverge ou está à frente da referência local assinada; sem consulta remota.'
+            return 'nao_verificavel', 'Falha operacional ao comparar a ancestralidade das referências locais; nenhum ajuste realizado.'
         return 'aviso', f'Cópia em {tag}, com {len(commits)} commits pendentes da referência local assinada; sem consulta remota.'
 
     def hooks(self, provedor):

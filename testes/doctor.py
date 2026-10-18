@@ -167,15 +167,23 @@ class Diagnostico(unittest.TestCase):
         self.assertIn('inválidos: 3p', item['detalhe'])
         self.assertNotIn('SEGREDO_SENTINELA', item['detalhe'])
         item = consultar([gemini, {'id': '3p-5h', 'remaining_fraction': .01}])
-        self.assertEqual(item['estado'], 'ok')
+        self.assertEqual(item['estado'], 'aviso')
         self.assertIn('3p: 1.00%', item['detalhe'])
+        self.assertIn('abaixo da reserva: 3p', item['detalhe'])
+        for fracao in (0, .19):
+            item = consultar([gemini, {'id': '3p-5h', 'remaining_fraction': fracao}])
+            self.assertEqual(item['estado'], 'aviso')
+            self.assertIn('abaixo da reserva: 3p', item['detalhe'])
+            self.assertIn('gemini: 80.00%', item['detalhe'])
+        item = consultar([gemini, {'id': '3p-5h', 'remaining_fraction': .2}])
+        self.assertEqual(item['estado'], 'ok')
         item = consultar([gemini, {'id': 'gemini-weekly', 'remaining_fraction': .1},
                           {'id': '3p-5h', 'remaining_fraction': .01}])
         self.assertEqual(item['estado'], 'aviso')
         self.assertIn('gemini: 10.00%', item['detalhe'])
         for baldes in ([], [{'id': 'gemini-5h', 'remaining_fraction': None}],
                        [dict(gemini, disabled=True)], [{'id': 'gemini', 'remaining_fraction': .8}]):
-            self.assertEqual(consultar(baldes)['estado'], 'nao_verificavel')
+            self.assertEqual(consultar(baldes)['estado'], 'aviso')
 
     def test_credenciais_invalidas_expiradas_sem_vazamento(self):
         self.credenciais(1)
@@ -350,7 +358,7 @@ class Diagnostico(unittest.TestCase):
             estado, detalhe = self.d.versao()
             self.assertEqual(estado, 'nao_verificavel')
             self.assertIn('ssh-keygen ausente', detalhe)
-            self.assertFalse(any('verify-commit' in c.args[0] for c in executar.call_args_list))
+            self.assertFalse(any('--format=%G?' in c.args[0] for c in executar.call_args_list))
             conferir = programas / 'ssh-keygen'
             conferir.write_text(f'''#!{sys.executable}
 import os
@@ -368,7 +376,7 @@ os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
 ''')
             conferir.chmod(0o755)
             self.assertEqual(self.d.versao()[0], 'ok')
-            conferencias = [c.args[0] for c in executar.call_args_list if 'verify-commit' in c.args[0]]
+            conferencias = [c.args[0] for c in executar.call_args_list if '--format=%G?' in c.args[0]]
             self.assertTrue(conferencias)
             self.assertTrue(all('gpg.ssh.program=' + str(programas / 'ssh-keygen') in c for c in conferencias))
             self.assertEqual(os.environ['TMPDIR'], str(herdado))
@@ -377,7 +385,7 @@ os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
         original = doctor.executar
 
         def prazo_curto(args, **kwargs):
-            if 'verify-commit' in args:
+            if '--format=%G?' in args:
                 kwargs['prazo'] = .15
             return original(args, **kwargs)
 
@@ -398,8 +406,23 @@ os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
         git('update-ref', 'refs/remotes/origin/main', git('rev-parse', 'HEAD'))
         git('update-ref', 'refs/heads/main', primeiro)
         antes = retrato(self.base, ignorar_datas=(self.d.estado,))
-        self.assertEqual(self.d.versao()[0], 'nao_verificavel')
-        self.assertIn('Git não confirmou a assinatura', self.d.versao()[1])
+        self.assertEqual(self.d.versao()[0], 'aviso')
+        self.assertIn('1 commits sem assinatura válida por allowed_signers', self.d.versao()[1])
+        self.assertIn('jangada-update recusaria', self.d.versao()[1])
+        self.assertNotIn('feat(teste)', self.d.versao()[1])
+        self.assertFalse(list(self.d.estado.glob('.git_vtag_tmp*')))
+        self.assertEqual(antes, retrato(self.base, ignorar_datas=(self.d.estado,)))
+        outra = self.base / 'outra-chave'
+        subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(outra)], check=True)
+        git('-c', 'user.signingkey=' + str(outra), 'commit', '-q', '--allow-empty', '-m', 'SEGREDO_SENTINELA')
+        git('update-ref', 'refs/remotes/origin/main', git('rev-parse', 'HEAD'))
+        git('update-ref', 'refs/heads/main', primeiro)
+        antes = retrato(self.base, ignorar_datas=(self.d.estado,))
+        estado, detalhe = self.d.versao()
+        self.assertEqual(estado, 'aviso')
+        self.assertIn('1 commits sem assinatura válida por allowed_signers', detalhe)
+        self.assertIn('jangada-update recusaria', detalhe)
+        self.assertNotIn('SEGREDO_SENTINELA', detalhe)
         self.assertFalse(list(self.d.estado.glob('.git_vtag_tmp*')))
         self.assertEqual(antes, retrato(self.base, ignorar_datas=(self.d.estado,)))
         git('update-ref', 'refs/remotes/origin/main', segundo)
@@ -422,7 +445,7 @@ os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
             estado, detalhe = self.d.versao()
         self.assertEqual(estado, 'nao_verificavel')
         self.assertIn('ssh-keygen ausente', detalhe)
-        self.assertFalse(any('verify-commit' in c.args for c in git.call_args_list))
+        self.assertFalse(any('--format=%G?' in c.args for c in git.call_args_list))
 
     def test_versao_recusa_pasta_temporaria_ausente_ou_insegura(self):
         self.d.config.mkdir(parents=True)
@@ -435,7 +458,7 @@ os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
                 estado, detalhe = self.d.versao()
             self.assertEqual(estado, 'nao_verificavel')
             self.assertIn(motivo, detalhe)
-            self.assertFalse(any('verify-commit' in c.args for c in git.call_args_list))
+            self.assertFalse(any('--format=%G?' in c.args for c in git.call_args_list))
             self.assertEqual(antes, retrato(self.home))
 
         conferir('ausente')
@@ -476,6 +499,63 @@ os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
             self.assertNotIn('SEGREDO_SENTINELA', detalhe)
             if b'error:' in erro:
                 self.assertIn('cópia temporária na pasta de estado', detalhe)
+
+    def test_assinaturas_mistas_indeterminadas_e_saida_invalida(self):
+        self.d.config.mkdir(parents=True)
+        (self.d.config / 'allowed_signers').touch()
+        self.d.estado.mkdir(parents=True, mode=0o700)
+        resultados = [('G\nG\n', 'aviso'), ('N\nG\n', 'aviso'), ('G\nN\n', 'aviso'),
+                      ('G\nU\n', 'aviso'), ('B\nX\n', 'aviso'), ('Y\nR\n', 'aviso'),
+                      ('G\nE\n', 'nao_verificavel'), ('E\nN\n', 'nao_verificavel'),
+                      ('N\nE\n', 'nao_verificavel'), ('', 'nao_verificavel'),
+                      ('G\n', 'nao_verificavel'), ('G\nG\nG\n', 'nao_verificavel'),
+                      ('G\n?\n', 'nao_verificavel'), ('G\nG', 'nao_verificavel'),
+                      ('G\nG\nSEGREDO_SENTINELA', 'nao_verificavel'),
+                      ('G\nN\n\n', 'nao_verificavel'), ('G\n N\n', 'nao_verificavel'),
+                      ('G\r\nN\r\n', 'nao_verificavel')]
+        for saida, esperado in resultados:
+            sha_a, sha_b, sha_c = 'a' * 40, 'b' * 40, 'c' * 40
+            with patch.object(doctor, 'executar', side_effect=[sha_a, sha_b, 'v1.2.3', sha_b + '\n' + sha_c, saida, '']) as executar, \
+                    patch.object(doctor.shutil, 'which', return_value='/ssh-keygen'):
+                estado, detalhe = self.d.versao()
+            self.assertEqual(estado, esperado, repr(saida))
+            if esperado == 'aviso':
+                recusados = sum(s != 'G' for s in saida.splitlines())
+                if recusados:
+                    self.assertIn(str(recusados) + ' commits sem assinatura válida', detalhe)
+                else:
+                    self.assertIn('2 commits pendentes', detalhe)
+            self.assertNotIn('SEGREDO_SENTINELA', detalhe)
+            consulta = next(c for c in executar.call_args_list if '--format=%G?' in c.args[0])
+            self.assertEqual(consulta.kwargs['ambiente']['TMPDIR'], str(self.d.estado))
+            self.assertIn('gpg.ssh.program=/ssh-keygen', consulta.args[0])
+
+    def test_erro_de_ancestralidade_nao_afirma_divergencia(self):
+        self.d.config.mkdir(parents=True)
+        (self.d.config / 'allowed_signers').touch()
+        self.d.estado.mkdir(parents=True, mode=0o700)
+        for codigo, esperado in ((1, 'aviso'), (128, 'nao_verificavel')):
+            sha_a, sha_b = 'a' * 40, 'b' * 40
+            with patch.object(self.d, 'git', side_effect=[sha_a, sha_b, 'v1.2.3', sha_b, 'G\n', doctor.ConsultaRecusada(b'SEGREDO_SENTINELA', codigo)]), \
+                    patch.object(doctor.shutil, 'which', return_value='/ssh-keygen'):
+                estado, detalhe = self.d.versao()
+            self.assertEqual(estado, esperado)
+            self.assertNotIn('SEGREDO_SENTINELA', detalhe)
+            if codigo != 1:
+                self.assertNotIn('diverge', detalhe)
+
+    def test_lista_invalida_nao_omite_referencia_assinada(self):
+        self.d.config.mkdir(parents=True)
+        (self.d.config / 'allowed_signers').touch()
+        self.d.estado.mkdir(parents=True, mode=0o700)
+        sha_a, sha_b, sha_c = 'a' * 40, 'b' * 40, 'c' * 40
+        for lista in (sha_c, sha_b + '\n' + sha_b, sha_b + '\n' + sha_a, 'SEGREDO_SENTINELA'):
+            with patch.object(self.d, 'git', side_effect=[sha_a, sha_b, 'v1.2.3', lista]) as git, \
+                    patch.object(doctor.shutil, 'which', return_value='/ssh-keygen'):
+                estado, detalhe = self.d.versao()
+            self.assertEqual(estado, 'nao_verificavel')
+            self.assertNotIn('SEGREDO_SENTINELA', detalhe)
+            self.assertFalse(any('--format=%G?' in c.args for c in git.call_args_list))
 
     def test_processo_prazo_real_e_dados_invalidos_continuam(self):
         inicio = time.monotonic()
