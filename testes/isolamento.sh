@@ -25,21 +25,25 @@ sem_autoridade && _sem_autoridade=1
 
 # Primeira recusa do isolamento no que o último comando gravou em PASTA. O
 # último comando começa no novo_comando do invólucro do teste; sem invólucro,
-# na última conferência que passou. Do registro de erros só conta o que veio
-# depois. A marca .conferencia só existe dentro do isolamento.
+# na última conferência que passou. Do arquivo que já existia só conta o que
+# veio depois, como no registro de delegações, que guarda recusas antigas. A
+# marca .conferencia só existe dentro do isolamento.
 _recusa_nova() {
-  local pasta="$1" marca="$1/.conferencia" log="$1/erros-no-isolamento.log" recusa="" inicio=0
+  local pasta="$1" marca="$1/.conferencia" arq tamanho inicio linha
+  local -A antes=()
   local -a novos=()
   if [[ -e $marca ]]; then
     novos=(-newer "$marca")
-    read -r inicio <"$marca" || inicio=0
+    while IFS=$'\t' read -r tamanho arq; do antes[$arq]=$tamanho; done <"$marca"
   fi
-  recusa="$(
-    find "$pasta" -type f "${novos[@]}" ! -name .conferencia ! -name .por-comando \
-      ! -path "$log" -exec grep -hsoE "($RECUSAS_DO_ISOLAMENTO).*" {} + 2>/dev/null
-    [[ -f $log ]] && tail -c "+$((inicio + 1))" "$log" | grep -soE "($RECUSAS_DO_ISOLAMENTO).*"
-  )"
-  [[ -n $recusa ]] && printf '%s\n' "${recusa%%$'\n'*}"
+  while IFS=$'\t' read -r -d '' tamanho arq; do
+    inicio="${antes[$arq]:-0}"
+    ((tamanho >= inicio)) || inicio=0
+    linha="$(tail -c "+$((inicio + 1))" "$arq" 2>/dev/null | grep -soE "($RECUSAS_DO_ISOLAMENTO).*" | head -n 1)"
+    [[ -n $linha ]] && printf '%s\n' "$linha" && return 0
+  done < <(find "$pasta" -type f "${novos[@]}" ! -name .conferencia ! -name '.conferencia.*' \
+    ! -name .por-comando -printf '%s\t%p\0' 2>/dev/null)
+  return 1
 }
 
 # Uso: pulado_se_recusado PASTA DESCRICAO
@@ -64,12 +68,12 @@ repetir_recusa() {
   cat "$1/.recusa-$2" >>"$1/.recusa-repetida"
 }
 
-# Guarda onde o registro de erros estava, para a próxima conferência só olhar
-# o que vier depois.
+# Guarda o tamanho de cada arquivo da pasta, para a próxima conferência só
+# olhar o que vier depois.
 _marcar_conferencia() {
-  local tamanho=0
-  [[ -f $1/erros-no-isolamento.log ]] && tamanho="$(wc -c <"$1/erros-no-isolamento.log")"
-  printf '%s\n' "$((tamanho))" >"$1/.conferencia"
+  find "$1" -type f ! -name .conferencia ! -name '.conferencia.*' ! -name .por-comando \
+    -printf '%s\t%p\n' >"$1/.conferencia.$$" 2>/dev/null
+  mv -f "$1/.conferencia.$$" "$1/.conferencia"
 }
 
 # Uso: novo_comando PASTA, no invólucro que roda o comando conferido. Depois
