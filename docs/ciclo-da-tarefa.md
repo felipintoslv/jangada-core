@@ -4,7 +4,7 @@ Uma tarefa passa por três comandos: `jangada-agente` abre a sessão,
 `jangada-validar` manda a entrega ao revisor configurado e
 `jangada-agente-fim` encerra e limpa. Com `--integrar`, ele avança a base
 até o commit aprovado, depois de confirmação humana, e mantém a sessão.
-Veja [segurança operacional](estabilizacao/SEGURANCA_OPERACIONAL.md). O estado de cada sessão fica em
+Veja a [segurança operacional](historico/estabilizacao/SEGURANCA_OPERACIONAL.md), registro histórico. O estado de cada sessão fica em
 `~/.local/state/jangada/agentes/SESSAO.json`, com o contrato descrito em
 `agentes/claude/skills/jangada/agentes.md`.
 

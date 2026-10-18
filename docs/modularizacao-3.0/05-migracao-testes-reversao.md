@@ -76,7 +76,7 @@ Na M3-10a, a conferência de processos do `jangada-update` passa a procurar
 confere a recusa antes de atualizar.
 
 Antes de cada um: cópia de segurança conforme
-`docs/estabilizacao/BACKUP_RECUPERACAO.md` e anotação do commit instalado.
+`docs/historico/estabilizacao/BACKUP_RECUPERACAO.md` e anotação do commit instalado.
 
 ## 8. Plano de testes e reversão
 

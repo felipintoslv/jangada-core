@@ -601,3 +601,6 @@ Registradas sem resolver.
     Os documentos 01 a 05 e a prova dos links desta pasta também descrevem o
     plano e o estado de quando foram escritos. Todos os caminhos antigos
     citados neles continuam resolvendo pelos links.
+    Isso vale para a data desta validação: em 18/10/2026, `docs/estabilizacao/`
+    passou para `docs/historico/estabilizacao/` e a citação do caminho antigo
+    não resolve mais. O [índice histórico](../historico/README.md) mostra o novo lugar.

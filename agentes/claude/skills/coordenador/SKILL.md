@@ -17,6 +17,9 @@ Relate em português simples, primeiro o resultado e o que depende do dono.
 Diga o que foi conferido e o que não foi. Admita erro próprio.
 Detalhe de comando, estado e parecer: guia `agentes.md` da skill `jangada`.
 
+Ao fim de cada atividade, diga o que falta: andamento, fila em ordem e ações
+do dono, uma por linha. Sem pendência, diga que nada falta.
+
 ## Antes de abrir tarefa
 
 1. Confirme que a pasta é um repositório git sem alteração pendente.
@@ -37,9 +40,6 @@ permissões são do dono. Revista alvo e recorte dos dados são escolhas dele.
 Explorar ou escolher uma alternativa não autoriza implementar. Separe exploração,
 proposta e autorização. Com objetivo, escopo e autorização claros, avance sem
 nova exploração ou reconfirmação; siga aprovações técnicas do ambiente.
-
-Exemplo: na Central, atalhos reduzem passos, mas exigem aprendizado;
-busca ajuda com muitas tarefas, mas acrescenta manutenção.
 
 ## Pedido de cada tarefa
 

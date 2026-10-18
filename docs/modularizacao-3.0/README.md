@@ -53,14 +53,14 @@ código foi movido, descreve o estado daquela data.
 | Worktrees que já existiam | `tarefa-a57239626af5`, `~/Projetos/jangada-baseline-2026-10`, `~/Projetos/jangada-confianca-p0`; nenhum foi alterado |
 | Suíte de testes | `JANGADA_CORE_PATH=$PWD testes/verificar.sh` em `ad30fdd`, em 09/10/2026: saída 0, "tudo certo", 3 min 43 s |
 
-A execução anterior registrada em `docs/estabilizacao/TESTES_BASELINE.md`
+A execução anterior registrada em `docs/historico/estabilizacao/TESTES_BASELINE.md`
 (commit `5816c76e8182`) saiu com 1 e sete grupos falhos por limite do
 ambiente em que rodou. A linha de base desta modularização é a execução de
 hoje, com saída 0: qualquer grupo que falhe depois de uma tarefa é regressão.
 
 Procedimentos já documentados e adotados sem mudança:
 
-- Cópia de segurança e recuperação: `docs/estabilizacao/BACKUP_RECUPERACAO.md`
+- Cópia de segurança e recuperação: `docs/historico/estabilizacao/BACKUP_RECUPERACAO.md`
   (`cp -a` das pastas de configuração e estado, `backup()` do SQLite com WAL,
   restauração em pasta nova, `git worktree repair` só com supervisão).
 - Testes: `testes/verificar.sh` e a integração contínua em

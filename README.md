@@ -5,7 +5,7 @@ de IA: sessões de autor e revisor em tmux, isolamento com bubblewrap,
 validação cruzada entre modelos, delegação a modelos locais e ao agy, fila
 persistente de tarefas e registro de provedores.
 
-O Core funciona sozinho. O [jangada-shell](https://github.com/felipintoslv/jangada-shell)
+O Core funciona sozinho. O [jangada-shell](https://github.com/felipintoslv/jangada)
 (área de trabalho) e o painel da Central são opcionais: o Core procura os
 comandos deles no PATH e segue sem erro quando não os acha. Os indicadores
 locais ficam no comando `jangada-indicadores`.
@@ -71,6 +71,5 @@ Leia as regras do [AGENTS.md](AGENTS.md) e o guia do assunto da tarefa.
 | Avisos ao gravar e regras do validar | [Regras automáticas](docs/regras-automaticas.md) |
 | Divisão em módulos e contratos (histórico) | [Modularização 3.0](docs/modularizacao-3.0/README.md) |
 | Coordenação e consultas entre módulos | [Coordenação central](docs/coordenacao-central/README.md) |
-| Estabilização (histórico) | [Estabilização](docs/estabilizacao/README.md) |
 | Evolução 2.0 (histórico) | [Evolução 2.0](docs/evolucao-2.0/00-indice.md) |
-| Proposta de diagnóstico | [Inspector](docs/inspector/README.md) |
+| Registros encerrados: estabilização, Inspector (nome anterior da proposta Vigia) e o antigo LEIAME do `core/` | [Histórico](docs/historico/README.md) |
