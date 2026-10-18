@@ -370,7 +370,7 @@ git init --quiet "$tmp/raiz"
 git -C "$tmp/raiz" -c user.name=t -c user.email=t@t commit --quiet --allow-empty -m inicio
 git -C "$tmp/raiz" worktree add --quiet -b agente/t "$tmp/wt"
 preparar() {
-  env HOME="$tmp/home" XDG_STATE_HOME="$tmp/estado" JANGADA_CORE_PATH="$repo_jangada" \
+  env -u JANGADA_ISOLADO HOME="$tmp/home" XDG_STATE_HOME="$tmp/estado" JANGADA_CORE_PATH="$repo_jangada" \
     "$repo_jangada/bin/jangada-worktree-preparar" "$tmp/raiz" "$tmp/wt" </dev/null >"$tmp/saida-preparar" 2>&1
 }
 echo '{"trustedWorkspaces": []}' >"$conf_agy"
