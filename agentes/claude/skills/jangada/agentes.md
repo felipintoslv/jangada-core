@@ -367,6 +367,10 @@ porque o hook engole o erro.
   Controle `TMUX` no ambiente do teste, como `TMUX=''` em
   `testes/agente-seletor.py`, para usar o `attach` falso.
 
+- O servidor tmux conserva o `PATH` de quem o iniciou. Ao executar o cliente
+  diretamente, passe `new-session -e "PATH=$PATH"` como argumento: a busca do
+  executável deve usar o mesmo `PATH` da conferência no chamador. Não altere
+  o ambiente global do servidor nem repasse todo o ambiente de outra sessão.
 - Com `remain-on-exit failed`, o painel morto preserva a saída do cliente.
   A captura imediata pode vir vazia antes da leitura final do pseudoterminal.
   Nos testes, aguarde também a mensagem em `capture-pane`, além de

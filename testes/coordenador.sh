@@ -19,7 +19,9 @@ conferir() {
   if "$@"; then printf 'ok    %s\n' "$nome"
   elif ! pulado_se_recusado "${tmp:-}" "$nome"; then printf 'FALHA %s\n' "$nome"; falhas=$((falhas + 1)); fi
 }
-mkdir -p "$tmp/bin" "$tmp/home" "$tmp/config" "$tmp/state" "$tmp/projeto/sub" "$tmp/outro" "$tmp/codex"
+path_chamador="$tmp/bin:$tmp/atalho com espaço; literal:$PATH"
+path_servidor="$tmp/servidor-sem-clientes"
+mkdir -p "$path_servidor" "$tmp/bin" "$tmp/home" "$tmp/config" "$tmp/state" "$tmp/projeto/sub" "$tmp/outro" "$tmp/codex"
 # O caminho do soquete do tmux tem limite de cerca de 100 bytes: com um TMPDIR
 # longo, ele fica numa pasta curta no /tmp.
 sock="$(mktemp -d /tmp/jangada-sock.XXXXXX)"
@@ -85,7 +87,7 @@ chmod +x "$tmp/bin/"*
 rodar() {
   env -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_COORDENADOR -u TMUX -u WAYLAND_DISPLAY \
     -u HYPRLAND_INSTANCE_SIGNATURE -u DISPLAY \
-    PATH="$tmp/bin:$PATH" HOME="$tmp/home" SHELL=/bin/sh TMUX_TMPDIR="$sock" FALSO_DIR="$tmp" \
+    PATH="$path_chamador" HOME="$tmp/home" SHELL=/bin/sh TMUX_TMPDIR="$sock" FALSO_DIR="$tmp" \
     TMUX_REAL="$tmux_real" CODEX_HOME="$tmp/codex" JANGADA_CORE_PATH="$repo_jangada" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
 }
 tm() { rodar tmux -L jangada "$@"; }
@@ -98,6 +100,17 @@ esperar() {
 mensagem_no_painel() {
   tm capture-pane -p -S - -t "=$1:" | grep -Fq "$2"
 }
+ambiente_do_painel() {
+  local pid
+  pid="$(tm display-message -p -t "=$1:" '#{pane_pid}')" || return 1
+  python3 - "$pid" "$path_chamador" <<'PYTEST'
+import sys
+from pathlib import Path
+ambiente = Path('/proc', sys.argv[1], 'environ').read_bytes().split(b'\0')
+assert b'PATH=' + sys.argv[2].encode() in ambiente
+assert not any(v.startswith(b'CREDENCIAL_TESTE_ALHEIA=') for v in ambiente)
+PYTEST
+}
 campo() { jq -r "$1 // \"\" | tostring" "$reg/projeto--coordenador.json" 2>/dev/null; }
 hook() { rodar env "${@:3}" "$repo_jangada/bin/jangada-hook-claude" "$1" <<<"$2"; }
 
@@ -107,11 +120,14 @@ git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -q --allow-empty -
 # Abertura, a partir de uma subpasta: o coordenador fica na raiz do projeto.
 # Quem chama é uma tarefa, com JANGADA_SESSAO no processo e no ambiente
 # global do servidor: o coordenador não a herda.
-rodar tmux -L jangada -f "$repo_jangada/agentes/tmux/agentes.conf" new-session -d -s base
+# O servidor nasce sem clientes no PATH; cada processo novo usa o do chamador.
+rodar env PATH="$path_servidor" "$tmux_real" -L jangada -f "$repo_jangada/agentes/tmux/agentes.conf" new-session -d -s base
+conferir "o servidor nasce sem o caminho dos clientes falsos" \
+  test "$(tm show-environment -g PATH)" = "PATH=$path_servidor"
 opcao_global="$(tm show-options -gwv remain-on-exit)"
 opcao_base="$(tm show-options -wv -t =base: remain-on-exit)"
 tm set-environment -g JANGADA_SESSAO alheia--tarefa
-saida="$(rodar env JANGADA_AUTOR_MODELO=haiku JANGADA_VALIDAR_MODELO=haiku JANGADA_SESSAO=alheia--tarefa "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"
+saida="$(rodar env JANGADA_AUTOR_MODELO=haiku JANGADA_VALIDAR_MODELO=haiku CREDENCIAL_TESTE_ALHEIA=nao-repassar JANGADA_SESSAO=alheia--tarefa "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"
 conferir "a abertura cria a sessão PROJETO--coordenador" [ "$saida" = projeto--coordenador ]
 conferir "a sessão existe no servidor do teste" tm has-session -t =projeto--coordenador
 conferir "o socket é o do teste" test -S "$sock/tmux-$(id -u)/jangada"
@@ -135,6 +151,10 @@ tm kill-session -t =base
 conferir "a sessão roda na raiz do projeto" \
   [ "$(tm display-message -p -t =projeto--coordenador: '#{pane_start_path}')" = "$tmp/projeto" ]
 conferir "o Claude falso abre na sessão" esperar test -f "$tmp/claude.pronto"
+conferir "Claude recebe o PATH literal do chamador sem outras credenciais" \
+  ambiente_do_painel projeto--coordenador
+conferir "a abertura Claude não muda o PATH global do servidor" \
+  test "$(tm show-environment -g PATH)" = "PATH=$path_servidor"
 
 args_claude="$(tr '\0' '\n' <"$tmp/claude.args")"
 conferir "Claude recebe opus apesar do modelo econômico da tarefa" \
@@ -153,9 +173,11 @@ conferir "a abertura não usa send-keys nem buffers" \
 # Segundo pedido para o mesmo projeto: avisa e não abre outra.
 antes="$(cat "$reg/projeto--coordenador.json")"
 : >"$tmp/foco.chamadas"
-saida="$(rodar env HYPRLAND_INSTANCE_SIGNATURE=teste WAYLAND_DISPLAY=teste "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" 2>&1)"; rc=$?
+saida="$(rodar env PATH="$tmp/outro-path:$path_chamador" HYPRLAND_INSTANCE_SIGNATURE=teste WAYLAND_DISPLAY=teste "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" 2>&1)"; rc=$?
 conferir "o segundo pedido sai com 0 e avisa" [ "$rc" = 0 ]
 conferir "o aviso diz que já está aberto" grep -q "já está aberto" <<<"$saida"
+conferir "mesmo provedor não altera o PATH do processo existente" \
+  ambiente_do_painel projeto--coordenador
 conferir "mesmo provedor mantém o registro" test "$(cat "$reg/projeto--coordenador.json")" = "$antes"
 conferir "mesmo provedor foca a sessão correta" grep -q 'dispatch.*0x1' "$tmp/foco.chamadas"
 conferir "continua uma sessão só" [ "$(tm list-sessions -F '#S' | grep -c coordenador)" = 1 ]
@@ -297,9 +319,13 @@ conferir "sem flock, --fim também libera a trava" test ! -d "$reg/.trava.d"
 rm "$reg/sem-cliente--coordenador.json"
 
 # Codex: os hooks do jangada vão na chamada, com a aprovação no estado.
-saida="$(rodar env JANGADA_AUTOR_MODELO=gpt-6.1-sol JANGADA_VALIDAR_MODELO=gpt-6.1-sol "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/outro" --provedor codex 2>&1)"
+saida="$(rodar env JANGADA_AUTOR_MODELO=gpt-6.1-sol JANGADA_VALIDAR_MODELO=gpt-6.1-sol CREDENCIAL_TESTE_ALHEIA=nao-repassar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/outro" --provedor codex 2>&1)"
 conferir "a abertura com Codex cria a sessão" [ "$saida" = outro--coordenador ]
 conferir "o Codex abre com os hooks do coordenador" esperar test -s "$tmp/codex.args"
+conferir "Codex recebe o PATH literal do chamador sem outras credenciais" \
+  ambiente_do_painel outro--coordenador
+conferir "a abertura Codex não muda o PATH global do servidor" \
+  test "$(tm show-environment -g PATH)" = "PATH=$path_servidor"
 args_codex="$(tr '\0' '\n' <"$tmp/codex.args" 2>/dev/null)"
 conferir "Codex recebe o modelo forte e o mesmo texto inicial" \
   python3 - "$tmp/codex.args" "$prompt_inicial" <<'PYTEST'

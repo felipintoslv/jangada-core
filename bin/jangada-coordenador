@@ -212,7 +212,7 @@ abrir() {
     fi
     # A opção entra na mesma fila da criação, antes de tratar a saída do filho.
     # É local à janela nova: falhas ficam visíveis e saída normal fecha o painel.
-    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" "${cmd[@]}" \
+    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" -e "PATH=$PATH" "${cmd[@]}" \
       \; set-option -w -t "=$sessao:" remain-on-exit failed 9<&-; then
       rm -f "$arq"
       return 1
