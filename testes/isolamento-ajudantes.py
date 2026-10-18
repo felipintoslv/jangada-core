@@ -60,6 +60,19 @@ class Interna(unittest.TestCase):
         # Roda logo depois do test_recusa_no_stdout_codigo_2: o registro é por caso.
         self.fail('sem comando neste caso')
 
+    def test_recusa_esperada_e_falha_independente(self):
+        resultado = sair(1, erro=RECUSA)
+        self.assertEqual(resultado.returncode, 1)
+        self.assertEqual('valor calculado', 'outro valor')
+
+    def test_recusa_citada_pelo_resultado(self):
+        resultado = sair(1, erro=RECUSA)
+        self.assertEqual(resultado.returncode, 0)
+
+    def test_recusa_citada_pela_saida(self):
+        erro = sair(1, erro=RECUSA).stderr
+        self.assertEqual(erro, '')
+
     def test_exigir_controlador(self):
         import confianca
         os.environ['JANGADA_ISOLADO'] = '1'
@@ -121,13 +134,15 @@ class Ajudante(unittest.TestCase):
     def test_continua_falha(self):
         for nome in ('test_literal_na_assercao', 'test_fonte_com_recusa_e_outra_falha', 'test_sem_recusa',
                      'test_recusa_codigo_3', 'test_recusa_codigo_0', 'test_recusa_do_comando_anterior',
+                     'test_recusa_esperada_e_falha_independente',
                      'test_sem_comando_depois_de_recusa', 'test_value_error_do_teste'):
             with self.subTest(nome):
                 self.assertTrue(self.falhou(nome))
                 self.assertFalse(self.pulou(nome))
 
     def test_pula(self):
-        for nome in ('test_recusa_no_stderr', 'test_recusa_no_stdout_codigo_2', 'test_exigir_controlador'):
+        for nome in ('test_recusa_no_stderr', 'test_recusa_no_stdout_codigo_2', 'test_exigir_controlador',
+                     'test_recusa_citada_pelo_resultado', 'test_recusa_citada_pela_saida'):
             with self.subTest(nome):
                 self.assertTrue(self.pulou(nome))
                 self.assertFalse(self.falhou(nome))
