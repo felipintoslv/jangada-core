@@ -23,8 +23,10 @@ pular() {
 }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp" /tmp/isolar-teste' EXIT
-rm -f /tmp/isolar-teste
+# Nome próprio por execução: duas suítes em paralelo não apagam a do outro.
+tmp_do_agente="/tmp/isolar-teste.$$"
+trap 'rm -rf "$tmp" "$tmp_do_agente"' EXIT
+rm -f "$tmp_do_agente"
 marca_teste="$tmp/.jangada-isolado-teste"
 casa="$tmp/casa"
 mkdir -p "$casa/.ssh" "$casa/.claude" "$casa/extra" "$casa/.cache/yay/pacote" "$casa/.cache/cliphist" \
@@ -426,8 +428,8 @@ EOF
   # o arquivo de verdade, do lado de fora.
   roda "echo x >>'$casa/.claude.json'"
   conferir "caso 3: ~/.claude.json não muda" [ "$(cat "$casa/.claude.json")" = "{}" ]
-  roda 'echo x >/tmp/isolar-teste'
-  conferir "caso 3: o /tmp do agente é próprio" test ! -e /tmp/isolar-teste
+  roda "echo x >'$tmp_do_agente'"
+  conferir "caso 3: o /tmp do agente é próprio" test ! -e "$tmp_do_agente"
 
   # Ataque do commondir: um config plantado com core.fsmonitor rodaria no
   # próximo git status de fora.
