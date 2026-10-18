@@ -107,6 +107,29 @@ no Codex com destino `local`, ela fica na própria sessão.
   que o Core não chama o Shell nem o Monitor por `$JANGADA_CORE_PATH`. Regra só
   escrita é esquecida.
 
+## Testes dentro do isolamento
+
+Numa sessão de agente, a marca `/tmp/.jangada-sem-autoridade` faz o Core
+recusar o que exige o controlador de fora: abrir sessão, preparar o
+isolamento do revisor, do `lintr` e do `.jangada/validar.sh`, rodar o
+`jangada-update`. O caso que depende disso sai como
+`pulado no isolamento: MOTIVO`, e o `testes/verificar.sh` mostra o total no
+fim. Fora do isolamento nenhum caso é pulado.
+
+- Em bash, use `testes/isolamento.sh`. O `conferir` chama
+  `pulado_se_recusado` na falha e `conferencia_feita` no acerto. O invólucro
+  que roda o comando conferido chama `novo_comando`: assim, uma conferência
+  que passa por acaso, como "termina com erro", não esconde a recusa das
+  seguintes. `erros_dos_pulados` leva o stderr do teste para um arquivo da
+  pasta temporária.
+- Em Python, chame `isolamento.instalar()` antes do `unittest.main()`. A
+  falha cujo traceback traz a recusa vira pulada.
+- O pulo vale só para a recusa do isolamento. Outra falha dentro dele é
+  defeito do teste e se corrige: HOME real somente leitura, soquete em
+  caminho longo, `JANGADA_ISOLADO` herdado de quem roda.
+- Mensagem de erro esperada pelo caso vai para um arquivo do teste, nunca
+  para a saída da suíte.
+
 ## Documentação e textos
 
 - Português, sem travessão, sem adjetivação desnecessária e sem
