@@ -201,8 +201,19 @@ class Doctor:
         # uma cópia em memória basta; com WAL não afirmamos conhecer a última cota.
         if Path(str(caminho) + '-wal').exists():
             return 'nao_verificavel', 'Banco de observações usa WAL; a cota não é consultada para evitar arquivos auxiliares na origem.'
+        info = caminho.stat()
+        dados = ler(caminho, 16 * LIMITE)
+        depois = caminho.stat()
+        if ((info.st_mtime_ns, info.st_size) != (depois.st_mtime_ns, depois.st_size)
+                or Path(str(caminho) + '-wal').exists()):
+            raise ValueError('banco mudou durante a leitura')
+        if not dados.startswith(b'SQLite format 3\0') or len(dados) < 100:
+            raise ValueError('banco inválido')
+        # deserialize não abre bancos em formato WAL. Sem WAL pendente, os
+        # bytes 18 e 19 habilitam o diário tradicional apenas na cópia em memória.
+        dados = dados[:18] + b'\x01\x01' + dados[20:]
         with contextlib.closing(sqlite3.connect(':memory:')) as db:
-            db.deserialize(ler(caminho, 16 * LIMITE))
+            db.deserialize(dados)
             prazo = time.monotonic() + .2
             db.set_progress_handler(lambda: time.monotonic() >= prazo, 1000)
             db.execute('PRAGMA trusted_schema=OFF')

@@ -161,9 +161,11 @@ class Diagnostico(unittest.TestCase):
         banco = self.d.estado / 'agentes/runtime/tarefas.sqlite'
         banco.parent.mkdir(parents=True)
         with contextlib.closing(sqlite3.connect(banco)) as db, db:
+            db.execute('PRAGMA journal_mode=WAL')
             db.execute('CREATE TABLE provedores(id, cota, atualizado, valido_ate)')
             db.execute('INSERT INTO provedores VALUES(?,?,?,?)', ('codex', 80, time.time()-5, time.time()+60))
         antes = retrato(self.home)
+        self.assertFalse(Path(str(banco) + '-wal').exists())
         self.assertEqual(self.d.cota_codex()[0], 'ok')
         self.assertEqual(antes, retrato(self.home))
         Path(str(banco) + '-wal').touch()
