@@ -172,28 +172,42 @@ class Doctor:
         if not numero(validade, 1) or not 0 <= idade < validade:
             return 'nao_verificavel', 'Registro de cota ausente ou vencido; não houve atualização pela rede.'
         grupos = objeto(caminho)['command']['data']['groups']
-        if not isinstance(grupos, list):
+        if not isinstance(grupos, list) or any(not isinstance(g, dict) for g in grupos):
             raise ValueError('grupos inválidos')
-        cotas = {}
-        for grupo in grupos:
-            for balde in grupo.get('buckets', []):
-                if balde.get('disabled') is True:
-                    continue
-                prefixo = balde['id'].split('-')[0]
-                fracao = balde.get('remaining_fraction')
-                if not numero(fracao, 0, 1):
-                    raise ValueError('cota inválida')
-                cotas.setdefault(prefixo, []).append(fracao * 100)
         usados = {'gemini' if m.startswith('gemini-') else '3p'
                   for m in self.valores['JANGADA_DELEGAR_MODELOS'].split()}
-        if not usados or not usados <= cotas.keys():
-            raise ValueError('cota incompleta')
-        valores = [min(cotas[g]) for g in usados]
+        cotas = {}
+        for grupo in grupos:
+            baldes = grupo.get('buckets', [])
+            if not isinstance(baldes, list) or any(not isinstance(b, dict) for b in baldes):
+                raise ValueError('baldes inválidos')
+            for balde in baldes:
+                ident = balde.get('id')
+                if not isinstance(ident, str) or balde.get('disabled') is True:
+                    continue
+                for prefixo in usados:
+                    if ident.startswith(prefixo + '-'):
+                        cotas.setdefault(prefixo, []).append(balde.get('remaining_fraction'))
+        saldos = {g: min(valores) * 100 for g, valores in cotas.items()
+                  if all(numero(v, 0, 1) for v in valores)}
+        ausentes = usados - cotas.keys()
+        invalidos = cotas.keys() - saldos.keys()
+        detalhes = []
+        if saldos:
+            detalhes.append('Saldos observados: ' + ', '.join(f'{g}: {saldos[g]:.2f}%' for g in sorted(saldos)))
+        if ausentes:
+            detalhes.append('grupos ausentes: ' + ', '.join(sorted(ausentes)))
+        if invalidos:
+            detalhes.append('grupos inválidos: ' + ', '.join(sorted(invalidos)))
+        if not saldos:
+            return 'nao_verificavel', 'Nenhum saldo válido de grupo configurado; ' + '; '.join(detalhes) + '; sem atualização pela rede.'
         minimo = float(self.valores['JANGADA_DELEGAR_COTA_MIN'])
         if not numero(minimo, 0, 100):
             raise ValueError('reserva inválida')
-        return ('aviso' if min(valores) < minimo or min(valores) == 0 else 'ok',
-                f'Saldos observados por grupo: de {min(valores):.2f}% a {max(valores):.2f}%; registro local ainda no prazo, sem consulta remota.')
+        # Cada modelo exige seu grupo; a seleção pode usar o maior saldo válido.
+        melhor = max(saldos.values())
+        return ('aviso' if ausentes or invalidos or melhor < minimo or melhor == 0 else 'ok',
+                '; '.join(detalhes) + '; registro local ainda no prazo, sem consulta remota.')
 
     def cota_codex(self):
         caminho = self.estado / 'agentes/runtime/tarefas.sqlite'
@@ -298,14 +312,14 @@ class Doctor:
         return ('aviso' if pendentes else 'ok',
                 f'{pendentes} migrações pendentes entre {len(scripts)} scripts; nenhum script executado.')
 
-    def git(self, *args):
+    def git(self, *args, verificador=None):
         # Configuração do repositório não pode escolher executáveis nem gravar índice.
         ambiente = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
         ambiente.update(GIT_OPTIONAL_LOCKS='0', GIT_NO_REPLACE_OBJECTS='1', GIT_TERMINAL_PROMPT='0',
                         GIT_NO_LAZY_FETCH='1', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null')
         fixos = ['core.fsmonitor=false', 'core.hooksPath=/dev/null', 'core.pager=cat',
                  'core.untrackedCache=false', 'gpg.program=/usr/bin/false',
-                 'gpg.x509.program=/usr/bin/false', 'gpg.ssh.program=/usr/bin/ssh-keygen',
+                 'gpg.x509.program=/usr/bin/false', 'gpg.ssh.program=' + (verificador or '/usr/bin/false'),
                  'gpg.ssh.allowedSignersFile=' + str(self.config / 'allowed_signers'),
                  'gpg.ssh.revocationFile=/dev/null']
         comando = ['git', '--no-pager', '--no-optional-locks', '-C', str(self.core)]
@@ -326,12 +340,15 @@ class Doctor:
             tag = atual[:12]
         if not (self.config / 'allowed_signers').is_file():
             return 'nao_verificavel', f'Cópia em {tag}; falta allowed_signers para conferir a origem local, sem buscar atualizações.'
+        verificador = shutil.which('ssh-keygen')
+        if not verificador:
+            return 'nao_verificavel', f'Cópia em {tag}; ssh-keygen ausente no PATH, assinatura não conferida.'
         commits = self.git('rev-list', '--max-count=513', atual + '..' + destino).splitlines()
         if len(commits) > 512:
             return 'nao_verificavel', 'Comparação excede 512 commits; nenhuma busca ou atualização realizada.'
         try:
             for sha in set(commits + [destino]):
-                self.git('verify-commit', sha)
+                self.git('verify-commit', sha, verificador=verificador)
         except ValueError:
             return 'aviso', 'Origem local contém commit sem assinatura SSH válida pelos assinantes configurados; nada atualizado.'
         if atual == destino:
@@ -344,24 +361,35 @@ class Doctor:
 
     def hooks(self, provedor):
         if provedor == 'codex':
-            candidatos = [self.codex / 'jangada-hooks-confianca.json',
-                          self.estado / 'coordenadores/codex-hooks-confianca.json']
+            candidatos = [('pasta Codex', self.codex / 'jangada-hooks-confianca.json'),
+                          ('coordenadores', self.estado / 'coordenadores/codex-hooks-confianca.json')]
             sessao = os.environ.get('JANGADA_SESSAO', '')
             if re.fullmatch('[A-Za-z0-9_.-]+', sessao) and sessao not in {'.', '..'}:
-                candidatos.insert(0, self.estado / 'codex' / sessao / 'jangada-hooks-confianca.json')
-            encontrados = [p for p in candidatos if p.exists()]
-            if not encontrados:
-                return 'nao_verificavel', 'Sem registro local de confiança no contexto consultado. Hooks do Codex são fornecidos por argumentos e aprovados por sessão; cliente não iniciado.'
-            total, desabilitados = 0, 0
-            for caminho in encontrados:
-                for entrada in objeto(caminho).values():
+                candidatos.insert(0, ('sessão atual', self.estado / 'codex' / sessao / 'jangada-hooks-confianca.json'))
+            vistos, registros = set(), []
+            tem_desabilitado = False
+            for contexto, caminho in candidatos:
+                if not caminho.exists():
+                    continue
+                info = caminho.stat()
+                identidade = (info.st_dev, info.st_ino)
+                if identidade in vistos:
+                    continue
+                vistos.add(identidade)
+                dados = objeto(caminho)
+                desabilitados = 0
+                for entrada in dados.values():
                     if (not isinstance(entrada, dict) or not isinstance(entrada.get('trusted_hash'), str)
                             or not entrada['trusted_hash'] or type(entrada.get('enabled', True)) is not bool):
                         raise ValueError('registro de confiança inválido')
-                    total += 1
                     desabilitados += entrada.get('enabled') is False
-            return ('aviso' if desabilitados else 'nao_verificavel',
-                    f'Registros locais de confiança: {total} entradas, {desabilitados} desabilitadas. Não comprovam o fornecimento dos hooks na execução; cliente não iniciado.')
+                registros.append(f'{contexto}: {len(dados)} entradas, {desabilitados} desabilitadas')
+                tem_desabilitado |= bool(desabilitados)
+            if not registros:
+                return 'nao_verificavel', 'Sem registro local de confiança no contexto consultado. Hooks do Codex são fornecidos por argumentos e aprovados por sessão; cliente não iniciado.'
+            return ('aviso' if tem_desabilitado else 'nao_verificavel',
+                    'Registros locais de confiança por contexto: ' + '; '.join(registros)
+                    + '. Não comprovam o fornecimento dos hooks na execução; cliente não iniciado.')
         caminho = (self.casa / '.claude/settings.json' if provedor == 'claude'
                    else self.casa / '.gemini/config/hooks.json')
         if not caminho.exists():

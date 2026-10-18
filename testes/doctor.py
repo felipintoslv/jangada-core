@@ -139,6 +139,43 @@ class Diagnostico(unittest.TestCase):
             {'id': 'gemini-5h', 'remaining_fraction': .8}, {'id': 'gemini-week', 'remaining_fraction': .7},
             {'id': '3p-5h', 'remaining_fraction': .5}, {'id': '3p-week', 'remaining_fraction': .1, 'disabled': True}]}]}}})
 
+    def test_cota_agy_parcial_e_grupos_independentes(self):
+        caminho = self.d.cache / 'agy-usage.json'
+
+        def consultar(baldes):
+            gravar(caminho, {'command': {'data': {'groups': [{'buckets': baldes}]}}})
+            self.d.conferir('cota.agy', self.d.cota_agy)
+            return self.d.itens[-1]
+
+        gemini = {'id': 'gemini-5h', 'remaining_fraction': .8}
+        parcial = consultar([gemini])
+        self.assertEqual(parcial['estado'], 'aviso')
+        self.assertIn('gemini: 80.00%', parcial['detalhe'])
+        self.assertIn('ausentes: 3p', parcial['detalhe'])
+        parcial = consultar([{'id': '3p-5h', 'remaining_fraction': .5}])
+        self.assertEqual(parcial['estado'], 'aviso')
+        self.assertIn('3p: 50.00%', parcial['detalhe'])
+        self.assertIn('ausentes: gemini', parcial['detalhe'])
+        self.d.valores['JANGADA_DELEGAR_MODELOS'] = 'gemini-modelo'
+        for fracao in (None, 'SEGREDO_SENTINELA', True, float('nan'), -1, 2):
+            item = consultar([gemini, {'id': '3p-5h', 'remaining_fraction': fracao}])
+            self.assertEqual(item['estado'], 'ok')
+        self.d.valores['JANGADA_DELEGAR_MODELOS'] = 'gemini-modelo claude-modelo'
+        item = consultar([gemini, {'id': '3p-5h', 'remaining_fraction': 'SEGREDO_SENTINELA'}])
+        self.assertEqual(item['estado'], 'aviso')
+        self.assertIn('inválidos: 3p', item['detalhe'])
+        self.assertNotIn('SEGREDO_SENTINELA', item['detalhe'])
+        item = consultar([gemini, {'id': '3p-5h', 'remaining_fraction': .01}])
+        self.assertEqual(item['estado'], 'ok')
+        self.assertIn('3p: 1.00%', item['detalhe'])
+        item = consultar([gemini, {'id': 'gemini-weekly', 'remaining_fraction': .1},
+                          {'id': '3p-5h', 'remaining_fraction': .01}])
+        self.assertEqual(item['estado'], 'aviso')
+        self.assertIn('gemini: 10.00%', item['detalhe'])
+        for baldes in ([], [{'id': 'gemini-5h', 'remaining_fraction': None}],
+                       [dict(gemini, disabled=True)], [{'id': 'gemini', 'remaining_fraction': .8}]):
+            self.assertEqual(consultar(baldes)['estado'], 'nao_verificavel')
+
     def test_credenciais_invalidas_expiradas_sem_vazamento(self):
         self.credenciais(1)
         for provedor in ('claude', 'codex'):
@@ -202,6 +239,30 @@ class Diagnostico(unittest.TestCase):
         os.mkfifo(fifo)
         with self.assertRaises(ValueError):
             doctor.ler(fifo)
+
+    def test_hooks_codex_deduplicados_e_contextos_separados(self):
+        sessao = self.d.estado / 'codex/s1/jangada-hooks-confianca.json'
+        atual = self.d.codex / 'jangada-hooks-confianca.json'
+        coordenador = self.d.estado / 'coordenadores/codex-hooks-confianca.json'
+        gravar(sessao, {'s': {'trusted_hash': 'sha256:teste'}})
+        atual.parent.mkdir(parents=True)
+        os.link(sessao, atual)
+        os.environ['JANGADA_SESSAO'] = 's1'
+        antes = retrato(self.home)
+        estado, detalhe = self.d.hooks('codex')
+        self.assertEqual(estado, 'nao_verificavel')
+        self.assertIn('sessão atual: 1 entradas', detalhe)
+        self.assertNotIn('2 entradas', detalhe)
+        self.assertEqual(antes, retrato(self.home))
+        gravar(coordenador, {'c': {'trusted_hash': 'sha256:teste', 'enabled': False}})
+        estado, detalhe = self.d.hooks('codex')
+        self.assertEqual(estado, 'aviso')
+        self.assertIn('sessão atual: 1 entradas, 0 desabilitadas', detalhe)
+        self.assertIn('coordenadores: 1 entradas, 1 desabilitadas', detalhe)
+        self.assertNotIn('2 entradas', detalhe)
+        atual.unlink()
+        gravar(atual, {'g': {'trusted_hash': 'sha256:teste'}})
+        self.assertIn('pasta Codex: 1 entradas', self.d.hooks('codex')[1])
 
     def test_ollama_sem_geracao_redirect_ou_endereco_remoto(self):
         class Resposta:
@@ -269,6 +330,20 @@ class Diagnostico(unittest.TestCase):
         self.d.config.mkdir(parents=True)
         (self.d.config / 'allowed_signers').write_text('teste@example.invalid ' + chave.with_suffix('.pub').read_text())
         self.assertEqual(self.d.versao()[0], 'ok')
+        verificador = shutil.which('ssh-keygen')
+        programas = self.base / 'programas'
+        programas.mkdir()
+        (programas / 'git').symlink_to(shutil.which('git'))
+        with patch.dict(os.environ, PATH=str(programas)), patch.object(doctor, 'executar', wraps=doctor.executar) as executar:
+            estado, detalhe = self.d.versao()
+            self.assertEqual(estado, 'nao_verificavel')
+            self.assertIn('ssh-keygen ausente', detalhe)
+            self.assertFalse(any('verify-commit' in c.args[0] for c in executar.call_args_list))
+            (programas / 'ssh-keygen').symlink_to(verificador)
+            self.assertEqual(self.d.versao()[0], 'ok')
+            conferencias = [c.args[0] for c in executar.call_args_list if 'verify-commit' in c.args[0]]
+            self.assertTrue(conferencias)
+            self.assertTrue(all('gpg.ssh.program=' + str(programas / 'ssh-keygen') in c for c in conferencias))
         git('commit', '-q', '--allow-empty', '-m', 'feat(teste): segunda versão')
         segundo = git('rev-parse', 'HEAD')
         git('update-ref', 'refs/remotes/origin/main', segundo)
@@ -290,6 +365,16 @@ class Diagnostico(unittest.TestCase):
         self.assertIn('1 commits pendentes', self.d.versao()[1])
         self.assertEqual(antes, retrato(self.base))
         self.assertFalse(marca.exists())
+
+    def test_versao_sem_verificador_nao_avalia_assinatura(self):
+        self.d.config.mkdir(parents=True)
+        (self.d.config / 'allowed_signers').touch()
+        with patch.object(self.d, 'git', side_effect=['a' * 40, 'a' * 40, 'v1.2.3']) as git, \
+                patch.object(doctor.shutil, 'which', return_value=None):
+            estado, detalhe = self.d.versao()
+        self.assertEqual(estado, 'nao_verificavel')
+        self.assertIn('ssh-keygen ausente', detalhe)
+        self.assertFalse(any('verify-commit' in c.args for c in git.call_args_list))
 
     def test_processo_prazo_real_e_dados_invalidos_continuam(self):
         inicio = time.monotonic()

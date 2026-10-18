@@ -45,7 +45,7 @@ ok()    { printf 'ok    %s\n' "$*"; }
 falha() { printf 'FALHA %s\n' "$*"; falhas=$((falhas + 1)); }
 conferir() { local d="$1"; shift; if "$@"; then ok "$d"; else falha "$d"; fi; }
 
-# Uma consulta de presença no doctor foi autorizada na tarefa N, sem execução.
+# O teto de K3 inclui a consulta de presença do notify-send no doctor, sem execução.
 declare -A teto=([K3]=9 [K6]=7 [permanente]=0)
 
 tmp="$(mktemp -d)"
