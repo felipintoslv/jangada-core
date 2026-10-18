@@ -62,7 +62,8 @@ def executar(args, prazo=3, capturar=False, ambiente=None, capturar_erro=False):
         saida, erro = processo.communicate(timeout=prazo)
         if processo.returncode:
             raise ConsultaRecusada(erro or b'', processo.returncode)
-        return (saida or b'').decode('utf-8')
+        saida = (saida or b'').decode('utf-8')
+        return (saida, erro or b'') if capturar_erro else saida
     finally:
         if processo.poll() is None:
             try:
@@ -375,6 +376,9 @@ class Doctor:
             comando += ['-c', fixo]
         saida = executar(comando + list(args), prazo=5, capturar=True, ambiente=ambiente,
                          capturar_erro=temporario is not None)
+        if temporario is not None:
+            saida, erro = saida
+            return (saida.strip() if aparar else saida), erro
         return saida.strip() if aparar else saida
 
     def versao(self):
@@ -404,16 +408,20 @@ class Doctor:
             return 'nao_verificavel', 'Lista de commits inválida; assinatura não conferida.'
         conferir = commits or [destino]
         try:
-            resultados = self.git('log', '--no-walk=unsorted', '--no-show-signature', '--no-notes',
-                                  '--no-decorate', '--no-patch', '--no-color', '--format=%G?',
-                                  '--end-of-options', *conferir, verificador=verificador,
-                                  temporario=self.estado, aparar=False).splitlines(keepends=True)
-        except ConsultaRecusada as erro:
-            if any(m in erro.erro for m in (b'could not create temporary file', b'failed writing detached signature')):
-                return 'nao_verificavel', 'O Git não conseguiu criar ou gravar a cópia temporária na pasta de estado; assinatura não conferida.'
-            return 'nao_verificavel', 'O Git não confirmou a assinatura; consulta recusada ou indisponível, sem afirmar que a assinatura é inválida.'
+            saida, erro = self.git('log', '--no-walk=unsorted', '--no-show-signature', '--no-notes',
+                                   '--no-decorate', '--no-patch', '--no-color', '--format=%G?',
+                                   '--end-of-options', *conferir, verificador=verificador,
+                                   temporario=self.estado, aparar=False)
+        except ConsultaRecusada as consulta:
+            saida, erro = None, consulta.erro
         except ValueError:
             return 'nao_verificavel', 'Não foi possível conferir a assinatura pelo Git; nenhum ajuste realizado.'
+        # O Git pode devolver N e código zero quando falha ao preparar a assinatura SSH.
+        if any(m in erro for m in (b'could not create temporary file', b'failed writing detached signature')):
+            return 'nao_verificavel', 'O Git não conseguiu criar ou gravar a cópia temporária na pasta de estado; assinatura não conferida.'
+        if saida is None:
+            return 'nao_verificavel', 'O Git não confirmou a assinatura; consulta recusada ou indisponível, sem afirmar que a assinatura é inválida.'
+        resultados = saida.splitlines(keepends=True)
         if (len(resultados) != len(conferir)
                 or any(r not in {'G\n', 'N\n', 'B\n', 'U\n', 'X\n', 'Y\n', 'R\n', 'E\n'} for r in resultados)):
             return 'nao_verificavel', 'Resultado da conferência Git ausente, incompleto ou inválido; nenhum ajuste realizado.'

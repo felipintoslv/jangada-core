@@ -489,16 +489,31 @@ os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
         self.d.config.mkdir(parents=True)
         (self.d.config / 'allowed_signers').touch()
         self.d.estado.mkdir(parents=True, mode=0o700)
-        for erro in (b'error: could not create temporary file: SEGREDO_SENTINELA',
-                     b'error: failed writing detached signature to SEGREDO_SENTINELA',
-                     b'fatal: SEGREDO_SENTINELA'):
-            with patch.object(self.d, 'git', side_effect=['a' * 40, 'a' * 40, 'v1.2.3', '', doctor.ConsultaRecusada(erro)]), \
-                    patch.object(doctor.shutil, 'which', return_value='/ssh-keygen'):
-                estado, detalhe = self.d.versao()
-            self.assertEqual(estado, 'nao_verificavel')
-            self.assertNotIn('SEGREDO_SENTINELA', detalhe)
-            if b'error:' in erro:
-                self.assertIn('cópia temporária na pasta de estado', detalhe)
+        original = doctor.executar
+        for codigo in (0, 128):
+            for erro in ('error: could not create temporary file: SEGREDO_SENTINELA',
+                         'error: failed writing detached signature to SEGREDO_SENTINELA',
+                         'fatal: SEGREDO_SENTINELA'):
+                if codigo == 0 and erro.startswith('fatal:'):
+                    continue
+                with self.subTest(codigo=codigo, erro=erro):
+                    respostas = iter(['a' * 40, 'a' * 40, 'v1.2.3', ''])
+
+                    def executar(args, **kwargs):
+                        if '--format=%G?' in args:
+                            programa = 'import sys; sys.stdout.write("N\\n"); sys.stderr.write(sys.argv[1]); sys.exit(int(sys.argv[2]))'
+                            return original([sys.executable, '-c', programa, erro, str(codigo)], **kwargs)
+                        return next(respostas)
+
+                    with patch.object(doctor, 'executar', side_effect=executar), \
+                            patch.object(doctor.shutil, 'which', return_value='/ssh-keygen'):
+                        estado, detalhe = self.d.versao()
+                    self.assertEqual(estado, 'nao_verificavel')
+                    self.assertNotIn('SEGREDO_SENTINELA', detalhe)
+                    self.assertNotIn('error:', detalhe)
+                    self.assertNotIn('sem assinatura válida', detalhe)
+                    if erro.startswith('error:'):
+                        self.assertIn('cópia temporária na pasta de estado', detalhe)
 
     def test_assinaturas_mistas_indeterminadas_e_saida_invalida(self):
         self.d.config.mkdir(parents=True)
@@ -515,7 +530,7 @@ os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
                       ('G\r\nN\r\n', 'nao_verificavel')]
         for saida, esperado in resultados:
             sha_a, sha_b, sha_c = 'a' * 40, 'b' * 40, 'c' * 40
-            with patch.object(doctor, 'executar', side_effect=[sha_a, sha_b, 'v1.2.3', sha_b + '\n' + sha_c, saida, '']) as executar, \
+            with patch.object(doctor, 'executar', side_effect=[sha_a, sha_b, 'v1.2.3', sha_b + '\n' + sha_c, (saida, b''), '']) as executar, \
                     patch.object(doctor.shutil, 'which', return_value='/ssh-keygen'):
                 estado, detalhe = self.d.versao()
             self.assertEqual(estado, esperado, repr(saida))
@@ -536,7 +551,7 @@ os.execv({verificador!r}, [{verificador!r}, *sys.argv[1:]])
         self.d.estado.mkdir(parents=True, mode=0o700)
         for codigo, esperado in ((1, 'aviso'), (128, 'nao_verificavel')):
             sha_a, sha_b = 'a' * 40, 'b' * 40
-            with patch.object(self.d, 'git', side_effect=[sha_a, sha_b, 'v1.2.3', sha_b, 'G\n', doctor.ConsultaRecusada(b'SEGREDO_SENTINELA', codigo)]), \
+            with patch.object(self.d, 'git', side_effect=[sha_a, sha_b, 'v1.2.3', sha_b, ('G\n', b''), doctor.ConsultaRecusada(b'SEGREDO_SENTINELA', codigo)]), \
                     patch.object(doctor.shutil, 'which', return_value='/ssh-keygen'):
                 estado, detalhe = self.d.versao()
             self.assertEqual(estado, esperado)
