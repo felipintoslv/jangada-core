@@ -30,6 +30,9 @@ reg="$estado/coordenadores"
 cat >"$tmp/bin/claude" <<'EOF'
 #!/usr/bin/env python3
 import os, sys, tty
+if os.path.isfile('.falhar-cliente'):
+    print('falha sintética na partida do Claude', file=sys.stderr)
+    sys.exit(42)
 with open(os.environ['FALSO_DIR'] + '/claude.args', 'wb') as args:
     args.write(b'\0'.join(a.encode() for a in sys.argv[1:]) + b'\0')
 tty.setraw(0)
@@ -52,6 +55,10 @@ cat >"$tmp/bin/codex" <<'EOF'
 for arg in "$@"; do
   [[ "$arg" == app-server ]] && exec python3 "$JANGADA_CORE_PATH/testes/falso-codex-hooks.py" "$@"
 done
+if [[ -f .falhar-cliente ]]; then
+  echo 'falha sintética na partida do Codex' >&2
+  exit 42
+fi
 printf '%s\0' "$@" >"$FALSO_DIR/codex.args"
 exec python3 -c 'import os, tty; tty.setraw(0); os.read(0, 1)'
 EOF
@@ -88,6 +95,9 @@ esperar() {
   for ((i = 0; i < 50; i++)); do "$@" && return 0; sleep 0.1; done
   return 1
 }
+mensagem_no_painel() {
+  tm capture-pane -p -S - -t "=$1:" | grep -Fq "$2"
+}
 campo() { jq -r "$1 // \"\" | tostring" "$reg/projeto--coordenador.json" 2>/dev/null; }
 hook() { rodar env "${@:3}" "$repo_jangada/bin/jangada-hook-claude" "$1" <<<"$2"; }
 
@@ -98,6 +108,8 @@ git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -q --allow-empty -
 # Quem chama é uma tarefa, com JANGADA_SESSAO no processo e no ambiente
 # global do servidor: o coordenador não a herda.
 rodar tmux -L jangada -f "$repo_jangada/agentes/tmux/agentes.conf" new-session -d -s base
+opcao_global="$(tm show-options -gwv remain-on-exit)"
+opcao_base="$(tm show-options -wv -t =base: remain-on-exit)"
 tm set-environment -g JANGADA_SESSAO alheia--tarefa
 saida="$(rodar env JANGADA_AUTOR_MODELO=haiku JANGADA_VALIDAR_MODELO=haiku JANGADA_SESSAO=alheia--tarefa "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"
 conferir "a abertura cria a sessão PROJETO--coordenador" [ "$saida" = projeto--coordenador ]
@@ -113,6 +125,12 @@ conferir "a sessão não recebe JANGADA_SESSAO" \
 conferir "o processo da sessão não recebe JANGADA_SESSAO" \
   bash -c '! tr "\\0" "\\n" <"/proc/$1/environ" | grep -q "^JANGADA_SESSAO="' _ \
   "$(tm display-message -p -t =projeto--coordenador: '#{pane_pid}')"
+conferir "a retenção de falhas não altera a opção global" \
+  test "$(tm show-options -gwv remain-on-exit)" = "$opcao_global"
+conferir "a retenção de falhas não altera outra sessão" \
+  test "$(tm show-options -wv -t =base: remain-on-exit)" = "$opcao_base"
+conferir "só a janela nova retém falhas" \
+  test "$(tm show-options -wv -t =projeto--coordenador: remain-on-exit)" = failed
 tm kill-session -t =base
 conferir "a sessão roda na raiz do projeto" \
   [ "$(tm display-message -p -t =projeto--coordenador: '#{pane_start_path}')" = "$tmp/projeto" ]
@@ -217,6 +235,67 @@ conferir "a recusa não foca a janela" test ! -s "$tmp/foco.chamadas"
 conferir "o registro do outro fica intacto" [ "$(cat "$reg/projeto--coordenador.json")" = "$antes" ]
 conferir "nenhuma sessão nova" [ "$(tm list-sessions -F '#S' | grep -c coordenador)" = 1 ]
 
+# PATH fechado sem flock: exercita a trava por pasta sem simular a função.
+sem_flock="$tmp/sem-flock"
+mkdir -p "$sem_flock" "$tmp/sem-cliente"
+for c in bash dirname sed realpath git basename iconv tr jq mkdir chmod mktemp \
+  date mv rm rmdir stat sleep head python3; do
+  ln -s "$(command -v "$c")" "$sem_flock/$c"
+done
+for c in tmux claude codex hyprctl jangada-terminal; do
+  ln -s "$tmp/bin/$c" "$sem_flock/$c"
+done
+conferir "o PATH alternativo não oferece flock" \
+  rodar env PATH="$sem_flock" bash -c '! command -v flock'
+cp "$reg/projeto--coordenador.json" "$tmp/antes-sem-flock"
+for caso in provedor homonimo registro; do
+  alvo="$tmp/projeto"; provedor=codex
+  case "$caso" in
+    homonimo) alvo="$tmp/a/projeto"; provedor=claude ;;
+    registro) printf '{}' >"$reg/projeto--coordenador.json"; provedor=claude ;;
+  esac
+  antes="$(cat "$reg/projeto--coordenador.json")"
+  : >"$tmp/foco.chamadas"
+  : >"$tmp/tmux.chamadas"
+  for tentativa in 1 2; do
+    saida="$(rodar env PATH="$sem_flock" HYPRLAND_INSTANCE_SIGNATURE=teste WAYLAND_DISPLAY=teste \
+      "$repo_jangada/bin/jangada-coordenador" --projeto "$alvo" --provedor "$provedor" 2>&1)"; rc=$?
+    conferir "sem flock, $caso: recusa $tentativa sai com 2" test "$rc" = 2
+    conferir "sem flock, $caso: recusa $tentativa libera a trava" test ! -d "$reg/.trava.d"
+  done
+  conferir "sem flock, $caso: preserva registro" test "$(cat "$reg/projeto--coordenador.json")" = "$antes"
+  conferir "sem flock, $caso: preserva foco" test ! -s "$tmp/foco.chamadas"
+  conferir "sem flock, $caso: não cria sessão nem envia entrada" \
+    bash -c '! grep -Eq "new-session|send-keys|buffer|set-environment" "$1"' _ "$tmp/tmux.chamadas"
+  cp "$tmp/antes-sem-flock" "$reg/projeto--coordenador.json"
+done
+
+# Cliente ausente tem um único diagnóstico e preserva o registro antigo.
+rm "$sem_flock/claude"
+printf '{"estado":"encerrado"}' >"$reg/sem-cliente--coordenador.json"
+for modo in sem-flock com-flock; do
+  if [[ "$modo" = com-flock ]]; then ln -s "$(command -v flock)" "$sem_flock/flock"; fi
+  antes="$(cat "$reg/sem-cliente--coordenador.json")"
+  : >"$tmp/foco.chamadas"
+  saida="$(rodar env PATH="$sem_flock" HYPRLAND_INSTANCE_SIGNATURE=teste WAYLAND_DISPLAY=teste \
+    "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/sem-cliente" 2>&1)"; rc=$?
+  conferir "$modo, cliente ausente: sai com 1" test "$rc" = 1
+  conferir "$modo, cliente ausente: diagnóstico único" \
+    test "$saida" = 'jangada-coordenador: claude não instalado; nenhuma sessão criada'
+  conferir "$modo, cliente ausente: preserva registro e foco" \
+    test "$(cat "$reg/sem-cliente--coordenador.json"):$(cat "$tmp/foco.chamadas")" = "$antes:"
+  conferir "$modo, cliente ausente: não deixa trava presa" test ! -d "$reg/.trava.d"
+done
+rm "$sem_flock/flock"
+ln -s "$tmp/bin/claude" "$sem_flock/claude"
+saida="$(rodar env PATH="$sem_flock" "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/sem-cliente" 2>&1)"; rc=$?
+conferir "sem flock, o pedido seguinte cria a sessão" test "$rc:$saida" = '0:sem-cliente--coordenador'
+conferir "sem flock, a criação também libera a trava" test ! -d "$reg/.trava.d"
+rodar env PATH="$sem_flock" "$repo_jangada/bin/jangada-coordenador" --fim sem-cliente--coordenador >"$tmp/saida" 2>&1
+conferir "sem flock, --fim continua encerrando" test "$?" = 0
+conferir "sem flock, --fim também libera a trava" test ! -d "$reg/.trava.d"
+rm "$reg/sem-cliente--coordenador.json"
+
 # Codex: os hooks do jangada vão na chamada, com a aprovação no estado.
 saida="$(rodar env JANGADA_AUTOR_MODELO=gpt-6.1-sol JANGADA_VALIDAR_MODELO=gpt-6.1-sol "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/outro" --provedor codex 2>&1)"
 conferir "a abertura com Codex cria a sessão" [ "$saida" = outro--coordenador ]
@@ -235,6 +314,31 @@ conferir "a aprovação fica na pasta dos coordenadores" test -f "$reg/codex-hoo
 conferir "o registro do Codex diz o provedor" [ "$(jq -r .provedor "$reg/outro--coordenador.json")" = codex ]
 tm kill-session -t =outro--coordenador
 rm -f "$reg/outro--coordenador.json"
+
+# Falha imediata preserva a mensagem num painel morto, só na janela nova.
+for provedor in claude codex; do
+  mkdir -p "$tmp/falha-$provedor"
+  touch "$tmp/falha-$provedor/.falhar-cliente"
+  sessao_falha="falha-$provedor--coordenador"
+  saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/falha-$provedor" --provedor "$provedor" 2>&1)"; rc=$?
+  conferir "$provedor com falha imediata: abertura mantém o contrato" test "$rc:$saida" = "0:$sessao_falha"
+  conferir "$provedor com falha imediata: tmux conserva o painel" \
+    esperar bash -c '[[ "$("$@" display-message -p -t "=$0:" "#{pane_dead} #{pane_dead_status}")" = "1 42" ]]' \
+    "$sessao_falha" env TMUX_TMPDIR="$sock" tmux -L jangada
+  conferir "$provedor com falha imediata: mensagem continua visível" \
+    esperar mensagem_no_painel "$sessao_falha" 'na partida do'
+  conferir "$provedor com falha imediata: opção global intacta" \
+    test "$(tm show-options -gwv remain-on-exit)" = "$opcao_global"
+  antes="$(cat "$reg/$sessao_falha.json")"
+  if [[ "$provedor" = claude ]]; then sucessor=codex; else sucessor=claude; fi
+  saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/falha-$provedor" --provedor "$sucessor" 2>&1)"; rc=$?
+  conferir "$provedor com painel morto: não abre outro provedor" test "$rc" = 2
+  conferir "$provedor com painel morto: preserva registro" test "$(cat "$reg/$sessao_falha.json")" = "$antes"
+  rodar "$repo_jangada/bin/jangada-coordenador" --fim "$sessao_falha" >/dev/null 2>&1
+  conferir "$provedor com painel morto: --fim preserva sua semântica" \
+    test "$?:$(jq -r .estado "$reg/$sessao_falha.json")" = '0:encerrado'
+  rm "$reg/$sessao_falha.json"
+done
 
 # Hooks: sem JANGADA_COORDENADOR nada muda; com ele, estado e última linha.
 antes="$(cat "$reg/projeto--coordenador.json")"

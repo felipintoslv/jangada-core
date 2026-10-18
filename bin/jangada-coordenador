@@ -159,7 +159,7 @@ abrir() {
     cmd=("$PROVEDOR_COMANDO" --model opus "$(texto_inicial)")
   fi
   # Conferência e criação sob a trava: dois pedidos juntos não abrem duas.
-  # A trava roda em subshell: a sessão já existente volta pelo código 10.
+  # Com flock, a trava roda em subshell; sessão existente volta pelo código 10.
   # O tmux recebe o descritor 9 fechado: o servidor nascido aqui herdaria a
   # trava e a seguraria enquanto vivesse.
   _abrir() {
@@ -169,20 +169,26 @@ abrir() {
         length == 1 and (.[0] | type == "object" and .sessao == $s
           and (.projeto | type == "string" and startswith("/") and length > 0)
           and (.provedor == "claude" or .provedor == "codex"))' "$arq" >/dev/null 2>&1; then
-        erro "sessão viva $sessao com registro inconsistente: faltam projeto e provedor reconhecidos em arquivo regular válido; sessão preservada" 2
+        echo "jangada-coordenador: sessão viva $sessao com registro inconsistente: faltam projeto e provedor reconhecidos em arquivo regular válido; sessão preservada" >&2
+        return 2
       fi
       outro="$(campo "$arq" .projeto)"
       atual="$(campo "$arq" .provedor)"
       if [[ "$outro" != "$raiz" ]]; then
-        erro "a sessão $sessao já é o coordenador de $outro, não de $raiz; sessão preservada" 2
+        echo "jangada-coordenador: a sessão $sessao já é o coordenador de $outro, não de $raiz; sessão preservada" >&2
+        return 2
       fi
       if [[ "$atual" != "$provedor" ]]; then
-        erro "o coordenador de $raiz já está aberto com $atual ($sessao); o dono precisa encerrar voluntariamente essa sessão antes de abrir $provedor" 2
+        echo "jangada-coordenador: o coordenador de $raiz já está aberto com $atual ($sessao); o dono precisa encerrar voluntariamente essa sessão antes de abrir $provedor" >&2
+        return 2
       fi
       echo "o coordenador de $raiz já está aberto com $atual: $sessao" >&2
       return 10
     fi
-    command -v "$PROVEDOR_COMANDO" >/dev/null 2>&1 || erro "$PROVEDOR_COMANDO não instalado; nenhuma sessão criada"
+    if ! command -v "$PROVEDOR_COMANDO" >/dev/null 2>&1; then
+      echo "jangada-coordenador: $PROVEDOR_COMANDO não instalado; nenhuma sessão criada" >&2
+      return 3
+    fi
     while IFS= read -r _v; do unset "$_v"; done < <(compgen -e | ambiente_do_coordenador)
     while IFS= read -r _v; do
       "${JANGADA_TMUX[@]}" set-environment -g -u "$_v" || true
@@ -204,7 +210,10 @@ abrir() {
       rm -f "$tmp"
       return 1
     fi
-    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" "${cmd[@]}" 9<&-; then
+    # A opção entra na mesma fila da criação, antes de tratar a saída do filho.
+    # É local à janela nova: falhas ficam visíveis e saída normal fecha o painel.
+    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" "${cmd[@]}" \
+      \; set-option -w -t "=$sessao:" remain-on-exit failed 9<&-; then
       rm -f "$arq"
       return 1
     fi
@@ -216,6 +225,8 @@ abrir() {
     return 0
   elif ((rc == 2)); then
     return 2
+  elif ((rc == 3)); then
+    return 1
   elif ((rc != 0)); then
     erro "não foi possível criar a sessão $sessao"
   fi
