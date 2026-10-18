@@ -69,7 +69,7 @@ conferir "registrar_comando com outro código não pula" nao pulou interno-5
 
 executar "$tmp" sai 1 "" "$recusa" >/dev/null 2>&1
 rc=$?
-conferir "o rc=\$? não anula o registro" pulou rc
+conferir "o rc=\$? não anula o registro (rc $rc)" pulou rc
 executar "$tmp" sai 1 "" "$recusa" >/dev/null 2>&1
 printf 'x\n' >"$tmp/preparo"
 conferir "comando entre o passo e a conferência anula o registro" nao pulou preparo
