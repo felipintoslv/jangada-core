@@ -20,12 +20,12 @@ conferir() {
   if "$@" >/dev/null; then ok "$d"
   elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
 }
-# Uso: conferir_apos PASSO DESCRICAO COMANDO..., na conferência que só vale
+# Uso: conferir_apos PASTA PASSO DESCRICAO COMANDO..., na conferência que só vale
 # com o que o passo de fundo guardado por guardar_recusa PASSO fez.
 conferir_apos() {
-  local passo="$1" d="$2"; shift 2
+  local pasta="$1" passo="$2" d="$3"; shift 3
   if "$@" >/dev/null; then ok "$d"
-  elif ! pulado_sem_o_passo "${tmp:-}" "$passo" "$d"; then falha "$d"; fi
+  elif ! pulado_sem_o_passo "$pasta" "$passo" "$d"; then falha "$d"; fi
 }
 
 tmp="$(mktemp -d)"
@@ -111,7 +111,7 @@ command -v gitleaks >/dev/null 2>&1 || ambiente+=(JANGADA_VALIDAR_SEM_GITLEAKS=1
 # $extra vale para o atendente, fora.
 extra=()
 isolar() {
-  (cd "$tmp/wt" && executar "$tmp" env "${limpar_ambiente[@]}" "${ambiente[@]}" "${extra[@]}" JANGADA_SESSAO="$1" \
+  (cd "$tmp/wt" && executar "${registro_comando:-$tmp}" env "${limpar_ambiente[@]}" "${ambiente[@]}" "${extra[@]}" JANGADA_SESSAO="$1" \
     "$repo_jangada/bin/jangada-isolar" -- "${@:2}" </dev/null)
 }
 validar="$repo_jangada/bin/jangada-validar"
@@ -121,7 +121,7 @@ pedir() {
   rm -f "$F/$nome.rc"
   isolar t bash -c '"$@" >"$FALSO_DIR/$0.out" 2>"$FALSO_DIR/$0.err"; echo $? >"$FALSO_DIR/$0.rc"' \
     "$nome" "$@"
-  [[ ! -f $F/$nome.rc ]] || registrar_comando "$tmp" "$(rc "$nome")" "$F/$nome.out" "$F/$nome.err"
+  [[ ! -f $F/$nome.rc ]] || registrar_comando "${registro_comando:-$tmp}" "$(rc "$nome")" "$F/$nome.out" "$F/$nome.err"
 }
 rc() { cat "$F/$1.rc" 2>/dev/null; }
 pareceres() { find "$estado/revisoes" -maxdepth 1 -name 'validacao-t-r*.md' | wc -l; }
@@ -233,19 +233,21 @@ conferir "caso 5: uma chamada ao revisor" [ "$(chamadas)" = 2 ]
 # segunda esperar, e ela recebe o parecer da primeira para o mesmo sha.
 commitar
 echo 'STATUS: REVISAR\n1. arquivo.txt:3 x' >"$F/resposta"
-pedir s1 "$validar" &
+mkdir -p "$tmp/s1" "$tmp/s2"
+registro_comando="$tmp/s1" pedir s1 "$validar" &
 primeiro=$!
 sleep 1.5
-pedir s2 "$validar"
+registro_comando="$tmp/s2" pedir s2 "$validar"
 wait "$primeiro"
-guardar_recusa "$tmp" 6
-conferir_apos 6 "caso 6: as duas recebem o parecer" \
-  bash -c '[ "$1" = 3 ] && [ "$2" = 3 ] && grep -q "arquivo.txt:3" "$3" && grep -q "arquivo.txt:3" "$4"' _ \
-  "$(rc s1)" "$(rc s2)" "$F/s1.out" "$F/s2.out"
-conferir_apos 6 "caso 6: um parecer e uma chamada ao revisor" \
-  bash -c '[ "$1" = 3 ] && [ "$2" = 3 ]' _ "$(chamadas)" "$(pareceres)"
-conferir_apos 6 "caso 6: linhas inteiras em revisoes/validar.jsonl" \
-  jq -e -s 'length == 3' "$estado/revisoes/validar.jsonl"
+for pedido in s1 s2; do
+  guardar_recusa "$tmp/$pedido" 6
+  conferir_apos "$tmp/$pedido" 6 "caso 6: $pedido recebe o parecer" \
+    bash -c '[ "$1" = 3 ] && grep -q "arquivo.txt:3" "$2"' _ "$(rc "$pedido")" "$F/$pedido.out"
+  conferir_apos "$tmp/$pedido" 6 "caso 6: um parecer e uma chamada ao revisor ($pedido)" \
+    bash -c '[ "$1" = 3 ] && [ "$2" = 3 ]' _ "$(chamadas)" "$(pareceres)"
+  conferir_apos "$tmp/$pedido" 6 "caso 6: linhas inteiras em revisoes/validar.jsonl ($pedido)" \
+    jq -e -s 'length == 3' "$estado/revisoes/validar.jsonl"
+done
 rm -f "$F/espera"
 
 # Caso 7: o limite de rodadas é o de fora; a variável de dentro não vale.
@@ -307,7 +309,7 @@ conferir "caso 9: nada gravado" bash -c '[ "$1" = "$2" ] && [ "$3" = 4 ] && [ "$
 ( isolar t sleep 31 ) 2>"$F/c10.err" &
 for _ in $(seq 1 25); do atendente_vivo && break; sleep 0.2; done
 guardar_recusa "$tmp" 10
-conferir_apos 10 "caso 10: o atendente abre com a sessão" atendente_vivo
+conferir_apos "$tmp" 10 "caso 10: o atendente abre com a sessão" atendente_vivo
 pkill -KILL -f "$repo_jangada/bin/jangada-isolar -- sleep 31"
 sleep 2
 atendente_morto() { ! atendente_vivo; }
