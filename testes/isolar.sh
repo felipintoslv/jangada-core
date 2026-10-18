@@ -17,6 +17,13 @@ conferir() {
   if "$@"; then ok "$d"
   elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
 }
+# Uso: conferir_apos PASSO DESCRICAO COMANDO..., na conferência que só vale
+# com o que o passo de fundo guardado por guardar_recusa PASSO fez.
+conferir_apos() {
+  local passo="$1" d="$2"; shift 2
+  if "$@"; then ok "$d"
+  elif ! pulado_sem_o_passo "${tmp:-}" "$passo" "$d"; then falha "$d"; fi
+}
 conferir "implementação: ambiente vazio, keyring por item sem criação ou acesso irrestrito" \
   env PYTHONDONTWRITEBYTECODE=1 python3 testes/implementacao-agy.py \
     Implementacao.test_perfil_isolamento_limita_keyring_e_limpa_ambiente
@@ -1073,9 +1080,10 @@ EOF
   touch "$tmp/wt/.sinal_atualizado"
 
   wait "$pid_sessao" || true
+  guardar_recusa "$tmp" 3c
 
   res_3c="$(cat "$tmp/wt/.resultado_3c" 2>/dev/null || true)"
-  conferir "caso 3c: sandbox enxerga atualização dinâmica de vram e novo jogo-ativo" \
+  conferir_apos 3c "caso 3c: sandbox enxerga atualização dinâmica de vram e novo jogo-ativo" \
     [ "$res_3c" = "6144 nao 7168 sim" ]
 
   rm -f "$casa/.local/state/jangada/marcas/jogo-ativo"
@@ -1117,7 +1125,8 @@ EOF
     pid_morto=$!
     vigia_vivo() { pgrep -f "^inotifywait .*$casa/.local/state/jangada/agentes" >/dev/null; }
     for ((i = 0; i < 50; i++)); do vigia_vivo && break; sleep 0.1; done
-    conferir "caso 3d: o vigia sobe com a sessão" vigia_vivo
+    guardar_recusa "$tmp" 3d
+    conferir_apos 3d "caso 3d: o vigia sobe com a sessão" vigia_vivo
     # O alvo é o primeiro jangada-isolar na árvore de pid_morto, a qualquer
     # profundidade: o bash pode trocar o subshell pelo comando, e o executar
     # acrescenta um nível dentro do isolamento.

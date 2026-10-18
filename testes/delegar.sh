@@ -182,11 +182,11 @@ conferir "caso 1: Flash high para o explorador" grep -qx -- gemini-3.8-flash-hig
 conferir "caso 1: roda com --sandbox" grep -qx -- --sandbox "$tmp/falso/agy.args"
 conferir "caso 1: roda na pasta atual" [ "$(cat "$tmp/falso/agy.pasta")" = "$tmp/projeto" ]
 
+reg="$tmp/home/.local/state/jangada/delegacoes.jsonl"
 delegar --permitir-remoto verificador "confira"
 conferir "caso 2: Flash high para o verificador" grep -qx -- gemini-3.8-flash-high "$tmp/falso/agy.args"
 # Antes da primeira, depois de cada uma; o antes da segunda vem do cache.
 conferir "caso 2: cota do antes vem do cache" [ "$(wc -l <"$tmp/falso/usage.chamadas")" = 3 ]
-reg="$tmp/home/.local/state/jangada/delegacoes.jsonl"
 conferir "caso 2: uma linha por chamada" [ "$(wc -l <"$reg")" = 2 ]
 conferir "caso 2: linha com os campos" jqok -e 'select(.papel == "verificador")
   | .destino == "agy" and .modelo == "gemini-3.8-flash-high" and .codigo_saida == 0 and .recusa == false
@@ -265,8 +265,8 @@ rm -f "$tmp/home/.gemini/antigravity-cli/log/cli-1.log"
 
 RESPOSTA="$(yes palavra | head -n 700 | paste -sd ' ')" delegar --permitir-remoto explorador "mapeie"
 conferir "caso 7: relatório longo sai cortado" [ "$(head -n 1 "$tmp/saida" | wc -w)" = 600 ]
-arq="$(sed -n 's/.*completo em \(.*\)\]$/\1/p' "$tmp/saida")"
-conferir "caso 7: arquivo completo existe" [ "$(wc -w <"${arq:-/nada}" 2>/dev/null)" = 700 ]
+conferir "caso 7: arquivo completo existe" bash -c 'arq="$(sed -n "s/.*completo em \(.*\)\]\$/\1/p" "$1")"
+  [ "$(wc -w <"${arq:-/nada}" 2>/dev/null)" = 700 ]' _ "$tmp/saida"
 
 RESPOSTA="curto" delegar --permitir-remoto explorador "mapeie" --arquivo "$tmp/rel.md"
 conferir "caso 8: --arquivo grava o relatório" grep -qx curto "$tmp/rel.md"

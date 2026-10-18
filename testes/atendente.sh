@@ -20,6 +20,13 @@ conferir() {
   if "$@" >/dev/null; then ok "$d"
   elif ! pulado_se_recusado "${tmp:-}" "$d"; then falha "$d"; fi
 }
+# Uso: conferir_apos PASSO DESCRICAO COMANDO..., na conferência que só vale
+# com o que o passo de fundo guardado por guardar_recusa PASSO fez.
+conferir_apos() {
+  local passo="$1" d="$2"; shift 2
+  if "$@" >/dev/null; then ok "$d"
+  elif ! pulado_sem_o_passo "${tmp:-}" "$passo" "$d"; then falha "$d"; fi
+}
 
 tmp="$(mktemp -d)"
 erros_dos_pulados "$tmp"
@@ -231,12 +238,13 @@ primeiro=$!
 sleep 1.5
 pedir s2 "$validar"
 wait "$primeiro"
-conferir "caso 6: as duas recebem o parecer" \
+guardar_recusa "$tmp" 6
+conferir_apos 6 "caso 6: as duas recebem o parecer" \
   bash -c '[ "$1" = 3 ] && [ "$2" = 3 ] && grep -q "arquivo.txt:3" "$3" && grep -q "arquivo.txt:3" "$4"' _ \
   "$(rc s1)" "$(rc s2)" "$F/s1.out" "$F/s2.out"
-conferir "caso 6: um parecer e uma chamada ao revisor" \
+conferir_apos 6 "caso 6: um parecer e uma chamada ao revisor" \
   bash -c '[ "$1" = 3 ] && [ "$2" = 3 ]' _ "$(chamadas)" "$(pareceres)"
-conferir "caso 6: linhas inteiras em revisoes/validar.jsonl" \
+conferir_apos 6 "caso 6: linhas inteiras em revisoes/validar.jsonl" \
   jq -e -s 'length == 3' "$estado/revisoes/validar.jsonl"
 rm -f "$F/espera"
 
@@ -298,7 +306,8 @@ conferir "caso 9: nada gravado" bash -c '[ "$1" = "$2" ] && [ "$3" = 4 ] && [ "$
 # Caso 10: com o jangada-isolar morto por KILL, o atendente sai sozinho.
 ( isolar t sleep 31 ) 2>"$F/c10.err" &
 for _ in $(seq 1 25); do atendente_vivo && break; sleep 0.2; done
-conferir "caso 10: o atendente abre com a sessão" atendente_vivo
+guardar_recusa "$tmp" 10
+conferir_apos 10 "caso 10: o atendente abre com a sessão" atendente_vivo
 pkill -KILL -f "$repo_jangada/bin/jangada-isolar -- sleep 31"
 sleep 2
 atendente_morto() { ! atendente_vivo; }

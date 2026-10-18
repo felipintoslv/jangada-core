@@ -181,7 +181,6 @@ printf 'STATUS: APROVADO\n' >"$estado/validacao-x-rotas-r1.md"
 fim x
 conferir "pareceres da sessão apagados" test ! -e "$estado/validacao-x-r1.md"
 conferir "parecer da sessão vizinha mantido" test -f "$estado/validacao-x-rotas-r1.md"
-rm -f "$estado/validacao-x-rotas-r1.md"
 conferir "encerra ($rc)" test "$rc" -eq 0
 conferir "worktree removido" test ! -d "$wts/proj/x"
 conferir "estado apagado" test ! -f "$estado/x.json"
@@ -189,6 +188,7 @@ conferir "estado divergente não controla a duplicidade nem o projeto" \
   jq -Rne '[inputs | fromjson? | objects] | map(select(.sessao == "x")) | length == 2 and any(.[]; .sessao == "x" and .inicio == "2026-04-01T12:00:00Z" and .execucao == "exe-1111111111111111" and .autor == "codex" and .projeto == "proj")' \
   "$XDG_STATE_HOME/jangada/consumo-tarefas.jsonl"
 conferir "ramo mantido" git -C "$proj" show-ref --quiet --verify refs/heads/agente/x
+rm -f "$estado/validacao-x-rotas-r1.md"
 
 echo "== cópia protegida controla duplicidade com JSONL danificado"
 gravar dup "{\"raiz\": \"$outro\", \"estado\": \"concluido\", \"execucao\": \"forjada\"}"
