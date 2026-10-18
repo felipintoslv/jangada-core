@@ -367,6 +367,12 @@ porque o hook engole o erro.
   Controle `TMUX` no ambiente do teste, como `TMUX=''` em
   `testes/agente-seletor.py`, para usar o `attach` falso.
 
+- Com `remain-on-exit failed`, o painel morto preserva a saída do cliente.
+  A captura imediata pode vir vazia antes da leitura final do pseudoterminal.
+  Nos testes, aguarde também a mensagem em `capture-pane`, além de
+  `pane_dead` e `pane_dead_status`. Configure a opção na fila da criação,
+  somente na janela nova; a opção global afetaria outras sessões.
+
 ## Avaliação local (`jangada-avaliar-ollama`)
 
 Na avaliação pelo `jangada-avaliar-ollama`, o estado das delegações fica

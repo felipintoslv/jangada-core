@@ -558,7 +558,9 @@ subagente tem `.db` próprio.
   (`bin/jangada-codex-hooks`). A passagem manual só abre outro provedor depois
   da saída voluntária da sessão tmux anterior. Sob a trava, a presença real
   no tmux prevalece sobre registro antigo; sessão viva exige registro regular
-  válido com projeto e provedor reconhecidos. O nome da sessão é associação
+  válido com projeto e provedor reconhecidos. Um painel retido após falha do
+  cliente ainda mantém a sessão presente no tmux; o dono confere e fecha a
+  janela antes da passagem. O nome da sessão é associação
   operacional por projeto, sem identidade histórica imutável. A nova abertura
   reescreve os mesmos campos públicos, sem importar históricos. O estado da
   passagem fica em `.jangada/estado.md` e `.jangada/coordenacao.md`; leituras e

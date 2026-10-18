@@ -75,11 +75,19 @@ e recebe erro; projetos homônimos continuam recusados. A presença real no tmux
 A passagem é manual. O coordenador atual atualiza `.jangada/estado.md` e
 `.jangada/coordenacao.md` com decisões, autorizações e pendências e informa
 que a passagem está pronta. O dono encerra voluntariamente a sessão anterior.
-Sair do cliente pode deixar o shell da sessão tmux aberto; nesse caso, saia
-também desse shell. Desanexar do tmux não encerra a sessão. Só depois abra o
-provedor escolhido na pasta do projeto pelo mesmo comando. Um registro antigo
-sem sessão tmux viva não impede a abertura. O `--fim` conserva sua semântica
-existente e não participa dessa passagem.
+Nas sessões novas, a saída normal do cliente termina o painel e, se ele era
+o último, a sessão. Se o processo falhar, a opção `remain-on-exit failed`,
+local à janela nova, mantém o painel morto com a mensagem para conferência.
+A abertura ainda informa o nome da sessão criada; isso não atesta que o
+cliente iniciou sem erro. O dono confere a mensagem e fecha a janela pelo
+tmux (`Ctrl+b &`, com confirmação) antes de abrir outro provedor.
+
+Em sessões de versões anteriores, sair do cliente pode deixar o shell aberto.
+Nesse caso, saia também desse shell. Janelas e painéis adicionais criados pelo
+dono também precisam terminar. Desanexar do tmux não encerra a sessão.
+Só depois abra o provedor escolhido na pasta do projeto pelo mesmo comando.
+Um registro antigo sem sessão tmux viva não impede a abertura. O `--fim`
+conserva sua semântica existente e não participa dessa passagem.
 
 O processo novo recebe um texto inicial pelo argumento do cliente, identificando
 o papel e pedindo a leitura da skill, das regras e dos registros. Não há texto
