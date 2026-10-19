@@ -17,7 +17,7 @@ exec 3>&1
     case "$evento" in
       inicio) estado=iniciado; linha="" ;;
       concluido) estado=concluido; linha="${linha:-turno concluído}" ;;
-      fim) estado=encerrado; linha="Codex encerrado" ;;
+      fim) estado=concluido; linha="Codex encerrado" ;;
       *) estado="$evento" ;;
     esac
     "$(dirname "${BASH_SOURCE[0]}")/jangada-coordenador" --registrar "$estado" <<<"$linha"

@@ -5,6 +5,7 @@
 # Uso:
 #   jangada-coordenador --projeto PASTA [--provedor claude|codex] [--janela]
 #   jangada-coordenador --fim SESSAO
+#   jangada-coordenador --finalizar SESSAO  após sair voluntariamente
 #   jangada-coordenador --registrar ESTADO   uso interno dos hooks; linha pela entrada
 #   jangada-coordenador --executar-codex     uso interno; abre o Codex com os hooks
 #
@@ -34,22 +35,12 @@ registro() {
   printf '%s\n' "$arq"
 }
 
-campo() { jq -r "$2 // \"\" | strings" "$1" 2>/dev/null || true; }
-
-# Regrava o registro com o filtro jq, por arquivo temporário e mv.
-regravar() {
-  local arq="$1" tmp
-  shift
-  tmp="$(mktemp "$reg_dir/.reg.XXXXXX")" || return 1
-  if jq "$@" "$arq" >"$tmp" 2>/dev/null && mv -fT -- "$tmp" "$arq"; then
-    return 0
-  fi
-  rm -f "$tmp"
-  return 1
+persistir() {
+  python3 "$JANGADA_CORE_PY/nucleo/coordenadores.py" --persistir "$JANGADA_ESTADO" "$@"
 }
 
 preparar_pasta() {
-  [[ ! -L "$reg_dir" ]] || erro "$reg_dir é link simbólico"
+  [[ ! -L "$JANGADA_ESTADO" && ! -L "$reg_dir" ]] || erro "$reg_dir é link simbólico"
   (umask 077; mkdir -p "$reg_dir")
   chmod 700 "$reg_dir"
 }
@@ -85,8 +76,9 @@ focar() {
 # Uso interno dos hooks. A linha chega pela entrada e vira dado: sem
 # sequências ANSI, caracteres de controle nem invisíveis, até 200 caracteres.
 registrar() {
-  local estado="$1" nome="${JANGADA_COORDENADOR:-}" linha arq agora
+  local estado="$1" nome="${JANGADA_COORDENADOR:-}" linha
   [[ -z "${JANGADA_SESSAO:-}" && -z "${JANGADA_ISOLADO:-}" ]] || return 0
+  [[ ! -L "$JANGADA_ESTADO" && ! -L "$reg_dir" ]] || return 0
   nome_valido "$nome" || return 0
   case "$estado" in iniciado|trabalhando|aguardando|concluido|encerrado|"") ;; *) return 0 ;; esac
   linha="$(head -c 4096 | jq -Rrs '
@@ -94,16 +86,9 @@ registrar() {
     | gsub("[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]"; " ")
     | gsub("^ +| +$"; "") | .[0:200]' 2>/dev/null || true)"
   [[ -n "$estado$linha" ]] || return 0
-  arq="$(registro "$nome")" || return 0
-  agora="$(jangada_data_iso)"
   _registrar() {
-    # Encerrado pelo --fim: o hook que chega depois não reabre o registro.
-    [[ -z "$(campo "$arq" .encerrado)" ]] || return 0
-    # shellcheck disable=SC2016  # variáveis do jq
-    regravar "$arq" --arg e "$estado" --arg l "$linha" --arg a "$agora" '
-      (if $e != "" then .estado = $e else . end)
-      | (if $l != "" then .ultima_linha = $l else . end)
-      | .atualizado = $a'
+    registro "$nome" >/dev/null || return 0
+    persistir registrar "$nome" "${JANGADA_ATUACAO_ID:-}" "$estado" "$linha" >/dev/null
   }
   jangada_com_trava_dir "$reg_dir" _registrar && jangada_avisar_interface estado-sessao
   return 0
@@ -164,16 +149,13 @@ abrir() {
   # trava e a seguraria enquanto vivesse.
   _abrir() {
     if "${JANGADA_TMUX[@]}" has-session -t "=$sessao" 2>/dev/null 9<&-; then
-      local outro atual
-      if ! registro "$sessao" >/dev/null || ! jq -se --arg s "$sessao" '
-        length == 1 and (.[0] | type == "object" and .sessao == $s
-          and (.projeto | type == "string" and startswith("/") and length > 0)
-          and (.provedor == "claude" or .provedor == "codex"))' "$arq" >/dev/null 2>&1; then
+      local outro atual dados
+      if ! registro "$sessao" >/dev/null || ! dados="$(persistir conferir "$sessao")"; then
         echo "jangada-coordenador: sessão viva $sessao com registro inconsistente: faltam projeto e provedor reconhecidos em arquivo regular válido; sessão preservada" >&2
         return 2
       fi
-      outro="$(campo "$arq" .projeto)"
-      atual="$(campo "$arq" .provedor)"
+      outro="$(jq -r .projeto <<<"$dados")"
+      atual="$(jq -r .provedor <<<"$dados")"
       if [[ "$outro" != "$raiz" ]]; then
         echo "jangada-coordenador: a sessão $sessao já é o coordenador de $outro, não de $raiz; sessão preservada" >&2
         return 2
@@ -189,6 +171,18 @@ abrir() {
       echo "jangada-coordenador: $PROVEDOR_COMANDO não instalado; nenhuma sessão criada" >&2
       return 3
     fi
+    if [[ -e "$arq" || -L "$arq" ]]; then
+      local dados outro
+      dados="$(persistir ler "$sessao")" || return 2
+      outro="$(jq -r .projeto <<<"$dados")"
+      if [[ "$outro" != "$raiz" ]]; then
+        echo "jangada-coordenador: registro do coordenador de $outro, não de $raiz; preservado" >&2
+        return 2
+      fi
+    fi
+    local dados atuacao
+    dados="$(persistir abrir "$sessao" "$raiz" "$provedor")" || return 2
+    atuacao="$(jq -r .atuacao_id <<<"$dados")"
     while IFS= read -r _v; do unset "$_v"; done < <(compgen -e | ambiente_do_coordenador)
     while IFS= read -r _v; do
       "${JANGADA_TMUX[@]}" set-environment -g -u "$_v" || true
@@ -200,21 +194,10 @@ abrir() {
       "${JANGADA_TMUX[@]}" set-environment -g -u JANGADA_SESSAO || true
     fi
 
-    local agora tmp
-    agora="$(jangada_data_iso)"
-    tmp="$(mktemp "$reg_dir/.reg.XXXXXX")" || return 1
-    # shellcheck disable=SC2016  # variáveis do jq
-    if ! jq -n --arg s "$sessao" --arg p "$raiz" --arg v "$provedor" --arg a "$agora" \
-      '{sessao:$s, projeto:$p, provedor:$v, estado:"iniciado", ultima_linha:"", desde:$a, atualizado:$a}' \
-      >"$tmp" || ! mv -fT -- "$tmp" "$arq"; then
-      rm -f "$tmp"
-      return 1
-    fi
     # A opção entra na mesma fila da criação, antes de tratar a saída do filho.
     # É local à janela nova: falhas ficam visíveis e saída normal fecha o painel.
-    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" -e "PATH=$PATH" "${cmd[@]}" \
+    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" -e "JANGADA_ATUACAO_ID=$atuacao" -e "PATH=$PATH" "${cmd[@]}" \
       \; set-option -w -t "=$sessao:" remain-on-exit failed 9<&-; then
-      rm -f "$arq"
       return 1
     fi
   }
@@ -244,21 +227,34 @@ abrir() {
 }
 
 fim() {
-  local sessao="$1" arq agora
+  local sessao="$1" modo="$2" resultado rc=0
   [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "o coordenador encerra fora do isolamento"
   nome_valido "$sessao" && [[ "$sessao" == *--coordenador ]] || erro "sessão de coordenador inválida: $sessao" 2
-  arq="$(registro "$sessao")" || erro "coordenador sem registro: $sessao" 1
-  agora="$(jangada_data_iso)"
+  [[ ! -L "$JANGADA_ESTADO" && ! -L "$reg_dir" ]] || erro "pasta de coordenadores é link simbólico"
   # Sob a trava da abertura: um --projeto no meio recriaria a sessão, e a
   # marcação cairia no registro novo.
   _fim() {
-    "${JANGADA_TMUX[@]}" kill-session -t "=$sessao" 2>/dev/null 9<&- || true
-    # shellcheck disable=SC2016  # variáveis do jq
-    regravar "$arq" --arg a "$agora" '.estado = "encerrado" | .encerrado = $a | .atualizado = $a'
+    local viva=0 encerramento
+    registro "$sessao" >/dev/null || return 1
+    persistir ler "$sessao" >/dev/null || return 1
+    if "${JANGADA_TMUX[@]}" has-session -t "=$sessao" 2>/dev/null 9<&-; then
+      if [[ "$modo" == finalizar ]]; then
+        echo "jangada-coordenador: salve o estado e o diário e saia voluntariamente de $sessao antes de finalizar" >&2
+        return 2
+      fi
+      viva=1
+    fi
+    encerramento="$(persistir finalizar "$sessao")" || return 1
+    if ((viva)); then
+      "${JANGADA_TMUX[@]}" kill-session -t "=$sessao" 2>/dev/null 9<&- || true
+    fi
+    printf '%s\n' "$encerramento"
   }
-  jangada_com_trava_dir "$reg_dir" _fim || erro "não foi possível marcar o registro de $sessao"
+  resultado="$(jangada_com_trava_dir "$reg_dir" _fim)" || rc=$?
+  ((rc != 2)) || return 2
+  ((rc == 0)) || erro "não foi possível finalizar o registro de $sessao"
   jangada_avisar_interface estado-sessao
-  echo "coordenador encerrado: $sessao"
+  echo "coordenador encerrado: $sessao; pendências preservadas: $(jq -r .pendencias <<<"$resultado")"
 }
 
 projeto=""; provedor=claude; janela=0; modo=""; alvo=""
@@ -268,6 +264,7 @@ while (($#)); do
     --provedor) provedor="${2:?}"; shift 2 ;;
     --janela) janela=1; shift ;;
     --fim) modo=fim; alvo="${2:?}"; shift 2 ;;
+    --finalizar) modo=finalizar; alvo="${2:?}"; shift 2 ;;
     --registrar) modo=registrar; alvo="${2-}"; shift $(($# > 1 ? 2 : 1)) ;;
     --executar-codex) modo=codex; shift ;;
     -h|--ajuda) sed -n '2,17s/^# \{0,1\}//p' "$0"; exit 0 ;;
@@ -277,8 +274,8 @@ done
 
 case "$modo" in
   abrir) abrir "$projeto" "$provedor" "$janela" ;;
-  fim) fim "$alvo" ;;
+  fim|finalizar) fim "$alvo" "$modo" ;;
   registrar) registrar "$alvo" || true; exit 0 ;;
   codex) executar_codex ;;
-  *) erro "informe --projeto ou --fim (veja --ajuda)" 2 ;;
+  *) erro "informe --projeto, --finalizar ou --fim (veja --ajuda)" 2 ;;
 esac

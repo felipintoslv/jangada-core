@@ -125,7 +125,6 @@
     estado_coord="$estado"; linha="$mensagem"
     case "$evento" in
       inicio) [[ "$(campo .source)" == startup || "$(campo .source)" == resume ]] || estado_coord="" ;;
-      fim) [[ -z "$estado" ]] || estado_coord="encerrado" ;;
     esac
     [[ "$tipo" != idle_prompt ]] || linha=""
     "$dir_bin/jangada-coordenador" --registrar "$estado_coord" <<<"$linha"

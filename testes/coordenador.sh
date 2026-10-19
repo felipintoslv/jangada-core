@@ -7,6 +7,114 @@ cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=testes/isolamento.sh
 source testes/isolamento.sh
 repo_jangada="$PWD"
+python3 - "$repo_jangada" <<'PYTEST' || exit 1
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(sys.argv[1]) / 'nucleo'))
+from coordenadores import arquivar, gravar
+
+with tempfile.TemporaryDirectory(prefix='jangada-registros-') as tmp:
+    pasta = Path(tmp)
+    fd = os.open(pasta, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        gravar(fd, 'registro.json', dict(ciclo='aberta', estado='iniciado'))
+        gravar(fd, 'registro.json', dict(ciclo='aberta', estado='concluido'))
+        assert json.loads((pasta / 'registro.json').read_text()) == dict(ciclo='aberta', estado='concluido')
+        assert (pasta / 'registro.json').stat().st_mode & 0o777 == 0o600
+        assert not list(pasta.glob('.reg.*'))
+        gravar(fd, 'exclusivo.json', dict(versao=1), novo=True)
+        antes = (pasta / 'exclusivo.json').read_bytes()
+        try:
+            gravar(fd, 'exclusivo.json', dict(versao=2), novo=True)
+        except FileExistsError:
+            pass
+        else:
+            raise AssertionError('Arquivo exclusivo existente foi substituído.')
+        assert (pasta / 'exclusivo.json').read_bytes() == antes
+        assert (pasta / 'exclusivo.json').stat().st_nlink == 1
+        (pasta / 'link.json').symlink_to(pasta / 'exclusivo.json')
+        try:
+            gravar(fd, 'link.json', dict(versao=2), novo=True)
+        except FileExistsError:
+            pass
+        else:
+            raise AssertionError('Arquivo exclusivo simbólico foi substituído.')
+        assert (pasta / 'link.json').is_symlink()
+        assert (pasta / 'exclusivo.json').read_bytes() == antes
+        dados = dict(sessao='projeto--coordenador', atuacao_id='a' * 32, ciclo='encerrada')
+        revisoes = pasta / 'revisoes'
+        revisoes.mkdir()
+        (revisoes / 'projeto--tarefa.json').write_text(json.dumps(dict(coordenador_sessao=dados['sessao'])))
+        assert arquivar(fd, dados, pasta) == 1
+        historico = pasta / 'historico' / ('a' * 32 + '.json')
+        antes = historico.read_bytes()
+        (revisoes / 'alheia--tarefa.json').write_text('{')
+        assert arquivar(fd, dados, pasta) == 1
+        assert historico.read_bytes() == antes
+        assert historico.stat().st_nlink == 1
+        original = dict(sessao='seguro--coordenador', atuacao_id='d' * 32, ciclo='aberta')
+        encerrado = dict(original, ciclo='encerrada', encerrado='2026-10-18T12:00:00+00:00')
+        gravar(fd, 'seguro--coordenador.json', original)
+        intacto = (pasta / 'seguro--coordenador.json').read_bytes()
+        historico_seguro = pasta / 'historico' / ('d' * 32 + '.json')
+        for invalido in ('{', '[]', json.dumps(dict(versao=1, registro=encerrado,
+                                                   pendencias=[dict(sessao='../fora', origem='../fora.json')]))):
+            historico_seguro.write_text(invalido)
+            try:
+                arquivar(fd, encerrado, pasta, original)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('Histórico inválido aceito.')
+            assert (pasta / 'seguro--coordenador.json').read_bytes() == intacto
+            assert historico_seguro.read_text() == invalido
+        historico_seguro.unlink()
+        alheia = revisoes / 'alheia--tarefa.json'
+        fonte = pasta / 'fonte-protegida.json'
+        fonte.write_text(json.dumps(dict(coordenador_sessao='alheio--coordenador')))
+        for caso in ('json', 'lista', 'link', 'ligacao', 'fifo', 'diretorio'):
+            if alheia.exists() or alheia.is_symlink():
+                alheia.unlink()
+            if caso == 'json':
+                alheia.write_text('{')
+            elif caso == 'lista':
+                alheia.write_text('[]')
+            elif caso == 'link':
+                alheia.symlink_to(fonte)
+            elif caso == 'ligacao':
+                os.link(fonte, alheia)
+            elif caso == 'fifo':
+                os.mkfifo(alheia)
+            else:
+                alheia.mkdir()
+            try:
+                arquivar(fd, encerrado, pasta, original)
+            except (OSError, ValueError):
+                pass
+            else:
+                raise AssertionError('Pendência inválida aceita: ' + caso)
+            assert (pasta / 'seguro--coordenador.json').read_bytes() == intacto
+            assert not historico_seguro.exists()
+            if caso == 'diretorio':
+                alheia.rmdir()
+            else:
+                alheia.unlink()
+        assert arquivar(fd, encerrado, pasta, original) == 0
+        assert json.loads((pasta / 'seguro--coordenador.json').read_text()) == encerrado
+        assert not list(pasta.rglob('.reg.*'))
+    finally:
+        os.close(fd)
+print('ok    gravação, substituição, exclusividade e histórico em estado sintético')
+PYTEST
+if [[ -n "${JANGADA_ISOLADO:-}" ]]; then
+  pulado_no_isolamento "fluxo do coordenador exige abertura fora do isolamento; sinalizadores preservados, pendente na suíte externa"
+  exit 0
+fi
 if ! command -v tmux >/dev/null 2>&1; then
   echo "tmux ausente; teste do coordenador ignorado"
   exit 0
@@ -85,7 +193,7 @@ EOF
 chmod +x "$tmp/bin/"*
 
 rodar() {
-  env -u JANGADA_SESSAO -u JANGADA_ISOLADO -u JANGADA_COORDENADOR -u TMUX -u WAYLAND_DISPLAY \
+  env -u JANGADA_SESSAO -u JANGADA_COORDENADOR -u JANGADA_ATUACAO_ID -u TMUX -u WAYLAND_DISPLAY \
     -u HYPRLAND_INSTANCE_SIGNATURE -u DISPLAY \
     PATH="$path_chamador" HOME="$tmp/home" SHELL=/bin/sh TMUX_TMPDIR="$sock" FALSO_DIR="$tmp" \
     TMUX_REAL="$tmux_real" CODEX_HOME="$tmp/codex" JANGADA_CORE_PATH="$repo_jangada" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
@@ -112,7 +220,7 @@ assert not any(v.startswith(b'CREDENCIAL_TESTE_ALHEIA=') for v in ambiente)
 PYTEST
 }
 campo() { jq -r "$1 // \"\" | tostring" "$reg/projeto--coordenador.json" 2>/dev/null; }
-hook() { rodar env "${@:3}" "$repo_jangada/bin/jangada-hook-claude" "$1" <<<"$2"; }
+hook() { rodar env JANGADA_ATUACAO_ID="$(campo .atuacao_id)" "${@:3}" "$repo_jangada/bin/jangada-hook-claude" "$1" <<<"$2"; }
 
 git init -q -b main "$tmp/projeto"
 git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -q --allow-empty -m inicio
@@ -127,13 +235,30 @@ conferir "o servidor nasce sem o caminho dos clientes falsos" \
 opcao_global="$(tm show-options -gwv remain-on-exit)"
 opcao_base="$(tm show-options -wv -t =base: remain-on-exit)"
 tm set-environment -g JANGADA_SESSAO alheia--tarefa
-saida="$(rodar env JANGADA_AUTOR_MODELO=haiku JANGADA_VALIDAR_MODELO=haiku CREDENCIAL_TESTE_ALHEIA=nao-repassar JANGADA_SESSAO=alheia--tarefa "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"
-conferir "a abertura cria a sessão PROJETO--coordenador" [ "$saida" = projeto--coordenador ]
+saida="$(rodar env JANGADA_AUTOR_MODELO=haiku JANGADA_VALIDAR_MODELO=haiku CREDENCIAL_TESTE_ALHEIA=nao-repassar JANGADA_SESSAO=alheia--tarefa "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto/sub" 2>&1)"; rc=$?
+conferir "a abertura cria a sessão PROJETO--coordenador" [ "$rc:$saida" = 0:projeto--coordenador ]
+if [[ "$rc:$saida" != 0:projeto--coordenador ]]; then
+  printf 'primeira abertura: código %s; saída: %s\n' "$rc" "$saida" >&2
+  exit 1
+fi
 conferir "a sessão existe no servidor do teste" tm has-session -t =projeto--coordenador
 conferir "o socket é o do teste" test -S "$sock/tmux-$(id -u)/jangada"
 conferir "a pasta dos registros tem modo 700" [ "$(stat -c %a "$reg")" = 700 ]
 conferir "o registro nasce com projeto, provedor e estado iniciado" \
   [ "$(campo '[.projeto, .provedor, .estado] | join(" ")')" = "$tmp/projeto claude iniciado" ]
+atuacao_original="$(campo .atuacao_id)"
+desde_original="$(campo .desde)"
+conferir "a criação dá identidade segura e ciclo aberto" \
+  jq -e '.ciclo == "aberta" and (.atuacao_id | test("^[A-Za-z0-9_-]{16,128}$"))' "$reg/projeto--coordenador.json"
+conferir "o processo recebe a identidade para os hooks" \
+  test "$(tm show-environment -t =projeto--coordenador JANGADA_ATUACAO_ID)" = "JANGADA_ATUACAO_ID=$atuacao_original"
+antes="$(cat "$reg/projeto--coordenador.json")"
+painel="$(tm display-message -p -t =projeto--coordenador: '#{pane_pid}')"
+saida="$(rodar "$repo_jangada/bin/jangada-coordenador" --finalizar projeto--coordenador 2>&1)"; rc=$?
+conferir "finalizar vivo recusa com orientação de estado, diário e saída" \
+  bash -c '[[ "$1" = 2 && "$2" == *"estado e o diário"* && "$2" == *"saia voluntariamente"* ]]' _ "$rc" "$saida"
+conferir "finalizar vivo não muda registro nem processo" \
+  test "$(cat "$reg/projeto--coordenador.json"):$(tm display-message -p -t =projeto--coordenador: '#{pane_pid}')" = "$antes:$painel"
 conferir "a sessão recebe JANGADA_COORDENADOR" \
   [ "$(tm show-environment -t =projeto--coordenador JANGADA_COORDENADOR 2>/dev/null)" = JANGADA_COORDENADOR=projeto--coordenador ]
 conferir "a sessão não recebe JANGADA_SESSAO" \
@@ -310,6 +435,13 @@ for modo in sem-flock com-flock; do
 done
 rm "$sem_flock/flock"
 ln -s "$tmp/bin/claude" "$sem_flock/claude"
+antes="$(cat "$reg/sem-cliente--coordenador.json")"
+rodar env PATH="$sem_flock" "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/sem-cliente" >"$tmp/saida" 2>&1
+conferir "registro inválido sem sessão também é preservado" \
+  test "$?:$(cat "$reg/sem-cliente--coordenador.json")" = "2:$antes"
+jq -n --arg p "$tmp/sem-cliente" \
+  '{sessao:"sem-cliente--coordenador",projeto:$p,provedor:"claude",estado:"encerrado"}' \
+  >"$reg/sem-cliente--coordenador.json"
 saida="$(rodar env PATH="$sem_flock" "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/sem-cliente" 2>&1)"; rc=$?
 conferir "sem flock, o pedido seguinte cria a sessão" test "$rc:$saida" = '0:sem-cliente--coordenador'
 conferir "sem flock, a criação também libera a trava" test ! -d "$reg/.trava.d"
@@ -393,8 +525,19 @@ hook trabalhando '{"prompt":"p"}' JANGADA_COORDENADOR=link--coordenador
 conferir "o hook não segue link no registro" [ "$(cat "$tmp/outro.json")" = '{"estado":"x"}' ]
 rm -f "$reg/link--coordenador.json"
 printf '{"cwd":"/x"}' | rodar env JANGADA_COORDENADOR=projeto--coordenador \
+  JANGADA_ATUACAO_ID="$atuacao_original" \
   "$repo_jangada/bin/jangada-hook-codex" aguardando
 conferir "o hook do Codex também grava" [ "$(campo .estado)" = aguardando ]
+hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
+for provedor_hook in claude codex; do
+  for evento in concluido fim; do
+    printf '{"last_assistant_message":"fim de resposta","reason":"prompt_input_exit"}' \
+      | rodar env JANGADA_COORDENADOR=projeto--coordenador JANGADA_ATUACAO_ID="$atuacao_original" \
+        "$repo_jangada/bin/jangada-hook-$provedor_hook" "$evento"
+    conferir "$provedor_hook $evento mantém ciclo, identidade e data original" \
+      test "$(campo '[.ciclo,.atuacao_id,.desde,.encerrado // ""] | join(" ")')" = "aberta $atuacao_original $desde_original "
+  done
+done
 hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
 
 # Consulta com uma tarefa ligada ao coordenador, viva no servidor do teste.
@@ -405,8 +548,9 @@ printf '{"sessao":"projeto--solta","coordenador":"dono"}' >"$estado/revisoes/pro
 tm new-session -d -s projeto--tarefa
 consulta="$(rodar "$repo_jangada/bin/jangada-agentes" --coordenadores-json)"
 conferir "a consulta lista o coordenador com a tarefa" [ "$(jq -c '.coordenadores' <<<"$consulta")" = \
-  "$(jq -cn --arg p "$tmp/projeto" --arg a "$(campo .atualizado)" '[{sessao:"projeto--coordenador", projeto:$p,
+  "$(jq -cn --arg p "$tmp/projeto" --arg a "$(campo .atualizado)" --arg id "$atuacao_original" '[{sessao:"projeto--coordenador", projeto:$p,
      provedor:"claude", estado:"concluido", ultima_linha:"pronto", atualizado:$a, viva:true,
+     ciclo:"aberta", atuacao_id:$id, retomavel:false,
      tarefas:[{sessao:"projeto--tarefa", viva:true}]}]')" ]
 conferir "a consulta é a versão 1" [ "$(jq .versao <<<"$consulta")" = 1 ]
 printf '{"sessao":"vazio--coordenador"}' >"$reg/vazio--coordenador.json"
@@ -444,15 +588,28 @@ hook trabalhando '{"prompt":"tarde"}' JANGADA_COORDENADOR=projeto--coordenador
 conferir "hook depois do --fim não reabre o registro" [ "$(campo .estado)" = encerrado ]
 conferir "a consulta mostra o coordenador encerrado e morto" [ "$(rodar "$repo_jangada/bin/jangada-agentes" \
   --coordenadores-json | jq -c '.coordenadores[0] | [.estado, .viva]')" = '["encerrado",false]' ]
+conferir "--fim também encerra explicitamente o ciclo e arquiva" \
+  jq -e --arg id "$atuacao_original" '.registro.atuacao_id == $id and .registro.ciclo == "encerrada" and (.pendencias | length) == 1' \
+    "$reg/historico/$atuacao_original.json"
+historico_original="$(cat "$reg/historico/$atuacao_original.json")"
 
 # Saída voluntária do cliente falso, com registro antigo ainda no disco.
 rm -f "$tmp/claude.pronto"
 rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" >/dev/null 2>&1
+atuacao_atual="$(campo .atuacao_id)"
+conferir "após encerramento nasce outra identidade com histórico preservado" \
+  test "$atuacao_atual:$(cat "$reg/historico/$atuacao_original.json")" != "$atuacao_original:$historico_original"
+conferir "o arquivo histórico anterior permanece idêntico" \
+  test "$(cat "$reg/historico/$atuacao_original.json")" = "$historico_original"
+desde_atual="$(campo .desde)"
 conferir "o cliente anterior está pronto para sair" esperar test -f "$tmp/claude.pronto"
 tm send-keys -t =projeto--coordenador: C-d
 conferir "a saída voluntária termina a sessão anterior" esperar bash -c '! "$@" has-session -t =projeto--coordenador 2>/dev/null' _ \
   env TMUX_TMPDIR="$sock" tmux -L jangada
 conferir "registro antigo sozinho não torna a sessão viva" test -f "$reg/projeto--coordenador.json"
+consulta="$(rodar "$repo_jangada/bin/jangada-agentes" --coordenadores-json)"
+conferir "saída voluntária mantém atuação aberta e retomável" \
+  jq -e --arg id "$atuacao_atual" '.coordenadores[] | select(.sessao == "projeto--coordenador") | .ciclo == "aberta" and .atuacao_id == $id and .retomavel and (.viva | not) and (.tarefas | length) == 1' <<<"$consulta"
 rm -f "$tmp/codex.args"
 : >"$tmp/tmux.chamadas"
 rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/projeto" --provedor codex >"$tmp/concorrente1" 2>&1 &
@@ -466,6 +623,8 @@ conferir "a trava permite uma única criação" [ "$(grep -c 'new-session' "$tmp
 conferir "a passagem cria o processo Codex" esperar test -s "$tmp/codex.args"
 conferir "o sucessor mantém a raiz e atualiza o provedor" \
   [ "$(campo '[.projeto, .provedor, .estado] | join(" ")')" = "$tmp/projeto codex iniciado" ]
+conferir "a troca voluntária retoma identidade, data e tarefa protegida" \
+  test "$(campo '[.atuacao_id,.desde] | join(" ")'):$(rodar "$repo_jangada/bin/jangada-agentes" --coordenadores-json | jq -r '.coordenadores[] | select(.sessao == "projeto--coordenador") | .tarefas[0].sessao')" = "$atuacao_atual $desde_atual:projeto--tarefa"
 conferir "a sessão sucessora nasce na pasta do projeto" \
   [ "$(tm display-message -p -t =projeto--coordenador: '#{pane_start_path}')" = "$tmp/projeto" ]
 : >"$tmp/foco.chamadas"
@@ -534,6 +693,285 @@ for _ in 1 2 3 4 5; do
   coerente || incoerentes=$((incoerentes + 1))
 done
 conferir "--projeto junto com --fim nunca deixa sessão viva com registro encerrado" [ "$incoerentes" = 0 ]
+
+# Persistência real, com clientes sintéticos e o servidor privado deste teste.
+mkdir -p "$tmp/persistencia/.jangada"
+printf 'decisão salva; $(touch NUNCA_EXECUTAR)\n' >"$tmp/persistencia/.jangada/estado.md"
+cp "$tmp/persistencia/.jangada/estado.md" "$tmp/estado.salvo"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/persistencia" >/dev/null 2>&1
+persistente="$reg/persistencia--coordenador.json"
+jq '.decisoes=["continuar"] | .autorizacoes=["testar"]' "$persistente" >"$tmp/novo"
+mv "$tmp/novo" "$persistente"
+id_persistente="$(jq -r .atuacao_id "$persistente")"
+desde_persistente="$(jq -r .desde "$persistente")"
+printf '{"sessao":"persistencia--pendente","coordenador_sessao":"persistencia--coordenador","estado":"concluido"}' \
+  >"$estado/revisoes/persistencia--pendente.json"
+for modo_trava in flock fallback; do
+  if [[ "$modo_trava" = fallback ]]; then caminho_teste="$sem_flock"; else caminho_teste="$path_chamador"; fi
+  tm kill-session -t =persistencia--coordenador
+  conferir "$modo_trava: interrupção não encerra a atuação" \
+    jq -e --arg id "$id_persistente" '.ciclo == "aberta" and .atuacao_id == $id and (has("encerrado") | not)' "$persistente"
+  rodar env PATH="$caminho_teste" "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/persistencia" --provedor codex >"$tmp/saida" 2>&1
+  conferir "$modo_trava: retoma sem perder identidade, data, decisões e autorizações" \
+    jq -e --arg id "$id_persistente" --arg desde "$desde_persistente" \
+      '.atuacao_id == $id and .desde == $desde and .decisoes == ["continuar"] and .autorizacoes == ["testar"] and .provedor == "codex"' "$persistente"
+done
+tm kill-session -t =persistencia--coordenador
+rodar "$repo_jangada/bin/jangada-coordenador" --finalizar persistencia--coordenador >"$tmp/finalizacao" 2>&1
+conferir "finaliza sem sessão e informa a pendência preservada" \
+  bash -c '[[ "$1" = 0 ]] && grep -q "pendências preservadas: 1" "$2"' _ "$?" "$tmp/finalizacao"
+conferir "checkpoint conserva o registro e só referencia as pendências" \
+  python3 - "$persistente" "$reg/historico/$id_persistente.json" <<'PYTEST'
+import json, sys
+from pathlib import Path
+registro, historico = [json.loads(Path(p).read_text()) for p in sys.argv[1:]]
+assert historico == dict(versao=1, registro=registro, pendencias=[dict(
+    sessao='persistencia--pendente', origem='revisoes/persistencia--pendente.json')])
+assert registro['ciclo'] == 'encerrada' and registro['encerrado']
+PYTEST
+antes="$(cat "$persistente")"
+checkpoint="$(cat "$reg/historico/$id_persistente.json")"
+rodar "$repo_jangada/bin/jangada-coordenador" --finalizar persistencia--coordenador >/dev/null 2>&1
+conferir "finalização repetida é idempotente" \
+  test "$?:$(cat "$persistente"):$(cat "$reg/historico/$id_persistente.json")" = "0:$antes:$checkpoint"
+conferir "finalizar não grava estado ou diário no projeto nem executa texto" \
+  bash -c 'cmp -s "$1" "$2/.jangada/estado.md" && [[ "$(find "$2/.jangada" -type f | wc -l)" = 1 && ! -e "$2/NUNCA_EXECUTAR" ]]' _ "$tmp/estado.salvo" "$tmp/persistencia"
+for provedor_hook in claude codex; do
+  printf '{"prompt":"atrasado"}' | rodar env JANGADA_COORDENADOR=persistencia--coordenador \
+    JANGADA_ATUACAO_ID="$id_persistente" "$repo_jangada/bin/jangada-hook-$provedor_hook" trabalhando
+  conferir "$provedor_hook: hook atrasado não altera atuação encerrada" test "$(cat "$persistente")" = "$antes"
+done
+cp "$reg/historico/$id_persistente.json" "$tmp/checkpoint.valido"
+for caso in json link ligacao; do
+  rm "$reg/historico/$id_persistente.json"
+  case "$caso" in
+    json) printf '{' >"$reg/historico/$id_persistente.json" ;;
+    link) ln -s "$tmp/checkpoint.valido" "$reg/historico/$id_persistente.json" ;;
+    ligacao) ln "$tmp/checkpoint.valido" "$reg/historico/$id_persistente.json" ;;
+  esac
+  anterior="$(cat "$reg/historico/$id_persistente.json")"
+  rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/persistencia" >"$tmp/saida" 2>&1
+  conferir "histórico $caso: impede substituição da atuação e preserva arquivos" \
+    test "$?:$(cat "$persistente"):$(cat "$reg/historico/$id_persistente.json")" = "2:$antes:$anterior"
+done
+rm "$reg/historico/$id_persistente.json"
+cp "$tmp/checkpoint.valido" "$reg/historico/$id_persistente.json"
+mv "$reg/historico" "$tmp/historico.real"
+ln -s "$tmp/historico.real" "$reg/historico"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/persistencia" >"$tmp/saida" 2>&1
+conferir "pasta histórica simbólica impede nova atuação" test "$?:$(cat "$persistente")" = "2:$antes"
+rm "$reg/historico"
+mv "$tmp/historico.real" "$reg/historico"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/persistencia" >/dev/null 2>&1
+conferir "a nova atuação mantém o histórico encerrado" test "$(cat "$reg/historico/$id_persistente.json")" = "$checkpoint"
+conferir "a identidade da nova atuação difere" test "$(jq -r .atuacao_id "$persistente")" != "$id_persistente"
+antes="$(cat "$persistente")"
+for provedor_hook in claude codex; do
+  for id_velho in "$id_persistente" ''; do
+    printf '{"prompt":"atrasado"}' | rodar env JANGADA_COORDENADOR=persistencia--coordenador \
+      JANGADA_ATUACAO_ID="$id_velho" "$repo_jangada/bin/jangada-hook-$provedor_hook" trabalhando
+    conferir "$provedor_hook: identidade antiga ou ausente não altera nova atuação" test "$(cat "$persistente")" = "$antes"
+  done
+done
+
+tm kill-session -t =persistencia--coordenador
+antes="$(cat "$persistente")"
+mv "$estado/revisoes/persistencia--pendente.json" "$tmp/pendente.protegida"
+ln -s "$tmp/pendente.protegida" "$estado/revisoes/persistencia--pendente.json"
+rodar "$repo_jangada/bin/jangada-coordenador" --finalizar persistencia--coordenador >"$tmp/saida" 2>&1
+conferir "pendência protegida com link impede finalização sem perder o estado" \
+  test "$?:$(cat "$persistente")" = "1:$antes"
+rm "$estado/revisoes/persistencia--pendente.json"
+mv "$tmp/pendente.protegida" "$estado/revisoes/persistencia--pendente.json"
+
+# Migração acontece ao abrir; consulta não migra nem confunde hook com ciclo.
+for legado in aberto encerrado; do
+  mkdir -p "$tmp/legado-$legado"
+  sessao_legado="legado-$legado--coordenador"
+  legado_arq="$reg/$sessao_legado.json"
+  jq -n --arg s "$sessao_legado" --arg p "$tmp/legado-$legado" \
+    '{sessao:$s,projeto:$p,provedor:"claude",estado:"encerrado",desde:"2020-01-01T00:00:00+00:00"}' >"$legado_arq"
+  if [[ "$legado" = encerrado ]]; then
+    jq '.encerrado="2020-01-02T00:00:00+00:00"' "$legado_arq" >"$tmp/novo"
+    mv "$tmp/novo" "$legado_arq"
+  fi
+  antes="$(cat "$legado_arq")"
+  consulta="$(rodar "$repo_jangada/bin/jangada-agentes" --coordenadores-json)"
+  conferir "legado $legado: consulta não grava nem gera identidade" \
+    test "$(cat "$legado_arq"):$(jq -r --arg s "$sessao_legado" '.coordenadores[] | select(.sessao == $s) | .atuacao_id' <<<"$consulta")" = "$antes:null"
+  rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/legado-$legado" >/dev/null 2>&1
+  conferir "legado $legado: abertura migra para atuação com identidade" jq -e '.ciclo == "aberta" and (.atuacao_id | length) >= 16' "$legado_arq"
+  if [[ "$legado" = aberto ]]; then
+    conferir "legado aberto: conserva data original apesar do estado do hook" \
+      test "$(jq -r .desde "$legado_arq")" = '2020-01-01T00:00:00+00:00'
+  else
+    conferir "legado encerrado: registro antigo fica no histórico" \
+      python3 - "$reg/historico" "$sessao_legado" <<'PYTEST'
+import json, sys
+from pathlib import Path
+registros = [json.loads(p.read_text())['registro'] for p in Path(sys.argv[1]).glob('*.json')]
+assert any(r['sessao'] == sys.argv[2] and r['desde'] == '2020-01-01T00:00:00+00:00'
+           and r['encerrado'] == '2020-01-02T00:00:00+00:00' for r in registros)
+PYTEST
+  fi
+  tm kill-session -t "=$sessao_legado"
+done
+
+# Sem sessão viva, registros suspeitos continuam sendo dados preservados.
+mkdir -p "$tmp/guardado" "$tmp/homonimo/guardado"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/guardado" >/dev/null 2>&1
+tm kill-session -t =guardado--coordenador
+cp "$reg/guardado--coordenador.json" "$tmp/guardado.valido"
+for caso in json vazio lista multiplos duplicado link ligacao identidade data ciclo homonimo; do
+  rm -f "$reg/guardado--coordenador.json"
+  cp "$tmp/guardado.valido" "$reg/guardado--coordenador.json"
+  alvo="$tmp/guardado"
+  case "$caso" in
+    json) printf '{' >"$reg/guardado--coordenador.json" ;;
+    vazio) : >"$reg/guardado--coordenador.json" ;;
+    lista) printf '[]' >"$reg/guardado--coordenador.json" ;;
+    multiplos) cat "$tmp/guardado.valido" >>"$reg/guardado--coordenador.json" ;;
+    duplicado) sed 's/"sessao":/"sessao":"intruso","sessao":/' "$tmp/guardado.valido" >"$reg/guardado--coordenador.json" ;;
+    link|ligacao)
+      rm "$reg/guardado--coordenador.json"
+      if [[ "$caso" = link ]]; then ln -s "$tmp/guardado.valido" "$reg/guardado--coordenador.json"
+      else ln "$tmp/guardado.valido" "$reg/guardado--coordenador.json"; fi ;;
+    identidade) jq '.atuacao_id="../escapar"' "$tmp/guardado.valido" >"$reg/guardado--coordenador.json" ;;
+    data) jq '.encerrado="inválida"' "$tmp/guardado.valido" >"$reg/guardado--coordenador.json" ;;
+    ciclo) jq '.ciclo="outro"' "$tmp/guardado.valido" >"$reg/guardado--coordenador.json" ;;
+    homonimo) alvo="$tmp/homonimo/guardado" ;;
+  esac
+  antes="$(cat "$reg/guardado--coordenador.json")"
+  rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$alvo" >"$tmp/saida" 2>&1; rc=$?
+  conferir "$caso sem sessão: abertura recusa e preserva" test "$rc:$(cat "$reg/guardado--coordenador.json")" = "2:$antes"
+  if [[ "$caso" != homonimo ]]; then
+    rodar "$repo_jangada/bin/jangada-coordenador" --finalizar guardado--coordenador >"$tmp/saida" 2>&1
+    conferir "$caso sem sessão: finalização recusa e preserva" test "$?:$(cat "$reg/guardado--coordenador.json")" = "1:$antes"
+  fi
+done
+rm "$reg/guardado--coordenador.json"
+cp "$tmp/guardado.valido" "$reg/guardado--coordenador.json"
+
+# Recusas devem acontecer antes de --fim alterar registro ou matar processo.
+fonte_falha="$tmp/fonte-falha.json"
+printf '{"coordenador_sessao":"alheio--coordenador"}' >"$fonte_falha"
+entrada_falha="$estado/revisoes/alheia--falha.json"
+preparar_falha() {
+  case "$1" in
+    pendencia-json) printf '{' >"$entrada_falha" ;;
+    pendencia-lista) printf '[]' >"$entrada_falha" ;;
+    pendencia-link) ln -s "$fonte_falha" "$entrada_falha" ;;
+    pendencia-ligacao) ln "$fonte_falha" "$entrada_falha" ;;
+    pendencia-fifo) mkfifo "$entrada_falha" ;;
+    pendencia-diretorio) mkdir "$entrada_falha" ;;
+    raiz-revisoes)
+      mv "$estado/revisoes" "$tmp/revisoes-salvas"
+      ln -s "$tmp/revisoes-salvas" "$estado/revisoes" ;;
+    historico-json) printf '{' >"$historico_falha" ;;
+    historico-lista) printf '[]' >"$historico_falha" ;;
+    historico-link) ln -s "$fonte_falha" "$historico_falha" ;;
+    historico-ligacao) ln "$fonte_falha" "$historico_falha" ;;
+    historico-divergente) printf '{"versao":1,"registro":{},"pendencias":[]}' >"$historico_falha" ;;
+    raiz-historico)
+      mv "$reg/historico" "$tmp/historico-salvo"
+      ln -s "$tmp/historico-salvo" "$reg/historico" ;;
+  esac
+}
+restaurar_falha() {
+  case "$1" in
+    pendencia-diretorio) rmdir "$entrada_falha" ;;
+    pendencia-*) rm "$entrada_falha" ;;
+    historico-*) rm "$historico_falha" ;;
+    raiz-revisoes)
+      rm "$estado/revisoes"
+      mv "$tmp/revisoes-salvas" "$estado/revisoes" ;;
+    raiz-historico)
+      rm "$reg/historico"
+      mv "$tmp/historico-salvo" "$reg/historico" ;;
+  esac
+}
+mkdir -p "$tmp/seguro"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/seguro" >/dev/null 2>&1
+seguro="$reg/seguro--coordenador.json"
+historico_falha="$reg/historico/$(jq -r .atuacao_id "$seguro").json"
+for modo_trava in flock fallback; do
+  if [[ "$modo_trava" = fallback ]]; then caminho_teste="$sem_flock"; else caminho_teste="$path_chamador"; fi
+  for caso in pendencia-json pendencia-lista pendencia-link pendencia-ligacao pendencia-fifo \
+    pendencia-diretorio raiz-revisoes historico-json historico-lista historico-link \
+    historico-ligacao historico-divergente raiz-historico; do
+    antes="$(cat "$seguro")"
+    painel="$(tm display-message -p -t =seguro--coordenador: '#{pane_pid}')"
+    preparar_falha "$caso"
+    : >"$tmp/tmux.chamadas"
+    rodar env PATH="$caminho_teste" "$repo_jangada/bin/jangada-coordenador" --fim seguro--coordenador >"$tmp/saida" 2>&1; rc=$?
+    conferir "$modo_trava, $caso: --fim recusa sem alterar registro" test "$rc:$(cat "$seguro")" = "1:$antes"
+    conferir "$modo_trava, $caso: --fim não manda matar sessão" \
+      bash -c '! grep -q kill-session "$1"' _ "$tmp/tmux.chamadas"
+    conferir "$modo_trava, $caso: processo original continua vivo" \
+      test "$(tm display-message -p -t =seguro--coordenador: '#{pane_pid}')" = "$painel"
+    conferir "$modo_trava, $caso: recusa libera a trava" test ! -d "$reg/.trava.d"
+    restaurar_falha "$caso"
+  done
+done
+rodar "$repo_jangada/bin/jangada-coordenador" --fim seguro--coordenador >"$tmp/saida" 2>&1
+conferir "--fim com dados íntegros encerra após todas as recusas" \
+  test "$?:$(jq -r .ciclo "$seguro")" = '0:encerrada'
+conferir "--fim com dados íntegros mantém compatibilidade de matar sessão" \
+  bash -c '! "$@" has-session -t =seguro--coordenador 2>/dev/null' _ env TMUX_TMPDIR="$sock" tmux -L jangada
+
+# Checkpoint válido dispensa varredura de pendências ao repetir ou abrir.
+mkdir -p "$tmp/reusar"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/reusar" >/dev/null 2>&1
+rodar "$repo_jangada/bin/jangada-coordenador" --fim reusar--coordenador >/dev/null 2>&1
+reusar="$reg/reusar--coordenador.json"
+for caso in pendencia-json pendencia-lista pendencia-link pendencia-ligacao pendencia-fifo \
+  pendencia-diretorio raiz-revisoes; do
+  antes="$(cat "$reusar")"
+  id_reusar="$(jq -r .atuacao_id "$reusar")"
+  checkpoint="$(cat "$reg/historico/$id_reusar.json")"
+  preparar_falha "$caso"
+  rodar "$repo_jangada/bin/jangada-coordenador" --finalizar reusar--coordenador >"$tmp/saida" 2>&1
+  conferir "$caso: repetir finalização reaproveita checkpoint sem varrer cópias" \
+    test "$?:$(cat "$reusar")" = "0:$antes"
+  rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/reusar" >"$tmp/saida" 2>&1; rc=$?
+  conferir "$caso: nova abertura usa checkpoint válido apesar da cópia alheia" \
+    test "$rc:$(jq -r .ciclo "$reusar")" = '0:aberta'
+  conferir "$caso: nova atuação e histórico preservados" \
+    bash -c '[[ "$1" != "$2" && "$3" = "$4" ]]' _ "$(jq -r .atuacao_id "$reusar")" "$id_reusar" "$(cat "$reg/historico/$id_reusar.json")" "$checkpoint"
+  conferir "$caso: abertura realmente cria sessão" tm has-session -t =reusar--coordenador
+  restaurar_falha "$caso"
+  tm kill-session -t =reusar--coordenador
+  rodar "$repo_jangada/bin/jangada-coordenador" --finalizar reusar--coordenador >/dev/null 2>&1
+done
+
+# A mesma trava também serializa abrir/finalizar; nenhuma chamada mata a outra.
+for modo_trava in flock fallback; do
+  if [[ "$modo_trava" = fallback ]]; then caminho_teste="$sem_flock"; else caminho_teste="$path_chamador"; fi
+  for _ in 1 2 3; do
+    tm kill-session -t =persistencia--coordenador 2>/dev/null || true
+    rodar env PATH="$caminho_teste" "$repo_jangada/bin/jangada-coordenador" --finalizar persistencia--coordenador >"$tmp/finalizar-corrida" 2>&1 &
+    pid1=$!
+    rodar env PATH="$caminho_teste" "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/persistencia" >"$tmp/abrir-corrida" 2>&1 &
+    pid2=$!
+    wait "$pid1"; rc1=$?
+    wait "$pid2"; rc2=$?
+    conferir "$modo_trava: corrida termina com abertura ou recusa por sessão viva" \
+      bash -c '[[ "$1:$2" = 0:0 || "$1:$2" = 2:0 ]]' _ "$rc1" "$rc2"
+    conferir "$modo_trava: corrida mantém ciclo aberto e sessão viva" \
+      jq -e '.ciclo == "aberta" and (has("encerrado") | not)' "$persistente"
+    conferir "$modo_trava: corrida não mata o coordenador aberto" tm has-session -t =persistencia--coordenador
+    conferir "$modo_trava: corrida mantém associação da tarefa protegida" \
+      test "$(rodar "$repo_jangada/bin/jangada-agentes" --coordenadores-json | jq -r '.coordenadores[] | select(.sessao == "persistencia--coordenador") | .tarefas[0].sessao')" = persistencia--pendente
+    conferir "$modo_trava: libera a trava ao terminar" test ! -d "$reg/.trava.d"
+  done
+done
+
+mkdir -p "$tmp/vazia"
+rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/vazia" >/dev/null 2>&1
+tm kill-session -t =vazia--coordenador
+rodar "$repo_jangada/bin/jangada-coordenador" --finalizar vazia--coordenador >"$tmp/saida" 2>&1
+conferir "finalização sem tarefas informa zero e não cria documentos no projeto" \
+  bash -c '[[ "$1" = 0 && "$(cat "$2")" == *"pendências preservadas: 0"* && -z "$(find "$3" -mindepth 1 -print -quit)" ]]' _ "$?" "$tmp/saida" "$tmp/vazia"
 
 if ((falhas)); then
   echo "$falhas falha(s)"

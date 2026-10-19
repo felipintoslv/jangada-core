@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -41,6 +42,62 @@ def criar_banco(caminho):
 
 
 class ConsultasModulos(unittest.TestCase):
+    def test_coordenadores_ciclo_legado_e_consulta_sem_escrita(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raiz = Path(tmp)
+            registros = raiz / 'coordenadores'
+            registros.mkdir()
+            copias = raiz / 'revisoes'
+            copias.mkdir()
+            identidade = 'a' * 32
+            casos = {
+                'aberto': dict(atuacao_id=identidade, ciclo='aberta', estado='concluido'),
+                'vivo': dict(atuacao_id='b' * 32, ciclo='aberta', estado='trabalhando'),
+                'legado': dict(estado='encerrado'),
+                'encerrado': dict(estado='encerrado', encerrado='2026-10-18T12:00:00+00:00'),
+                'fim': dict(atuacao_id='c' * 32, ciclo='encerrada', estado='encerrado',
+                            encerrado='2026-10-18T12:00:00+00:00'),
+            }
+            for nome, extra in casos.items():
+                dados = dict(sessao=nome + '--coordenador', projeto='/sintetico/' + nome,
+                             provedor='codex', desde='2026-10-18T10:00:00+00:00', **extra)
+                (registros / (dados['sessao'] + '.json')).write_text(json.dumps(dados))
+            (copias / 'aberto--tarefa.json').write_text(json.dumps(dict(
+                sessao='aberto--tarefa', coordenador_sessao='aberto--coordenador')))
+            antes = retrato(raiz)
+            consulta = subprocess.run(
+                [sys.executable, str(REPO / 'nucleo/coordenadores.py'), str(raiz)],
+                input='vivo--coordenador\naberto--tarefa\n', text=True, capture_output=True, check=True)
+            resposta = json.loads(consulta.stdout)
+            self.assertEqual(resposta['versao'], 1)
+            self.assertEqual(retrato(raiz), antes)
+            por_nome = {c['sessao'].split('--')[0]: c for c in resposta['coordenadores']}
+            campos = {'sessao', 'projeto', 'provedor', 'estado', 'ultima_linha',
+                      'atualizado', 'viva', 'tarefas', 'ciclo', 'atuacao_id', 'retomavel'}
+            self.assertTrue(all(set(c) == campos for c in por_nome.values()))
+            for nome in ('aberto', 'legado'):
+                self.assertEqual(por_nome[nome]['ciclo'], 'aberta')
+                self.assertTrue(por_nome[nome]['retomavel'])
+                self.assertFalse(por_nome[nome]['viva'])
+            self.assertIsNone(por_nome['legado']['atuacao_id'])
+            self.assertEqual(por_nome['aberto']['atuacao_id'], identidade)
+            self.assertEqual(por_nome['aberto']['tarefas'], [dict(sessao='aberto--tarefa', viva=True)])
+            self.assertTrue(por_nome['vivo']['viva'])
+            self.assertFalse(por_nome['vivo']['retomavel'])
+            for nome in ('encerrado', 'fim'):
+                self.assertEqual(por_nome[nome]['ciclo'], 'encerrada')
+                self.assertFalse(por_nome[nome]['retomavel'])
+                self.assertFalse(por_nome[nome]['viva'])
+            self.assertIsNone(por_nome['encerrado']['atuacao_id'])
+            (registros / 'invalido--coordenador.json').write_text('{')
+            antes = retrato(raiz)
+            consulta = subprocess.run(
+                [sys.executable, str(REPO / 'nucleo/coordenadores.py'), str(raiz)],
+                input='', text=True, capture_output=True)
+            self.assertEqual(consulta.returncode, 1)
+            self.assertEqual(consulta.stdout, '')
+            self.assertEqual(retrato(raiz), antes)
+
     def test_filas_conteudo_precos_wal_e_provedores(self):
         with tempfile.TemporaryDirectory() as tmp:
             raiz = Path(tmp)
