@@ -550,10 +550,15 @@ subagente tem `.db` próprio.
   `sessao`, `projeto` (raiz absoluta), `provedor`, `estado` (`iniciado`,
   `trabalhando`, `aguardando`, `concluido`, `encerrado`), `ultima_linha`
   (até 200 caracteres, sem caracteres de controle), `desde`, `atualizado` e,
-  depois do `--fim`, `encerrado` (data). O comando cria; os hooks do Claude e
+  depois de `--finalizar` ou `--fim`, `encerrado` (data). Acrescenta
+  `atuacao_id` (texto opaco seguro) e `ciclo` (`aberta` ou `encerrada`),
+  independentes do estado dos hooks. O comando cria; os hooks do Claude e
   do Codex atualizam `estado`, `ultima_linha` e `atualizado` só com
-  `JANGADA_COORDENADOR` definido, por arquivo temporário e `mv`. Ninguém
-  apaga: o `--fim` só marca. Na mesma pasta, `codex-hooks-confianca.json`
+  `JANGADA_COORDENADOR` definido e identidade correspondente em
+  `JANGADA_ATUACAO_ID`, por arquivo temporário e troca atômica. Stop,
+  Interrupt, SessionEnd e saída do processo não encerram o ciclo.
+  Registro legado ainda sem identidade aceita hooks sem identidade;
+  após a migração, hooks antigos são ignorados. Na mesma pasta, `codex-hooks-confianca.json`
   guarda a aprovação dos hooks do coordenador com Codex
   (`bin/jangada-codex-hooks`). A passagem manual só abre outro provedor depois
   da saída voluntária da sessão tmux anterior. Sob a trava, a presença real
@@ -561,10 +566,33 @@ subagente tem `.db` próprio.
   válido com projeto e provedor reconhecidos. Um painel retido após falha do
   cliente ainda mantém a sessão presente no tmux; o dono confere e fecha a
   janela antes da passagem. O nome da sessão é associação
-  operacional por projeto, sem identidade histórica imutável. A nova abertura
-  reescreve os mesmos campos públicos, sem importar históricos. O estado da
-  passagem fica em `.jangada/estado.md` e `.jangada/coordenacao.md`; leituras e
+  operacional por projeto. Abertura sem sessão viva retoma a atuação aberta,
+  conservando identidade, data original e demais dados, inclusive em outro
+  provedor. Legado sem data `encerrado` válida é aberto, mesmo com estado
+  `encerrado` de hook antigo; a abertura migra, a consulta só lê e devolve
+  identidade nula antes da migração. Legado com data legítima é encerrado.
+  Registro inválido ou de projeto homônimo é recusado também sem sessão viva.
+  O estado da passagem fica em `.jangada/estado.md` e `.jangada/coordenacao.md`; leituras e
   conferências do sucessor estão no [ciclo da tarefa](ciclo-da-tarefa.md#coordenador).
+- `$JANGADA_ESTADO/coordenadores/historico/ATUACAO_ID.json`: checkpoint
+  imutável da atuação encerrada, pasta modo 700 e arquivo modo 600.
+  Contém `versao: 1`, `registro` (dados da atuação encerrada) e `pendencias`
+  (lista de `sessao` e `origem` relativa em `revisoes/`). Não abre documentos
+  do projeto, históricos ou credenciais dos provedores, nem executa texto.
+  `--finalizar SESSAO` recusa sessão viva sem matar processos; depois da
+  saída, marca ciclo e data, arquiva e informa quantas pendências preservou.
+  A repetição mantém data e arquivo. `--fim` é a API antiga que também mata
+  a sessão e marca encerramento explícito; não serve para interrupção.
+  Nova abertura só substitui o registro encerrado depois de arquivá-lo,
+  com nova identidade. Pendências protegidas continuam associadas ao projeto.
+  Checkpoint existente válido é reutilizado sem nova varredura de pendências.
+  Histórico ou pendências necessários inválidos recusam antes de alterar o
+  registro ou de `--fim` matar a sessão. Falha ao publicar checkpoint novo
+  mantém o registro encerrado para nova tentativa; arquivo inválido ou link
+  não é sobrescrito. A mesma trava `flock`, ou a
+  alternativa por pasta, serializa abertura, finalização e hooks. Ninguém
+  apaga o histórico automaticamente. Arquivos do projeto são salvos pelo
+  coordenador antes da saída, conforme a skill compartilhada.
 - `~/.claude/history.jsonl`: um pedido digitado por linha, `display`,
   `pastedContents`, `timestamp` (ms), `project` (cwd), `sessionId`. 2.617
   linhas desde 02/05/2026; não é apagado pela limpeza de 30 dias. Serve

@@ -86,8 +86,19 @@ Em sessões de versões anteriores, sair do cliente pode deixar o shell aberto.
 Nesse caso, saia também desse shell. Janelas e painéis adicionais criados pelo
 dono também precisam terminar. Desanexar do tmux não encerra a sessão.
 Só depois abra o provedor escolhido na pasta do projeto pelo mesmo comando.
-Um registro antigo sem sessão tmux viva não impede a abertura. O `--fim`
-conserva sua semântica existente e não participa dessa passagem.
+Sem sessão tmux viva, o mesmo comando retoma a atuação aberta, preservando
+`atuacao_id`, `desde`, tarefas, decisões e autorizações, inclusive ao trocar
+de provedor. Registro inválido ou de projeto homônimo é preservado e recusado.
+O `--fim` conserva sua semântica existente e não participa dessa passagem.
+
+A atuação tem `ciclo=aberta|encerrada`, independente do estado dos hooks.
+Resposta concluída, Stop, Interrupt, SessionEnd e reinício não encerram o
+ciclo. Retome pelo botão Retomar da Central ou pelo comando de abertura;
+não há serviço de login ou início automático. A consulta versão 1 acrescenta
+`ciclo`, `atuacao_id` e `retomavel`, verdadeiro para ciclo aberto sem sessão
+viva. A consulta não migra registros. Legado sem data `encerrado` válida
+continua aberto, mesmo com `estado=encerrado` de hook antigo; identidade
+ausente fica nula até a abertura. Data de encerramento legítima indica fim explícito.
 
 O processo novo recebe um texto inicial pelo argumento do cliente, identificando
 o papel e pedindo a leitura da skill, das regras e dos registros. Não há texto
@@ -97,8 +108,38 @@ O sucessor lê `.jangada/regras-do-dono.md`, `.jangada/estado.md`,
 confere sessões reais, ramos e worktrees e apresenta resumo antes de abrir
 tarefas já autorizadas. Autorizações registradas ainda válidas continuam sem
 reconfirmação; arquivos ausentes não autorizam inventar decisões.
-O estado fica fora do controle de versão, sem identidade persistente,
-memória global ou importação automática de históricos.
+O estado fica fora do controle de versão; a identidade da atuação é
+persistente, sem memória global nem importação automática de históricos.
+
+Após integração aceita, o coordenador limpa imediatamente tarefas concluídas
+com `jangada-agente-fim SESSAO` e exclui só o ramo integrado com
+`git branch -d RAMO`. Isso inclui tarefas herdadas de outros coordenadores:
+confira vínculo real com o projeto pelo Git e registro protegido, parecer
+exigido da cabeça, integração e árvore limpa. As evidências ficam preservadas.
+`concluido` de hook e fim de turno não comprovam conclusão. Preserve e relate
+tarefa com pendências ou sem integração; não há exclusão em massa.
+
+Para encerrar a atuação, atualize `.jangada/estado.md` e o diário
+`.jangada/coordenacao.md`, limpe concluídas aceitas e relate pendências e
+ações do dono. Saia voluntariamente; então use
+`jangada-coordenador --finalizar SESSAO`, ou a ação correspondente da Central.
+O comando recusa sessão ainda viva, pedindo salvar estado/diário e sair;
+não mata processos nem grava documentos no projeto. Sem sessão viva, marca
+o ciclo encerrado com data e salva checkpoint em
+`$JANGADA_ESTADO/coordenadores/historico/ATUACAO_ID.json`, preservando o
+registro e referências das tarefas pendentes lidas de `revisoes/`.
+Informa quantas restam; não executa estado salvo nem importa credenciais ou
+históricos de provedores. Repetir é idempotente. Antes de criar outra atuação,
+o registro anterior deve estar arquivado. Checkpoint válido é conferido e
+reutilizado antes de nova varredura de pendências. Sem checkpoint, as cópias
+protegidas precisam ser legíveis. Histórico ou pendências necessários inválidos
+recusam antes de alterar o registro ou de `--fim` matar a sessão.
+Falha ao publicar checkpoint novo mantém o registro encerrado para nova
+tentativa; histórico inválido ou simbólico não é sobrescrito.
+Outra atuação recebe nova identidade e conserva as pendências visíveis.
+`--fim` também marca o encerramento explícito, mantendo a compatibilidade
+de matar a sessão. Nunca o use para simular interrupção ou retomada.
+Hooks atrasados não reabrem ciclo encerrado nem alteram uma atuação nova.
 Veja [exploração e exemplos](coordenacao-central/02-coordenador-contextos.md#exploração-antes-de-abrir-tarefas)
 e [M2.0](coordenacao-central/05-plano-incremental.md#fase-2-coordenador-mínimo-preservando-sessões).
 

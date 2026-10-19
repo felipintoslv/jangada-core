@@ -53,6 +53,19 @@ for trecho in '.jangada/regras-do-dono.md' '.jangada/estado.md' '.jangada/armadi
   'aprovação do dono' 'Sem memória entre conversas' 'no limite de rodadas'; do
   conferir "coordenador: passagem orienta $trecho" grep -Fq "$trecho" "$origem/coordenador/SKILL.md"
 done
+for trecho in 'Atuação aberta persiste' 'mesma identidade' 'Retomar da Central' \
+  'jangada-coordenador --finalizar SESSAO' 'limpe imediatamente' 'tarefas herdadas' \
+  'vínculo real com o projeto' 'registro protegido' 'parecer da cabeça exigido' \
+  'integração e árvore limpa' 'git branch -d RAMO' 'preservando evidências' \
+  'não prova conclusão' 'Preserve e relate' 'não apague ramo não integrado'; do
+  conferir "coordenador: persistência e limpeza orientam $trecho" grep -Fq "$trecho" "$origem/coordenador/SKILL.md"
+done
+conferir "coordenador: remove a proibição de limpar tarefas herdadas" \
+  bash -c '! grep -Fq "Não apague ramos nem pastas de trabalho que você não abriu" "$1"' _ "$origem/coordenador/SKILL.md"
+conferir "coordenador: mantém proibição geral para qualquer agente" \
+  grep -Fq 'Nunca aprove execução fora da proteção, envio ao remoto, instalação, exclusão ou `--forcar`.' "$origem/coordenador/SKILL.md"
+conferir "coordenador: restringe exceção à exclusão na limpeza autorizada de aceita" \
+  grep -Fq 'Para exclusão, exceção só à limpeza autorizada de tarefa aceita do projeto, conforme Encerrar.' "$origem/coordenador/SKILL.md"
 conferir "coordenador: sem arquivo auxiliar" [ "$(nomes "$origem/coordenador")" = SKILL.md ]
 
 instalar JANGADA_SIMULAR=1 -- 'ligar_skill_claude; ligar_skill_agy; ligar_skill_codex'

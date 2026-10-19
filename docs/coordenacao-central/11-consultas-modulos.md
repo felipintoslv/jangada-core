@@ -135,6 +135,9 @@ coordenador tem:
 | `ultima_linha` | Linha curta gravada pelos hooks, até 200 caracteres, sem caracteres de controle; nula se ausente |
 | `atualizado` | Data ISO da última gravação; nula se ilegível |
 | `viva` | Booleano: sessão tmux existe e o registro não foi encerrado pelo `--fim` |
+| `ciclo` | `aberta` ou `encerrada`, independente de `estado`; data `encerrado` válida encerra o legado |
+| `atuacao_id` | Texto opaco seguro da atuação; nulo para legado ainda não migrado |
+| `retomavel` | Booleano: ciclo aberto sem sessão tmux viva |
 | `tarefas` | Lista de `{"sessao":"...","viva":bool}` em ordem de nome |
 
 A fonte é `$JANGADA_ESTADO/coordenadores/*--coordenador.json`, da
@@ -147,6 +150,17 @@ malformado, link ou acima de 1 MiB recusa a consulta. Valem os tetos de
 4.096 registros por pasta e 1 MiB de resposta. Falha sai com 1,
 diagnóstico e stdout vazio; argumento a mais sai com 2.
 
+Os três campos novos preservam `versao: 1` e os campos existentes. Legado
+sem data `encerrado` válida tem ciclo aberto, inclusive quando um hook
+antigo escreveu `estado=encerrado`. A consulta não grava identidade nem
+migra registros. Migração acontece na abertura. `viva` também considera o
+encerramento explícito por `--finalizar`; retomável exige ausência real de
+sessão. Consumidores que conferem o conjunto exato de campos devem aceitar
+as adições. O histórico em `coordenadores/historico/` não entra na lista;
+as pendências protegidas continuam associadas ao coordenador após retomada
+ou nova atuação no projeto. Uma resposta concluída não comprova integração
+nem permite limpar tarefas.
+
 `ultima_linha` é dado para exibição: é a mesma mensagem curta dos
 avisos, nunca conteúdo de arquivo, e a Central não a executa nem a repassa
 como pedido. A consulta não lê a tela do tmux.
@@ -154,8 +168,10 @@ como pedido. A consulta não lê a tela do tmux.
 A Central não manda texto ao coordenador: mostra a última linha e leva à
 janela, e o dono escreve no terminal. O Claude Code e o Codex não oferecem
 canal que aceite só turno novo, e um envio pelo tmux podia responder uma
-permissão no lugar do dono. `testes/coordenador.sh` confere abertura,
-registro, consulta e `--fim`.
+permissão no lugar do dono. Retomar usa `jangada-coordenador --projeto`,
+sem autostart ou entrada injetada. `testes/coordenador.sh` confere abertura,
+registro, interrupção, retomada, finalização explícita e `--fim`.
+`testes/consultas-modulos.py` confere compatibilidade, legado e consulta sem escrita.
 
 ## Limites do terminal
 

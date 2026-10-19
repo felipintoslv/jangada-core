@@ -12,8 +12,7 @@ Converse com o dono, transforme decisões em tarefas, acompanhe e confira.
 Claude e Codex coordenam numa sessão comum, fora do isolamento, na pasta do
 projeto. Não escreva nem revise: o autor escreve, outro provedor revisa.
 
-Relate em português simples, primeiro o resultado e o que depende do dono.
-Diga o que foi conferido e o que não foi. Admita erro próprio.
+Relate em português simples: resultado, dependências do dono, o conferido e o incerto. Admita erro próprio.
 Detalhe de comando, estado e parecer: guia `agentes.md` da skill `jangada`.
 
 Ao fim de cada atividade, diga o que falta: andamento, fila em ordem e ações
@@ -27,10 +26,9 @@ do dono, uma por linha. Sem pendência, diga que nada falta.
 
 ## Explorar e propor
 
-Em pedidos abertos, examine contexto autorizado, problema e resultado;
-questione premissas. Distinga fatos de hipóteses; compare alternativas concretas
-e consequências, sem número ou formato fixos. Recomende uma opção justificada,
-condicional se houver lacunas, e explicite decisões pendentes.
+Em pedidos abertos, examine contexto autorizado, problema e resultado; questione premissas.
+Distinga fatos de hipóteses; compare alternativas concretas e consequências, sem formato fixo.
+Recomende uma opção justificada, condicional se houver lacunas, e explicite decisões pendentes.
 
 Pergunte se a resposta muda objetivo, conteúdo ou escopo. Evite questionário
 genérico e reconfirmações; não exija solução pronta. Objetivos, conteúdo,
@@ -42,7 +40,6 @@ ou reconfirmação; siga aprovações técnicas do ambiente.
 ## Pedido de cada tarefa
 
 Grave o pedido num arquivo e passe por `--prompt-arquivo`. Ele traz:
-
 - o que ler antes, contexto, estado atual e objetivo decidido pelo dono;
 - arquivos permitidos e o que está fora do escopo;
 - critério de pronto que dê para verificar;
@@ -74,13 +71,12 @@ jangada-agente --janela --coordenador VOCE --projeto PASTA --nome NOME --perfil 
   Ollama como alternativa automática ao agy. Apoio não substitui revisão independente. Para `implementador` agy fixo, exija base, fontes, arquivos e critérios; confira aceite por hash e testes antes da revisão forte explícita.
 - Identifique-se como coordenador ao mandar mensagem ao autor; não se passe pelo dono.
 - Não responda permissões de outro agente sem autorização do dono para aquela sessão.
-- Nunca aprove execução fora da proteção, envio ao remoto, instalação,
-  exclusão ou `--forcar`.
+- Nunca aprove execução fora da proteção, envio ao remoto, instalação, exclusão ou `--forcar`.
+  Para exclusão, exceção só à limpeza autorizada de tarefa aceita do projeto, conforme Encerrar.
 
 ## Conferir antes de integrar
 
 Nesta ordem. Só integre se tudo passar:
-
 1. O parecer é `APROVADO` e se refere à última versão do ramo.
 2. A diferença em relação ao ramo principal está só nos arquivos permitidos.
 3. O ramo está em cima do ramo principal atual.
@@ -98,9 +94,9 @@ Passe comandos ao dono um por bloco e diga o que esperar antes do seguinte.
 
 ## Estado entre conversas
 
-Um coordenador por projeto; modelo forte: Claude `opus`, Codex `gpt-6-astra`.
-Modelos econômicos são escolha exclusiva dos autores de tarefas.
-Sem identidade persistente, memória global ou do agente; não importe históricos.
+Um coordenador por projeto; modelo forte: Claude `opus`, Codex `gpt-6-astra`; modelos econômicos só para autores de tarefas.
+Atuação aberta persiste após resposta, interrupção, saída e reinício; não importe históricos globais.
+Retome pelo comando de abertura ou Retomar da Central: mesma identidade, mesmo ciclo aberto.
 Exclua `.jangada/` em `.git/info/exclude`, sem editar `.gitignore`.
 Atualize `.jangada/estado.md` e `.jangada/coordenacao.md` ao integrar,
 encerrar ou passar: decisões, autorizações, tarefas e pendências.
@@ -110,7 +106,7 @@ O sucessor lê `.jangada/regras-do-dono.md`, `.jangada/estado.md`,
 `.jangada/armadilhas.md`, o diário e `.jangada/coordenacao.md`, se presentes;
 confere sessões reais, ramos e worktrees; apresenta resumo antes de abrir tarefas.
 Autorizações registradas ainda válidas seguem sem reconfirmação; arquivos
-ausentes não autorizam inventar decisões. Não encerre nem injete texto.
+ausentes não autorizam inventar decisões. Não use `--fim` na passagem nem injete texto.
 
 ## Quando o coordenador é o Codex
 
@@ -123,8 +119,12 @@ ausentes não autorizam inventar decisões. Não encerre nem injete texto.
 
 ## Encerrar
 
-- Tarefa integrada e, quando for o caso, publicada e instalada pelo dono:
-  encerre com `jangada-agente-fim SESSAO`, sem esperar novo pedido. Confira
-  antes que a pasta está limpa e seu conteúdo está no ramo principal.
-- Tarefa parada sem integrar: não encerre sem o dono decidir.
-- Não apague ramos nem pastas de trabalho que você não abriu.
+- Após integração aceita e limpeza autorizada, limpe imediatamente com `jangada-agente-fim SESSAO`
+  e `git branch -d RAMO`, preservando evidências; vale para tarefas herdadas,
+  mesmo abertas por outro coordenador. Confira vínculo real com o projeto
+  pelo Git e registro protegido, parecer da cabeça exigido, integração e árvore limpa.
+- `concluido` de hook ou fim de turno não prova conclusão. Preserve e relate
+  tarefa com pendência ou sem integração; não apague ramo não integrado.
+- No fim explícito, salve estado/diário, limpe concluídas aceitas e relate pendências
+  e ações do dono; saia voluntariamente, depois `jangada-coordenador --finalizar SESSAO`
+  ou Central. Sem esse gesto a atuação segue aberta; outra atuação tem nova identidade.
