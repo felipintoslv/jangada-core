@@ -83,7 +83,16 @@ Outra chave vai em `JANGADA_ASSINATURA_CHAVE` no `jangada.conf`.
 
 ### Versões
 
-As versões seguem o formato `v0.x.y`, em tags do git. O `CHANGELOG.md` é
+As versões seguem o formato `vX.Y.Z`, em tags anotadas do git (`v0.1.0`,
+`v0.2.0`, `v1.0.0`). O `CHANGELOG.md` é
 gerado das mensagens de commit pelo `jangada-versao --lancar X.Y.Z`: o que
 começa com `feat` entra em Novidades, o que começa com `fix` em Correções e o
 resto em Outras mudanças. `jangada-versao` mostra a versão instalada.
+
+O `--lancar` grava o `CHANGELOG.md`, faz o commit dele e cria a tag no estado
+atual do ramo. O `jangada-assinar` refaz commits e não move tags: uma tag criada
+antes da assinatura fica apontando para o commit sem assinatura. Com commits
+ainda sem assinatura, rode o `--lancar` numa cópia temporária privada do
+repositório, aproveite só o `CHANGELOG.md` gerado e crie a tag anotada à mão,
+no commit já assinado, antes de publicá-la. A sequência da `v1.0.0`, com os
+resultados esperados, está em [Core 1.0.0](versao-1.0.0.md#roteiro-do-dono).

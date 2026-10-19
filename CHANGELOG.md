@@ -3,19 +3,579 @@
 Gerado das mensagens de commit por `jangada-versao --lancar`; não edite
 à mão. A versão instalada aparece em `jangada-versao`.
 
-## Não lançado
+## 1.0.0 (2026-10-18)
 
-- core: a raiz do Core passa a se chamar `JANGADA_CORE_PATH` (antes `JANGADA_PATH`) e o local de instalação padrão, `~/.local/share/jangada-core`. O Core ignora o `JANGADA_PATH` que o Shell exporta na sessão. A nova etapa `install/20-comandos.sh` grava em `~/.local/bin` um invólucro para cada comando de `bin/`.
+### Novidades
 
-## Planejado para v0.4.0
+- versao: prepara a entrega da v1.0.0 estável
+- coordenador: preserva atuação até encerramento explícito
+- doctor: diagnostica o ambiente sem alterar estado
+- coordenador: orienta passagem manual no guia
+- coordenador: prepara passagem manual entre provedores
+- isolar: resposta pelo soquete e parada após 3 erros do revisor
+- isolar: revisão pedida a um atendente fora do bwrap
+- agentes: --rodadas-json traz os tokens do revisor de cada rodada
+- validar: grava os tokens do revisor em cada rodada e a soma no encerramento
+- coordenador: consulta --coordenadores-json com as tarefas de cada coordenador
+- coordenador: tarefa aberta pelo coordenador grava coordenador_sessao
+- coordenador: sessão de coordenador aberta pelo jangada
+- agentes: consulta de rodadas por sessão
+- migracoes: reaplica hooks e skills do Claude Code nas instalações existentes
+- hooks: lembra as regras de escrita e de figura nos projetos de pesquisa
+- skills: conferir-citacao, conferir-referencias e fichamento ligadas à revisão acadêmica
+- indicadores: mede o contexto inicial da primeira resposta do autor
+- hooks: avisa o agente ao gravar arquivo fora das regras do projeto
+- validar: reprova caminho pessoal e travessão nas linhas acrescentadas
+- indicadores: mede consumo e procedência das tarefas
+- agentes: papel designer de interface e uso
+- core: torna o Core um repositório autônomo
+- consultas: entrega filas do Monitor pelo Core
+- consultas: publica contexto do terminal pelo Core
+- agentes: documentar piloto do implementador
+- delegação: confinar implementação do agy
+- agentes: selecionar modelos por tarefa
+- core: publicar caminhos de observação
+- core: publica consulta completa de sessões
+- coordenador: explora alternativas antes de abrir tarefas
+- planejamento: consolida coordenação por projeto
+- barra: adiciona atalho do Samburá nas duas orientações
+- testes: cobre a confiança do agy na abertura e na retomada
+- agentes: separa a confiança do agy da preparação do worktree
+- testes: confere vidro, restauração e preservação de ajustes
+- shell: adota vidro fosco e suspende desfoque em jogos
+- monitor: grafo do painel mostra coordenador, autor, revisor e o resultado das delegações
+- shell: Central mostra coordenador, autor e revisor da tarefa
+- core: skill coordenador declara quem coordena ao abrir a tarefa
+- core: jangada-agente registra o coordenador da tarefa
+- core: skill coordenador vale igual para o Codex como coordenador
+- core: skill coordenador para o Claude Code e o Codex
+- monitor: mostra papel e agente nos filhos da árvore
+- core: migração dos perfis avisa a sessão com revisor agy sobre o modelo
+- core: perfis padrão passam a ser claude-codex e codex-claude
+- shell: console de agentes se apresenta como Jangada Core e mostra a logo
+- core: os 23 comandos do Core vão de bin/ para core/bin, com link no caminho antigo
+- shell: default/tarefas e default/conversa vão para shell/menus, com link no caminho antigo
+- monitor: default/painel vai para monitor/painel, os quatro comandos do Monitor para monitor/bin e monitoramento.py do núcleo para monitor/painel, com link no caminho antigo
+- shell: os 25 comandos do Shell vão de bin/ para shell/bin, com link no caminho antigo
+- core: default/nucleo, orquestracao, delegacao, provedores, agentes, claude, agy e tmux vão para core/, com link no caminho antigo
+- shell: default/matugen, default/sddm, default/logo e default/fastfetch vão para shell/temas, e default/snapper e default/r para shell/integracoes, com link no caminho antigo
+- shell: default/hypr, default/hypridle e default/waybar vão para shell/hyprland e shell/waybar, com link no caminho antigo
+- agentes: --integrar recusa filtro do git na configuração local da cópia principal
+- agentes: conferência do avanço exige ausentes os caminhos que o commit remove
+- docs: decisão de 10/10/2026 sobre a janela até o merge na aceitação da M3-11a
+- agentes: --integrar avança lendo os objetos do espelho e grava as listas em revisoes/
+- tarefas: textos da prévia e da confirmação descrevem a integração por avanço rápido
+- agentes: --integrar confere no reflog a base anterior ao avanço e recusa com falha do git status
+- agentes: conferência da cópia principal ignora a configuração de status do repositório
+- agentes: --integrar recusa com arquivo novo ou submódulo alterado na cópia principal
+- agentes: --integrar avança a base por merge --ff-only com parecer de fora do isolamento
+- estrutura: pastas core/ e monitor/ e LEIAME.md dos três módulos
+- tarefas: pasta de sessões pela variável JANGADA_SESSOES do jangada-config
+- interface: abertura de terminal e da Central e foco de janela pelo contrato K10
+- testes: contrato do formato dos registros
+- delegacao: resumo de entrega no Core e comandos do Monitor opcionais
+- painel: leitura da fila pelo contrato de consultas e caminhos sem resolve
+- tarefas: limpeza explícita de órfãs antes da consulta da barra
+- agentes: consulta de sessões sem efeito e limpeza explícita de órfãs
+- config: aviso de mudança de estado pelo jangada-config
+- testes: formato único dos módulos da barra
+- testes: teste de fronteira entre módulos
+- testes: contratos da fachada e dos caminhos legados
+- atualizacao: permitir avanço de código sem atualizar o sistema
+- painel: separa operação e indicadores e apresenta registros
+- evolucao: registra interfaces e verificações das fases finais
+- testes: confere contratos das interfaces operacionais
+- interface: integra projetos e fila às centrais
+- nucleo: reúne consultas públicas e monitoramento local
+- interface: compartilha fichas claras e escuras com contraste verificado
+- evolucao: documenta o modelo operacional e sua verificação
+- agentes: vincula sessões e registros às execuções
+- orquestracao: registra projetos, atividades e execuções
+- provedores: registro de provedores no lugar das listas fixas de agentes e revisores
+- conversa: contexto próprio da Conversa de Pescador em JANGADA_CONVERSA_CTX
+- conversa: chamar a janela do Ollama de Conversa de Pescador
+- painel: retirar a aba de pesquisas do Pescador
+- conversa: aposentar a Conversa de Pescador
+- conversa: janela de conversa direta com o modelo local do Ollama
+- delegar: leitor local recebe regra de citação ao fim do pedido
+- delegar: leitor local roda com temperatura zero
+- delegar: aceita faixa de linhas em --arquivos no destino local
+- identidade: integrar lua e jangada à barra e à central
+- tarefas: conferir e integrar entrega pela interface
+- painel: abrir indicadores na tela Hoje
+- tarefas: simplificar criação com modo recomendado
+- agentes: catálogo único de agentes para a Central
+- isolar: perfil de verificação, ocultos aditivos e recusa de reftable
+- agentes: catálogo único de agentes para a Central
+- isolar: perfil de verificação, ocultos aditivos e recusa de reftable
+- agentes: adiciona perfil Claude com revisão pelo agy
+- ollama: avalia fidelidade e variação com fontes sintéticas
+- agente-fim: integração no jangada chama o jangada-assinar
+- agentes: agy deixa de abrir sessão principal e fica só de suporte
+- delegar: agy usa o Flash high e troca de modelo quando a cota acaba
+- assinar: avisa do commit enviado sem assinatura que trava o update
+- assinar: assina os merges da integração
+- validar: revisor que falha passa a vez a outro modelo
+- tarefas: botão Nova pasta cria o projeto no formulário de nova tarefa
+- isolar: keyring por item, com os atributos do item do agy
+- isolar: ambiente mínimo opcional só passa as variáveis da lista
+- isolar: casa mínima opcional fecha a leitura da pasta pessoal
+- tarefas: integra e encerra sessões pelos atalhos
+- tarefas: integra barra e atualização com reversão
+- tarefas: acompanha sessões na central gráfica
+- painel: apresenta orquestração e aplica protocolo gráfico
+- painel: coleta fila e autonomia por projeto
+- skills: gráficos em R e Python com tema, exemplos e checklist
+- skills: revisão acadêmica com comentários no documento
+- orquestração: estima o custo pelos preços declarados pelo usuário
+- orquestração: executa a fila em processos paralelos
+- orquestração: valida fontes JSON por esquema declarado na tarefa
+- orquestração: aplica a amostragem de revisão e revisa em lote
+- orquestração: executa análise principal com Codex configurado
+- orquestração: supervisiona e retoma relatórios intermediários
+- agentes: adiciona supervisor documental somente de leitura
+- orquestração: integra entregas das sessões principais à fila
+- orquestração: prioriza tarefas e seus pré-requisitos na fila
+- orquestração: mede consumo e histórico de revisão por projeto
+- orquestração: conclui validação JSON por critério determinístico
+- orquestração: acompanha fila e retoma esperas com limites
+- delegação: integra Codex econômico ao roteamento e à fila
+- orquestração: compartilha autenticação temporária sem renovação
+- orquestração: consulta cota do Codex sem geração
+- orquestração: acompanha provedores e retoma esperas elegíveis
+- orquestração: executa fila com orçamento persistente e conferência de fontes
+- orquestração: persiste fila, dependências e revisão de artefatos
+- agentes: documenta seleção e autorização de destinos
+- agentes: seleciona delegações por capacidade com limites
+- agentes: registra instruções da evolução em duas etapas
+- painel: visualizar consumo e coletar Codex incrementalmente
+- skills: planejar argumentos e conferir evidências em relatórios
 
-- Remover os links de compatibilidade de `bin/` e `default/`.
-  Quem usa `bin/jangada-*` deverá chamar o comando pelo PATH instalado ou
-  pelo caminho do módulo (`core/bin/`, `shell/bin/` ou `monitor/bin/`).
-  Referências a `default/` deverão usar o arquivo em `core/`, `shell/`
-  ou `monitor/`, conforme o [mapa de caminhos](docs/modularizacao-3.0/01-inventario.md).
-  Os links permanecem nesta versão; a retirada exige adaptar a resolução
-  de `jangada-config` antes de permitir chamadas diretas aos módulos.
+### Correções
+
+- coordenador: limpa tarefas aceitas inclusive herdadas
+- doctor: preserva stderr na conferência bem sucedida do Git
+- doctor: distingue recusas de assinatura e alertas de cota
+- doctor: restringe temporários do Git ao estado existente
+- doctor: corrige cotas parciais e observações locais
+- doctor: registra o comando nos contratos K1 e K9
+- doctor: observa registros locais dos hooks do Codex
+- doctor: consulta bancos WAL fechados sem alterar a origem
+- coordenador: esclarece limite de rodadas no pedido
+- coordenador: repassa PATH apenas à sessão nova
+- coordenador: ajusta guia da passagem e restaura orientações
+- coordenador: preserva falhas e libera travas nas recusas
+- testes: separa registros concorrentes do atendente
+- docs: organiza históricos e orienta o coordenador
+- docs: registrar influência do tmux nos testes de abertura
+- testes: impedir abertura de terminal herdada do tmux
+- testes: registrar confiança do agy na fixture do seletor
+- isolar: atendente só em $XDG_RUNTIME_DIR/jangada-isolar
+- validar: sem desvio por variável para revisar dentro do isolamento
+- testes: simulações do agente isolado revisam sem atendente
+- consumo: tokens do revisor só de revisoes/validar.jsonl
+- coordenador: --fim fecha a sessão sob a trava da abertura
+- coordenador: retira o envio de mensagem, que podia responder uma permissão
+- coordenador: link com nome de registro recusa a consulta, como diz o contrato
+- coordenador: estado do envio conferido no mesmo retrato que as conferências comparam
+- coordenador: envio serializado por trava, conferido antes da colagem e do Enter
+- coordenador: pasta de mesmo nome é recusada com 2, sem focar o coordenador existente
+- coordenador: a sessão não herda JANGADA_SESSAO de quem chama nem do servidor
+- coordenador: última linha sem sequências ANSI nem caracteres invisíveis
+- coordenador: consulta ignora a aprovação dos hooks do Codex na pasta dos registros
+- coordenador: servidor tmux aberto sob a trava não herda o descritor dela
+- agentes: documenta revisor e modelo nulos quando ausentes do registro
+- agentes: linha descartada por tamanho conta na janela de rodadas
+- agentes: parecer_origem nulo enquanto o registro não grava o número do parecer
+- agentes: parecer da rodada só com correspondência única e segundos sem estouro
+- hooks: lê a transcrição pelo descritor aberto sem seguir link
+- hooks: o lembrete de pesquisa lê a transcrição e não grava marca
+- hooks: limpa só marcas no formato do hook e testa o lembrete com estado ligado
+- hooks: não grava marca de aviso sob caminho com link
+- hooks: resolve o caminho gravado e não segue link na pasta de marcas
+- hooks: avisa só linha e código e compila os bytes do Python
+- fim: grava a linha de consumo quando o registro já existe
+- indicadores: resume a saída em texto e troca nulo por sem dado
+- validar: ignora linha aninhada ao ler as rodadas anteriores
+- update: grava os invólucros que faltam depois do avanço
+- agentes: não repassa ao agente o ambiente de sessão do Claude Code
+- indicadores: pula linhas aninhadas e documenta campos vazios
+- indicadores: marca medições incompletas e origens
+- indicadores: aplica limites às medições
+- indicadores: preserva rodadas sem cópia
+- indicadores: identifica a origem das métricas
+- indicadores: protege a origem das medições
+- indicadores: completa correções da revisão
+- indicadores: corrige classificação e medição
+- indicadores: alinha contratos e rodada respondida
+- indicadores: corrige medição e resumo das tarefas
+- testes: update sem jangada-sistema-update não herda o PATH real
+- validar: para cedo quando o revisor não grava a própria pasta
+- install: troca links do layout antigo default/
+- docs: anuncia remoção dos links bin/default na v0.4.0
+- docs: reduz leitura inicial e organiza guias por assunto
+- docs: arquiva evidências e corrige estado P0
+- consultas: preserva terminal com estado concorrente
+- testes: usa Core candidato na coleta de métricas
+- terminal: isola importações do transporte Python
+- consultas: preserva seleção e dados dos consumidores
+- delegação: registra falha ao preparar referências
+- delegação: orienta citação exata na extração local
+- delegação: detalha referência recusada
+- delegação: diagnóstico do Ollama mostra só esquema, host e porta
+- delegação: diagnóstico do Ollama sem credenciais da URL
+- delegação: teste de omissão de --destino sem autorização remota
+- delegação: leitor e redator locais e demais papéis no agy nos dois perfis
+- testes: caso 20e sem lintr e data das métricas fora de -03
+- delegação: agy grava config/projects e arquivos permitidos
+- ci: instala python-dbus e python-gobject no sandbox-e2e
+- delegação: preservar estado e DNS do implementador
+- agentes: preservar argumentos e protocolos legados
+- testes: comprovar recusas e preservar ajuda da delegação
+- delegação: conferir catálogo no isolamento privado
+- agentes: preservar compatibilidade e confinar papel privado
+- central: preservar consultas de observação
+- central: limitar descoberta de observação
+- central: tolerar falhas na observação
+- testes: inclui Core na fachada sem Monitor
+- core: filtra nomes alheios antes de consultar sessões
+- core: tolera falhas de leitura e de data no TSV
+- core: preserva tolerância das consultas TSV
+- central: consulta sessões pelo contrato JSON
+- monitor: separa diagnóstico opcional do Core
+- core: atende revisão da prova independente
+- core: desacopla padrão lintr do Shell
+- coordenador: atende revisão externa sem duplicar regras
+- coordenador: ajusta pontuação e referências do texto
+- coordenador: preserva autorização recebida na abertura
+- coordenador: explicita consequências e recomendação condicional
+- planejamento: atualiza base agy e verificação externa
+- planejamento: reduz histórico de revisão nos documentos
+- planejamento: esclarece contratos e pendências da entrega
+- planejamento: registra verificação desta continuação
+- delegação: explicita autorização nos testes e registra os limites
+- delegação: recusa nativo e evita destino local implícito
+- delegação: adapta os testes ao padrão agy autorizado
+- delegação: distingue falha na consulta dos papéis do agy
+- delegação: alinha protocolos e cobrança de apoio pelo agy
+- delegação: usa agy como destino padrão de todos os papéis
+- barra: mantém Samburá e retira apenas sua logo
+- barra: retira o atalho Samburá da Waybar
+- agentes: valida o registro protegido num só lugar, também na restauração
+- agentes: sessão existente não cria worktree e registro inválido é recusado
+- agentes: anexa à sessão existente pelos caminhos do registro protegido
+- agentes: só sincroniza a confiança do agy em tarefa que usa o agy
+- agentes: decide o uso do agy pelo registro protegido da tarefa
+- delegar: distingue raiz sem autorização de worktree sem sincronização
+- agentes: confere a confiança do agy ao abrir, reaproveitar e retomar
+- shell: registra leitura de ícones e confirma identidade por D-Bus
+- shell: restringe ambiente da barra e detalha conferência GTK
+- shell: contorna teclado simbólico do Breeze na escala 2
+- shell: preserva vidro desligado e fundos pessoais
+- docs: registros.md cita o campo coordenador do SESSAO.json
+- monitor: delegação anterior à abertura da sessão fica fora da tarefa
+- monitor: ramo do grafo só entra na tarefa com vínculo comprovado
+- core: Codex recebe só a pasta das sessões como raiz gravável do estado
+- shell: NO_COLOR definido, mesmo vazio, tira a cor da logo
+- core: pasta-entrega sem a trava de controlador e lido junto do jangada-agente-fim
+- core: documentação e backlog registram fotos/ e integracoes/ fora de revisoes/
+- core: foto da revisão e cópia da suíte saem de revisoes/ para fotos/ e integracoes/
+- testes: campos internos e vínculos da sessão no contrato de registros
+- validar: tmux falso no caso 17d, sem as sessões da máquina
+- caminhos: Central, hooks e atualização independentes da pasta física
+- painel: raiz dos catálogos pela pasta do Core, não pelo caminho do coletor
+- agentes: não limpar como órfão o contexto da rodada do validar
+- isolamento: permitir a verificação aninhada sem preparar o estado protegido
+- testes: ignorar processos ilegíveis na busca do delegar
+- testes: montar a marca do isolamento fora da sessão e esperar a sonda do delegar
+- documentacao: descrever o isolamento obrigatório e o estado da preparação
+- orquestracao: recusar o arquivo histórico acima do limite antes de gravar
+- testes: conferir que a opção antiga não desliga o isolamento
+- testes: aceitar o processo colhido entre abrir e ler o /proc
+- testes: alinhar o validar.sh à revisão isolada e à autoria protegida
+- testes: completar a cópia sintética do orquestrador econômico
+- testes: rodar a atualização de somente código sem a pasta mapeamento
+- testes: conferir o agy isolado na delegação
+- validacao: preservar pedidos grandes sem limite de argumento
+- documentacao: registrar preparo bloqueado e recuperação local
+- documentacao: registrar achados P0 e limites da validacao P1
+- documentacao: registrar garantias e limites da correção P0
+- testes: verificar ataques à autoridade e recuperação do histórico
+- revisao: preservar evidências antes de encerrar sessões
+- confianca: proteger a fila e verificar decisões de conclusão
+- documentacao: registra estabilização, testes e limites da baseline
+- revisao: recusa aprovação sem autoria protegida
+- ci: instala QtSvg para os testes da Central
+- validacao: exige verificações completas e revisão independente
+- git: bloqueia integração automática para preservar trabalho concorrente
+- ci: instala pkgconf para compilar xml2
+- orquestracao: orienta encerramento de sessões órfãs
+- monitor: aplica porta padrão a todos os endereços locais
+- evolucao: registra revisão externa pendente na continuação
+- testes: confere endereço de escuta e recusa HTTP externo
+- nucleo: preserva erros da sessão do projeto consultado
+- painel: alinha opções do filtro aos agentes exibidos
+- tema: informa uso inválido das fichas visuais
+- agentes: limpa criação sem registro de execução
+- nucleo: recusa política e ciclo de sessão no isolamento
+- evolucao: distingue aprovação da sessão e revisão externa
+- monitor: consulta endereço de escuta do Ollama pelo loopback
+- nucleo: restringe erros de consulta ao projeto selecionado
+- evolucao: registra ajustes da revisão da central
+- interface: limita adiamento de eventos e libera cadastro independente
+- evolucao: registra correções e o rótulo da revisão de integração
+- interface: mantém projetos sem caminho em consulta
+- nucleo: confere sessões sem gravar e separa catálogos
+- evolucao: registra respostas à revisão externa da integração
+- agentes: explica recusa de sessão pela política do projeto
+- orquestracao: preserva expiração quando o orçamento impede a fila
+- evolucao: registra teste gráfico e capturas da central
+- evolucao: registra testes reais dos modelos e pendência gráfica
+- evolucao: registra aprovação das fases finais
+- evolucao: registra correções do primeiro parecer das interfaces
+- interface: recupera paleta inválida e reforça contratos operacionais
+- agentes: informa isolamento do Codex com caminho absoluto
+- painel: informa corrupção de dados sem fabricar contagens
+- interface: declara dependência da logo simbólica da central
+- orquestracao: recupera sessões e confere políticas na revisão
+- evolucao: situa a aprovação da Fase 3 e a continuação
+- provedores: só provedor do tipo cli pode ter a função principal
+- provedores: jangada-agente para quando o registro vem vazio
+- provedores: lê a última linha de um arquivo sem quebra de linha no fim
+- provedores: o executável de um provedor cli é o nome dele
+- conversa: contexto da conversa herda o JANGADA_LOCAL_CTX do jangada.conf
+- conversa: pedir o raciocínio separado ao modelo padrão desde a primeira pergunta
+- identidade: preservar o título quando faltar a imagem da marca
+- identidade: separar estudos visuais dos padrões instalados
+- testes: encerrar o sleep do caso do pid no fim.sh
+- tarefas: vincular prévia à marca e preservar caminhos
+- revisao: registrar recusa por cobertura no parecer
+- painel: separar Hoje em módulo com testes próprios
+- agentes: descrever delegação explícita no seletor
+- tarefas: observar estado e reduzir consultas periódicas
+- revisao: limitar diff antes da leitura em memória
+- tarefas: orientar rótulos pelo próximo passo
+- agentes: recusa falha e troca de tipo na conferência da mescla
+- agentes: testa mescla adulterada com índice limpo
+- isolamento: aplica verificação dentro da sessão do agente
+- agentes: confere a mescla pelo hash dos arquivos, sem o índice
+- config: rename do settings do agy não entra em pasta apontada por link
+- agentes: reconfere a mescla no espelho e grava o settings do agy sem regravar no lugar
+- config: confiança do agy não segue link no settings.json
+- config: troca settings e hooks por rename
+- config: anexa em JSONL sob trava
+- validar: lintr roda dentro do isolamento
+- agentes: integração confere base, árvore e objetos sob trava
+- validar: parecer estrito e autorrevisão registrada à parte
+- validar: revisa uma foto imutável da entrega
+- agentes: confere a mescla pelo hash dos arquivos, sem o índice
+- config: rename do settings do agy não entra em pasta apontada por link
+- agentes: reconfere a mescla no espelho e grava o settings do agy sem regravar no lugar
+- config: confiança do agy não segue link no settings.json
+- config: troca settings e hooks por rename
+- config: anexa em JSONL sob trava
+- validar: lintr roda dentro do isolamento
+- agentes: integração confere base, árvore e objetos sob trava
+- validar: parecer estrito e autorrevisão registrada à parte
+- validar: revisa uma foto imutável da entrega
+- agentes: documenta o perfil Claude com agy
+- tarefas: preserva perfis na criação de sessões
+- tarefas: unifica a criação na central de tarefas
+- agy: separa a validação de cota entre grupos
+- ollama: recusa texto vazio na extração
+- ollama: estrutura extrações e preserva fatos entre partes
+- agentes: usa revisão cruzada entre Claude e Codex
+- agente-fim: integração de dentro da sessão avisa que ficou sem assinatura
+- docs: README, guias e protocolos seguem o agy como suporte e a cota por grupo
+- assinar: comando do aviso avança até a origem, que descende de todos os commits listados
+- assinar: comando do aviso sai com o caminho escapado
+- assinar: compara as árvores na ordem do histórico
+- assinar: compara a árvore de cada commit depois de refazer os merges
+- assinar: não sai calado quando há vários commits sem assinatura
+- tarefas: exceção da regra 1 para Nova pasta e nome com caractere nulo
+- validar: pedido ao Codex não manda ler arquivo e a tarefa gravada não limita a entrega
+- isolar: vigia do estado não sobra quando o script morre por KILL
+- isolar: fecha credenciais conhecidas e declara o limite de leitura
+- isolar: das refs, o agente só grava a pasta do próprio ramo
+- validar: Codex recusa a entrega que não cabe no pedido
+- validar: dá prazo às chamadas ao revisor
+- isolar: sem sobreposição, a camada temporária não grava no disco
+- agentes: integra o commit conferido, não o nome do ramo
+- painel: aumenta o contraste das ligações nas redes
+- painel: completa a conferência de tema e interface
+- painel: documenta temas e fila de automação
+- painel: adapta gráficos ao tema e esclarece a fila
+- tarefas: limpa preparação incompleta das ações
+- tarefas: trata runtime inválido e isola cada tentativa
+- tarefas: mantém bloqueio ao reabrir a central
+- tarefas: protege ações e diferencia os botões
+- tarefas: documenta integração e encerramento na central
+- tarefas: mantém a limpeza dos estados na barra
+- tarefas: preserva histórico e sugere a raiz do projeto
+- tarefas: protege a janela e reduz o custo do contador
+- agentes: mostra perfis efetivos e preserva o protocolo
+- testes: completa ambiente da integração contínua
+- skills: lista os pacotes que os exemplos de gráficos carregam
+- orquestração: repassa a interrupção recebida durante a criação dos processos paralelos
+- orquestração: repassa término e fechamento do terminal aos processos paralelos
+- documentação: lista os comandos da fila e da orquestração no README
+- orquestração: limpa credenciais e distingue falhas do principal
+- supervisão: verifica adaptadores e registra esperas de quota
+- orquestração: registra recusas e verifica prazos das entregas principais
+- orquestração: verifica desempates e documenta antecipação de dependências
+- orquestração: preserva incerteza das reservas em aberto
+- orquestração: explicita duração desconhecida nos grupos de métricas
+- orquestração: encerra conferência com dependência ausente
+- testes: aceita processo desaparecido durante conferência de cancelamento
+- testes: inclui acompanhamento e dá folga à preparação do executor
+- testes: confirma identidade do shell interrompido no executor
+- delegação: encerra filhos órfãos e completa indicadores Codex
+- orquestração: protege credenciais e encerra consulta por sinal
+- orquestração: preserva espera e valida respostas de provedores
+- orquestração: preserva consumo após queda e encerra fila na interrupção
+- orquestração: protege revisão e grava artefatos atomicamente
+- agentes: preserva geração anterior e cobre saldo de chamadas
+- agentes: exige explicações e reserva orçamento para consolidação
+- agentes: encerra filhos no limite global da delegação
+- agentes: mantém atualização atômica da cota
+- agentes: esclarece prévias e limpa temporários dos executores
+- agentes: ajusta termos das instruções em português
+- painel: preservar cache quando o histórico cresce durante a leitura
+- painel: reconstruir caches inválidos e aplicar retenção
+- docs: esclarecer revisão e estados das sessões
+- docs: atualizar fluxos de agentes e isolamento
+- barra: desativar módulo de mídia que derruba a Waybar
+
+### Outras mudanças
+
+- test(isolamento): rc do caso do rc=$? usado na descrição
+- docs(boas-praticas): limite do registro e pulo pelo passo anterior
+- test(validar): pulo pela recusa do próprio passo
+- test: conferência logo depois do passo conferido
+- test(codex): hook com resultado próprio
+- test(isolamento): registro da recusa vale só até o próximo comando
+- test(isolamento): em Python, pulo só da falha que depende do processo recusado
+- test(isolar): caso 3d busca o jangada-isolar em qualquer descendente
+- test(isolamento): registro do processo limpo a cada subteste
+- test(delegar): caso 14b pelo executar e sem o JANGADA_ISOLADO de quem roda
+- docs(boas-praticas): recusa pela saída do comando conferido
+- test(isolamento): recusa em bash só pela saída e código do comando
+- test(isolamento): recusa em Python só pela saída e código do processo
+- test(isolamento): arquivo regravado conta inteiro na busca de recusa
+- test(delegar): fontes do fatiamento numa pasta curta
+- test(isolamento): recusa só no que o comando acrescentou a cada arquivo
+- docs(boas-praticas): testes dentro do isolamento
+- test(verificar): total de pulados no isolamento e R sem lintr como pulado
+- test(python): recusa impressa pelo código testado num arquivo dentro do isolamento
+- test(isolamento): conferência do comando recusado pulada nos testes em bash
+- test(validar): casos do revisor e do agente pulados dentro do isolamento
+- test(contratos): mensagens esperadas fora da saída da suíte
+- test(delegar): preparar do caso 17 sem o JANGADA_ISOLADO de quem roda
+- test(isolar): arquivo do caso 3 com nome próprio por execução
+- test(coordenador): soquete do tmux em pasta curta no /tmp
+- test(python): casos recusados pelo controlador pulados dentro do isolamento
+- test(contratos): casos do jangada-validar pulados dentro do isolamento
+- test(contratos): delegação local com nvidia-smi falso
+- docs(isolamento): resposta pelo soquete, erros seguidos e recusas do --atendido
+- docs(agentes): pasta do isolar guarda o soquete do atendente
+- docs(isolamento): atendente da revisão e rodadas só de revisoes/
+- test(coordenador): jangada-coordenador na lista da fachada de comandos
+- docs(coordenador): consulta --coordenadores-json e comando nos índices
+- test(coordenador): abertura, hooks, consulta, mensagem e fim em tmux próprio
+- docs: descreve o lembrete de pesquisa lido da transcrição, sem pasta de marcas
+- docs(skills): clareza em conferir-citacao e conferir-referencias
+- docs: descreve o lembrete de regras nos projetos de pesquisa e a migração
+- test(contratos): inclui o jangada-hook-regras na lista de comandos
+- docs: descreve as regras automáticas do hook e do validar
+- test(indicadores): cobre formatos de resposta e consumo
+- docs(agentes): descreve a conferência da confiança do agy
+- docs(core): diz que o coordenador pode ser o Claude ou o Codex
+- docs(core): descreve a skill coordenador e como chamar no Claude Code e no Codex
+- test(core): confere a instalação das skills no Claude Code, no agy e no Codex
+- docs(monitor): descreve papel e agente nos nós da árvore
+- test(monitor): confere papel e agente na árvore de delegação
+- docs(core): lista os comandos que ainda pedem permissão ao Codex e por quê
+- docs(core): descreve a raiz de estado gravável do Codex e os pontos de montagem
+- test(core): confere a raiz gravável passada ao Codex e a montagem aninhada dela
+- test(core): confere o aviso de modelo na migração dos perfis
+- docs(core): descreve os perfis claude-codex e codex-claude
+- test(core): confere os dois perfis padrão e monta os demais em perfis temporários
+- test(shell): confere a cor da logo no terminal e com NO_COLOR vazio
+- test(shell): confere o cabeçalho Jangada Core e a abertura sem o arquivo da logo
+- docs(inspector): lista a pasta no índice de documentos do README
+- docs(inspector): registra a proposta e as decisões iniciais
+- docs(modularizacao): registra validação externa do coordenador
+- docs(modularizacao): skill separa Path(__file__).resolve() de getwd() do R
+- docs(modularizacao): 06 com a suíte dentro do isolamento e os comandos do coordenador
+- docs(modularizacao): saída da conferência de caminhos no 06
+- docs(modularizacao): validação final da 3.0 com critérios, teste de remoção e pendências
+- docs(modularizacao): guias da skill com a pasta de cada módulo e os links
+- docs(modularizacao): documentos de docs/ dizem onde mora o que citam
+- docs(modularizacao): README e exceções do AGENTS.md citam core/, shell/ e monitor/
+- test(core): árvore do codex.sh leva core/ e copia o adaptador e o hook seguindo o link
+- test(core): lançamento concorrente do teste de link de pasta parte de pasta fora da cópia oculta
+- test(core): fotos/ e integracoes/ ocultas no isolamento real, foto reexposta só pela validação e link em revisoes/ ainda recusado
+- test(core): entrega com link de pasta versionado, fora do isolamento, no validar e no --integrar
+- test(monitor): painel.sh, painel-motores.R e subagentes.sh preparados para o painel em monitor/
+- test(shell): cópia do teste de K2 leva também o destino de cada caminho que é link
+- test(core): subagentes.sh e tarefas.sh copiam o destino dos links de default/ para a árvore temporária
+- test(fim): caminho removido recriado durante o avanço avisa e sai com erro
+- test(fim): objeto forjado durante o avanço não chega à cópia principal
+- test(fim): base movida antes do merge e git status com falha
+- test(fim): configuração do repositório não esconde arquivo novo nem submódulo alterado
+- test(fim): arquivo novo e submódulo alterado na cópia principal recusam a integração
+- test(update): --integrar não assina, não envia ao remoto nem atualiza a cópia instalada
+- test(fim): integração por avanço rápido, recusas e trabalho concorrente preservado
+- test(fronteiras): classificação segue os links da fachada
+- test(contratos): cópias de teste levam core/, shell/ e monitor/
+- test(verificar): bash -n, shellcheck e regra1.sh examinam core/bin, shell/bin e monitor/bin
+- test(fronteiras): _jangada_sessao_atual como exceção permanente e registro() de dados.py anotado
+- test(snapshot): jangada-agente --snapshot abre a sessão sem o jangada-snapshot
+- test(fronteiras): marca permanente com motivo e teto próprio para as exceções da D8
+- test(interface): attach dentro de outro tmux e --proximo no contrato K10
+- test(tarefas): sessão gráfica falsa para a Central e o terminal do K10
+- test(interface): contrato K10 com hyprctl, setsid e terminal falsos
+- docs(modularizacao): parecer do novo SHA depois do rebase nos pares
+- docs(modularizacao): ordem de integração dentro dos pares da Onda C
+- docs(modularizacao): Onda C em duas frentes e autoria das tarefas do Shell
+- docs(modularizacao): decisão D8 e tarefas M3-10b e M3-10c
+- test(subagentes): compara a saída do --entrega com cmp
+- test(subagentes): saída exata do --entrega em três recortes
+- docs(modularizacao): tarefa M3-11a, integração pelo botão e por alt+i
+- docs(modularizacao): ressalvas da prova dos links no plano
+- docs(modularizacao): limites do teste de fronteira e exceções sem contrato
+- docs(modularizacao): prova dos links simbólicos
+- docs(modularizacao): planejamento das fases 0 a 2 do jangada 3.0
+- docs(estabilizacao): registrar a aprovação do uso supervisionado e a aptidão da baseline
+- docs(estabilizacao): registrar o backup completo conferido de 09/10
+- docs(estabilizacao): registrar no relatório de prontidão a situação de 09/10
+- docs(evolucao): matriz dos doze critérios da Fase 1 e fase concluída com ressalvas
+- docs(evolucao): registra a aprovação da Fase 3 e como continuar em outra sessão
+- test(provedores): revisor da sessão e de JANGADA_VALIDAR_REVISOR passa pelo registro
+- docs(evolucao): corrige a contagem de etapas da suíte
+- docs(evolucao): diagnóstico, arquitetura e decisões da 2.0
+- docs(skills): registra o comportamento do modelo local com regras de citação
+- test(delegar): cobre a recusa de faixa de linhas em PDF
+- ci: liberar namespace de usuário sem privilégio no runner
+- perf(orquestracao): índice de eventos por tarefa e evento
+- test(regra1): caminhos que o perfil de verificação só oculta
+- ci: exige as capacidades dos testes e roda o isolamento com R e lintr
+- docs(validar): descreve a foto, a marca em JSON e a trava da integração
+- perf(orquestracao): índice de eventos por tarefa e evento
+- test(regra1): caminhos que o perfil de verificação só oculta
+- ci: exige as capacidades dos testes e roda o isolamento com R e lintr
+- docs(validar): descreve a foto, a marca em JSON e a trava da integração
+- test(validar): comentário da reserva explica por que o autor fica por último
+- test(isolar): atributos do keyring lidos do jangada.conf
+- test(isolar): conferência do MANTER roda no shell do teste
+- ci: ambiente fixo e atual, ação por SHA e isolamento real exigido
+- perf(tarefas): lista só é refeita quando muda de ordem ou de grupo
+- perf(orquestracao): reservar lê só a fila, não o histórico inteiro
+- test(codex-economico): espera o delegar filho antes de limpar a pasta
+- test(isolar): KILL do caso 3d mira só o processo do próprio teste
+- test(isolar): confere o keyring do proxy com e sem o agy
+- docs(validar): esclarece que o prazo vencido não gasta rodada
+- docs(estudos): registra a auditoria AS-IS de 03/10/2026
 
 ## 0.2.0 (2026-10-01)
 

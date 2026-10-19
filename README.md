@@ -10,6 +10,11 @@ O Core funciona sozinho. O [jangada-shell](https://github.com/felipintoslv/janga
 comandos deles no PATH e segue sem erro quando não os acha. Os indicadores
 locais ficam no comando `jangada-indicadores`.
 
+Marco: v1.0.0 estável. As [notas da entrega e o roteiro de lançamento](docs/versao-1.0.0.md)
+dizem o que o Core entrega e o que ainda é ação do dono. O dono cria a tag
+`v1.0.0` localmente depois de assinar e só então a publica; até lá a versão não
+está lançada.
+
 ## Dependências
 
 `bash`, `python3`, `sqlite3`, `bwrap` (bubblewrap), `tmux`, `git` e `jq`. R com
@@ -58,6 +63,7 @@ Leia as regras do [AGENTS.md](AGENTS.md) e o guia do assunto da tarefa.
 | Assunto | Documento |
 |---|---|
 | Instalação, várias máquinas e assinatura | [Instalação e uso](docs/instalacao-e-uso.md) |
+| Entrega e lançamento da v1.0.0 | [Core 1.0.0](docs/versao-1.0.0.md) |
 | Comandos | [Comandos](docs/comandos.md) |
 | Abertura, revisão e encerramento | [Ciclo da tarefa](docs/ciclo-da-tarefa.md) |
 | Permissões, credenciais e modelo de ameaça | [Isolamento](docs/isolamento.md) |
