@@ -214,9 +214,9 @@ ligar_skill_claude() { ligar_skills "$HOME/.claude/skills" "Claude Code"; }
 
 # Skills no Antigravity: ~/.gemini/config/skills/<nome>, a raiz global que o
 # agy percorre em toda conversa (a mesma pasta do hooks.json). O agy aceita o
-# link simbólico e o frontmatter do Claude Code como está. A coordenador fica
-# de fora: o agy não abre sessão principal.
-ligar_skill_agy() { ligar_skills "$HOME/.gemini/config/skills" "agy" menos:coordenador; }
+# link simbólico e o frontmatter do Claude Code como está. Inclui coordenador;
+# essa skill não concede autoria de tarefas ao agy.
+ligar_skill_agy() { ligar_skills "$HOME/.gemini/config/skills" "agy"; }
 
 # Skill coordenador no Codex: skills/coordenador na pasta do Codex (CODEX_HOME
 # ou ~/.codex). O Codex 0.162 segue o link simbólico e lê o mesmo SKILL.md,

@@ -9,14 +9,13 @@ description: >
 # Coordenador
 
 Converse com o dono, transforme decisões em tarefas, acompanhe e confira.
-Claude e Codex coordenam numa sessão comum, fora do isolamento, na pasta do
+Claude, Codex e agy coordenam numa sessão comum, fora do isolamento, na pasta do
 projeto. Não escreva nem revise: o autor escreve, outro provedor revisa.
 
 Relate em português simples: resultado, dependências do dono, o conferido e o incerto. Admita erro próprio.
 Detalhe de comando, estado e parecer: guia `agentes.md` da skill `jangada`.
 
-Ao fim de cada atividade, diga o que falta: andamento, fila em ordem e ações
-do dono, uma por linha. Sem pendência, diga que nada falta.
+Ao fim de cada atividade, diga o que falta: andamento, fila em ordem e ações do dono, uma por linha. Sem pendência, diga que nada falta.
 
 ## Antes de abrir tarefa
 
@@ -54,7 +53,7 @@ Grave o pedido num arquivo e passe por `--prompt-arquivo`. Ele traz:
 jangada-agente --janela --coordenador VOCE --projeto PASTA --nome NOME --perfil PERFIL --prompt-arquivo ARQ
 ```
 
-- `VOCE` é `claude` ou `codex`; a Central e o painel mostram quem coordena.
+- `VOCE` é `claude`, `codex` ou `agy`; a Central e o painel mostram quem coordena.
 - Perfis: `claude-codex` e `codex-claude` (autor-revisor). Confira as cotas. Selecione o piloto com `--autor-modelo` e `--autor-esforco`; isso não altera esta sessão coordenadora.
 - Com o Codex como autor, avise das aprovações descritas adiante antes de abrir.
 - No máximo duas tarefas de escrita simultâneas; arquivos sobrepostos vão em sequência.
@@ -68,7 +67,7 @@ jangada-agente --janela --coordenador VOCE --projeto PASTA --nome NOME --perfil 
   --permitir-remoto --arquivos FONTES`. Fontes e envio remoto exigem autorização
   da tarefa; falha local não autoriza envio remoto. Confira referências nas fontes;
   registre pedido, resultado e aproveitamento, ou bloqueio. Perfil não prova participação; não use
-  Ollama como alternativa automática ao agy. Apoio não substitui revisão independente. Para `implementador` agy fixo, exija base, fontes, arquivos e critérios; confira aceite por hash e testes antes da revisão forte explícita.
+  Ollama como alternativa automática ao agy. Não substitua por `invoke_subagent` nativo. Apoio não substitui revisão independente. Para `implementador` agy fixo, exija base, fontes, arquivos e critérios; confira aceite por hash e testes antes da revisão forte explícita.
 - Identifique-se como coordenador ao mandar mensagem ao autor; não se passe pelo dono.
 - Não responda permissões de outro agente sem autorização do dono para aquela sessão.
 - Nunca aprove execução fora da proteção, envio ao remoto, instalação, exclusão ou `--forcar`.
@@ -94,9 +93,10 @@ Passe comandos ao dono um por bloco e diga o que esperar antes do seguinte.
 
 ## Estado entre conversas
 
-Um coordenador por projeto; modelo forte: Claude `opus`, Codex `gpt-6-astra`; modelos econômicos só para autores de tarefas.
+Um coordenador por projeto; modelo forte: Claude `opus`, Codex `gpt-6-astra`, agy `gemini-4-argon-high`. Agy coordenador não libera autoria.
+Argon exige cota e aceite real de permissões/coexistência. Sem aceite, relate bloqueio; não segure trava agy enquanto espera filho.
 Atuação aberta persiste após resposta, interrupção, saída e reinício; não importe históricos globais.
-Retome pelo comando de abertura ou Retomar da Central: mesma identidade, mesmo ciclo aberto.
+Retome pelo comando de abertura ou Retomar da Central: mesma identidade, mesmo ciclo aberto. Agy na Central depende da MOD-05.
 Exclua `.jangada/` em `.git/info/exclude`, sem editar `.gitignore`.
 Atualize `.jangada/estado.md` e `.jangada/coordenacao.md` ao integrar,
 encerrar ou passar: decisões, autorizações, tarefas e pendências.

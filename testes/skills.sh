@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Testa a instalação das skills (agentes/claude/skills) num HOME temporário:
-# Claude Code com todas, agy sem a coordenador e Codex só com a coordenador;
+# Claude Code com todas, agy com todas e Codex só com a coordenador;
 # e a migração que reaplica hooks e skills do Claude Code numa instalação antiga.
 #
 # Uso: testes/skills.sh
@@ -44,8 +44,8 @@ done
 conferir "coordenador: no máximo 130 linhas" [ "$(wc -l <"$origem/coordenador/SKILL.md")" -le 130 ]
 conferir "coordenador: o comando de abertura declara quem coordena" \
   grep -q '^jangada-agente --janela --coordenador VOCE ' "$origem/coordenador/SKILL.md"
-conferir "coordenador: o nome declarado é claude ou codex" \
-  grep -q '`VOCE` é `claude` ou `codex`' "$origem/coordenador/SKILL.md"
+conferir "coordenador: o nome declarado é claude, codex ou agy" \
+  grep -q '`VOCE` é `claude`, `codex` ou `agy`' "$origem/coordenador/SKILL.md"
 for trecho in '.jangada/regras-do-dono.md' '.jangada/estado.md' '.jangada/armadilhas.md' \
   'diário' 'sessões reais, ramos e worktrees' 'resumo antes de abrir tarefas' \
   'Autorizações registradas ainda válidas' 'ausentes não autorizam inventar decisões' \
@@ -77,8 +77,16 @@ conferir "Claude Code: coordenador aponta para o repositório" \
   [ "$(readlink "$casa/.claude/skills/coordenador")" = "$origem/coordenador" ]
 
 instalar -- ligar_skill_agy
-conferir "agy: todas menos a coordenador" \
-  [ "$(nomes "$casa/.gemini/config/skills")" = "$(tr ',' '\n' <<<"$todas" | grep -vx coordenador | paste -sd,)" ]
+conferir "agy: todas, inclusive a coordenador" \
+  [ "$(nomes "$casa/.gemini/config/skills")" = "$todas" ]
+
+conferir "agy: coordenador aponta para a mesma skill" \
+  [ "$(readlink "$casa/.gemini/config/skills/coordenador")" = "$origem/coordenador" ]
+instalar -- ligar_skill_agy
+conferir "agy: repetição preserva o link" grep -q 'skill coordenador do agy já ligada' "$tmp/saida.log"
+ln -sfn /alheio/coordenador "$casa/.gemini/config/skills/coordenador"
+instalar -- ligar_skill_agy
+conferir "agy: link alheio preservado" [ "$(readlink "$casa/.gemini/config/skills/coordenador")" = /alheio/coordenador ]
 
 instalar -- ligar_skill_codex
 conferir "Codex: só a coordenador" [ "$(nomes "$casa/.codex/skills")" = coordenador ]
