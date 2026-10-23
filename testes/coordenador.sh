@@ -578,6 +578,15 @@ for provedor_hook in claude codex agy; do
 done
 hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
 
+antes_outro_provedor="$(cat "$reg/projeto--coordenador.json")"
+for evento in trabalhando concluido; do
+  printf '{"fullyIdle":true,"prompt":"evento alheio"}' \
+    | rodar env JANGADA_COORDENADOR=projeto--coordenador JANGADA_ATUACAO_ID="$atuacao_original" \
+      JANGADA_COORDENADOR_PROVEDOR=claude "$repo_jangada/bin/jangada-hook-agy" "$evento"
+  conferir "agy $evento não altera registro Claude com identidade correta" \
+    test "$(cat "$reg/projeto--coordenador.json")" = "$antes_outro_provedor"
+done
+
 # Consulta com uma tarefa ligada ao coordenador, viva no servidor do teste.
 mkdir -p "$estado/revisoes"
 printf '{"sessao":"projeto--tarefa","coordenador_sessao":"projeto--coordenador"}' \
@@ -1062,6 +1071,13 @@ conferir "Argon: repetição preserva registro vivo" test "$?:$(cat "$argon_reg"
 hook_argon() {
   printf '%s' "$2" | rodar env JANGADA_COORDENADOR=argon--coordenador JANGADA_ATUACAO_ID="$argon_id" "${@:3}" "$repo_jangada/bin/jangada-hook-agy" "$1"
 }
+for origem in claude codex; do
+  printf '{"prompt":"evento alheio"}' \
+    | rodar env JANGADA_COORDENADOR=argon--coordenador JANGADA_ATUACAO_ID="$argon_id" \
+      JANGADA_COORDENADOR_PROVEDOR="$origem" "$repo_jangada/bin/jangada-hook-$origem" trabalhando
+  conferir "$origem com origem explícita não altera registro Argon" \
+    test "$(cat "$argon_reg")" = "$argon_antes"
+done
 hook_argon inicio '{"modelName":"gemini-4-argon-high"}' >/dev/null
 conferir "Argon: SessionStart conserva identidade e ciclo aberto" \
   jq -e --arg id "$argon_id" '.estado == "iniciado" and .atuacao_id == $id and .ciclo == "aberta"' "$argon_reg"

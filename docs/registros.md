@@ -559,9 +559,13 @@ subagente tem `.db` próprio.
   provedores atualizam `estado`, `ultima_linha` e `atualizado` só com
   `JANGADA_COORDENADOR` definido e identidade correspondente em
   `JANGADA_ATUACAO_ID`, por arquivo temporário e troca atômica. Novos processos
-  recebem `JANGADA_COORDENADOR_PROVEDOR`; o persistidor recusa evento de outro
-  provedor quando essa origem está presente. O hook agy sempre declara a origem,
-  exige identidade e ignora chamadas auxiliares ou com papel de apoio.
+  recebem `JANGADA_COORDENADOR_PROVEDOR`; o persistidor recusa origem declarada
+  divergente do registro. O hook agy sempre fixa sua origem, exige identidade
+  e ignora chamadas auxiliares ou com papel de apoio. Os hooks Claude e Codex
+  herdam essa variável: um cliente chamado diretamente dentro do coordenador agy
+  pode alterar seu registro com a identidade do pai. A proteção entre provedores
+  só está garantida para o hook agy. Corrigir os outros hooks exige ampliar
+  o escopo da MOD-02; a lacuna permanece bloqueio de paridade.
   SessionStart indica início; PreInvocation indica trabalho; Stop só muda o registro
   com `fullyIdle=true` booleano. Campo ausente, inválido ou falso não comprova
   ociosidade. `terminationReason=USER_CANCELED` informa turno interrompido

@@ -96,6 +96,14 @@ a partir de `PreToolUse`. A pergunta continua no terminal, sem observação fiel
 pelo Core. Isso bloqueia o aceite de paridade até uma solução verificável.
 Não se deve usar este adaptador como capacidade já aceita para coordenar produção.
 
+A origem também tem uma lacuna: o hook agy declara seu provedor, mas os hooks
+Claude e Codex herdam `JANGADA_COORDENADOR_PROVEDOR`. Se chamados diretamente
+dentro da atuação agy, podem atualizar o registro do pai. A identidade preservada
+não distingue esses clientes. Corrigir `bin/jangada-hook-claude` e
+`bin/jangada-hook-codex` exige autorização adicional, pois estão fora do escopo
+da MOD-02. Os testes provam recusa de origem divergente explícita, sem comprovar
+que os três hooks declaram a própria origem.
+
 A abertura não toma `.agy-execucao.lock`; tampouco os hooks a retêm até Stop.
 Os filhos continuam disputando a trava do delegador. Isso evita o impasse
 pai esperando filho, mas não comprova coexistência na mesma conta. A prova real
