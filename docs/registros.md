@@ -562,8 +562,9 @@ subagente tem `.db` próprio.
   recebem `JANGADA_COORDENADOR_PROVEDOR`; o persistidor recusa evento de outro
   provedor quando essa origem está presente. O hook agy sempre declara a origem,
   exige identidade e ignora chamadas auxiliares ou com papel de apoio.
-  SessionStart indica início; PreInvocation indica trabalho; Stop com `fullyIdle=false`
-  não muda o registro. `terminationReason=USER_CANCELED` informa turno interrompido
+  SessionStart indica início; PreInvocation indica trabalho; Stop só muda o registro
+  com `fullyIdle=true` booleano. Campo ausente, inválido ou falso não comprova
+  ociosidade. `terminationReason=USER_CANCELED` informa turno interrompido
   sem fechar a atuação. O agy não fornece a última resposta nesse evento. Stop,
   Interrupt, SessionEnd e saída do processo não encerram o ciclo.
   Registro legado ainda sem identidade aceita hooks sem identidade;

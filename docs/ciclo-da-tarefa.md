@@ -83,11 +83,12 @@ continuam ações do dono. A atualização do produto só prepara a ligação da
 e os hooks; não altera a instalação durante os testes.
 
 **Aceite real pendente da MOD-02:** os ensaios usam clientes falsos, tmux privado
-e estado separado. Em 23/10/2026 o dono informou cota Argon de 0%, com renovação
-em `2026-10-24T00:02:15Z`. Nenhuma execução real Argon foi feita nessa condição.
+e estado separado. Em 23/10/2026 a consulta delimitada de `/usage` confirmou
+cota Argon de 0%, com renovação em `2026-10-24T00:02:15Z`. Nenhuma execução real Argon foi feita nessa condição.
 O apoio arquiteto Flash também ficou bloqueado: o delegador agrupa cotas Gemini
-e pode recusar Flash por cota Argon; a correção pertence à MOD-03.
-Não houve contribuição de arquiteto a aproveitar.
+e recusou Flash por cota Argon, embora as janelas Flash informassem 100%.
+A tentativa fixou `gemini-3.8-flash-high`, retornou código 4 e zero chamadas ao modelo.
+A correção pertence à MOD-03. Não houve contribuição de arquiteto a aproveitar.
 
 A paridade de permissões e coexistência ainda não está demonstrada. A documentação
 do cliente não oferece `PermissionRequest`: o adaptador não inventa `aguardando`
@@ -547,7 +548,7 @@ tarefa combina com a descrição dela, mesmo abertos em outro projeto:
   `tema_dv.py`, copiados para o projeto), título e fonte em comentário fora
   da imagem e a checklist de 41 itens.
 - `coordenador`: papel da sessão que abre, acompanha e confere tarefas de
-  agentes em qualquer projeto. Não vai para o agy; é a única ligada ao Codex,
+  agentes em qualquer projeto. Também vai para o agy; é a única ligada ao Codex,
   em `~/.codex/skills/coordenador`. Veja
   [docs/ciclo-da-tarefa.md](ciclo-da-tarefa.md#coordenador).
 

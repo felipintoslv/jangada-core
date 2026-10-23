@@ -1062,15 +1062,28 @@ conferir "Argon: repetição preserva registro vivo" test "$?:$(cat "$argon_reg"
 hook_argon() {
   printf '%s' "$2" | rodar env JANGADA_COORDENADOR=argon--coordenador JANGADA_ATUACAO_ID="$argon_id" "${@:3}" "$repo_jangada/bin/jangada-hook-agy" "$1"
 }
+hook_argon inicio '{"modelName":"gemini-4-argon-high"}' >/dev/null
+conferir "Argon: SessionStart conserva identidade e ciclo aberto" \
+  jq -e --arg id "$argon_id" '.estado == "iniciado" and .atuacao_id == $id and .ciclo == "aberta"' "$argon_reg"
 hook_argon trabalhando '{"modelName":"gemini-4-argon-high"}' >/dev/null
 conferir "Argon: PreInvocation registra trabalhando" test "$(jq -r .estado "$argon_reg")" = trabalhando
 argon_antes="$(cat "$argon_reg")"
-hook_argon concluido '{"fullyIdle":false}' >/dev/null
-conferir "Argon: Stop com filho ativo não conclui" test "$(cat "$argon_reg")" = "$argon_antes"
+for payload in '{"fullyIdle":false}' '{}' '{"fullyIdle":null}' '{"fullyIdle":"true"}' '{"fullyIdle":1}'; do
+  hook_argon concluido "$payload" >/dev/null
+  conferir "Argon: Stop sem ociosidade comprovada ($payload) preserva registro" test "$(cat "$argon_reg")" = "$argon_antes"
+done
 for extra in JANGADA_HOOK_DESLIGADO=1 JANGADA_ISOLADO=1 JANGADA_AGY_PAPEL=arquiteto JANGADA_ATUACAO_ID=velha; do
   hook_argon concluido '{"fullyIdle":true}' "$extra" >/dev/null
   conferir "Argon: $extra não altera o pai" test "$(cat "$argon_reg")" = "$argon_antes"
 done
+hook_argon concluido '{"fullyIdle":true,"terminationReason":"NO_TOOL_CALL"}' >/dev/null
+conferir "Argon: resposta pronta mantém atuação aberta" \
+  jq -e --arg id "$argon_id" '.estado == "concluido" and .ciclo == "aberta" and .atuacao_id == $id and .ultima_linha == "turno concluído"' "$argon_reg"
+hook_argon trabalhando '{}' >/dev/null
+hook_argon concluido '{"fullyIdle":true,"terminationReason":"ERROR","error":"falha sintética"}' >/dev/null
+conferir "Argon: erro permanece visível sem encerrar atuação" \
+  jq -e '.estado == "concluido" and .ciclo == "aberta" and .ultima_linha == "erro: falha sintética"' "$argon_reg"
+hook_argon trabalhando '{}' >/dev/null
 hook_argon concluido '{"fullyIdle":true,"terminationReason":"USER_CANCELED"}' >/dev/null
 conferir "Argon: interrupção do turno conserva ciclo e identidade" \
   jq -e --arg id "$argon_id" '.estado == "concluido" and .ciclo == "aberta" and .atuacao_id == $id and .ultima_linha == "turno interrompido"' "$argon_reg"

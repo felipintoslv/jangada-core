@@ -568,7 +568,9 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
   não houve participação. Corrigir o delegador é escopo da MOD-03.
 - Hooks agy roteiam atuação por `JANGADA_COORDENADOR` e `JANGADA_ATUACAO_ID`,
   sem criar registro nem reutilizar conversa global. Chamadas auxiliares usam
-  `JANGADA_HOOK_DESLIGADO=1`; papel de apoio não atualiza coordenador.
+  `JANGADA_HOOK_DESLIGADO=1`; papel de apoio não atualiza coordenador. Stop só
+  altera estado com `fullyIdle=true` booleano. Ausência ou valor inválido não
+  comprova ociosidade, mesmo que o hook tenha terminado com código zero.
 - O agy não abre sessão principal desde 03/10/2026: o `jangada-agente`
   recusa `--agente agy` e perfil com `COMANDO=agy`. Ele atende o
   `jangada-delegar` e a revisão do `jangada-validar`. Sessão antiga do agy

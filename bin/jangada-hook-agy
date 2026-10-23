@@ -30,7 +30,7 @@ echo '{}'
       inicio) evento=iniciado; mensagem="" ;;
       trabalhando) mensagem="" ;;
       concluido)
-        [[ "$(jq -r 'if .fullyIdle == false then "false" else "true" end' <<<"$entrada")" != false ]] || exit 0
+        jq -e '.fullyIdle == true' <<<"$entrada" >/dev/null 2>&1 || exit 0
         mensagem="turno concluído"
         if [[ "$(jq -r '.terminationReason // ""' <<<"$entrada")" == USER_CANCELED ]]; then
           mensagem="turno interrompido"
