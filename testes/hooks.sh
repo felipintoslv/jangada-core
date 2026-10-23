@@ -46,7 +46,7 @@ conferir "a mescla avisa e não grava" \
 echo "== hooks.json do agy vazio"
 : >"$agy_cfg"
 mesclar mesclar_hooks_agy
-conferir "a mescla grava os hooks" bash -c 'jq -e "$1" "$2" >/dev/null' _ '.jangada.PreToolUse and .jangada.Stop' "$agy_cfg"
+conferir "a mescla grava os hooks" bash -c 'jq -e "$1" "$2" >/dev/null' _ '.jangada.PreToolUse and .jangada.Stop and .jangada.SessionStart and .jangada.PreInvocation' "$agy_cfg"
 conferir "a mescla não diz que já estavam instalados" bash -c '! grep -q "já instalados" "$1"' _ "$tmp/saida"
 conferir "a mescla guarda a cópia do vazio" \
   bash -c 'ls "$1".jangada-*.bak >/dev/null 2>&1' _ "$agy_cfg"

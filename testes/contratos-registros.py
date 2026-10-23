@@ -353,6 +353,23 @@ class Gerador:
         codigos.append(feito.returncode)
         return codigos
 
+    def atuacoes(self):
+        """Persistência comum aos três provedores, sem abrir cliente remoto."""
+        pasta = self.estado / 'coordenadores'
+        pasta.mkdir(mode=0o700, exist_ok=True)
+        registros = []
+        for provedor in ('claude', 'codex', 'agy'):
+            sessao = provedor + '--coordenador'
+            for modo, argumentos in (('abrir', [str(self.projeto), provedor]),
+                                     ('finalizar', [])):
+                feito = self.rodar('python3', self.arvore / 'nucleo/coordenadores.py',
+                                   '--persistir', self.estado, modo, sessao, *argumentos)
+                if feito.returncode:
+                    raise AssertionError(feito.stderr)
+                dados = json.loads((pasta / (sessao + '.json')).read_text())
+                registros.append((provedor + '/' + modo, dados))
+        return registros
+
     def tudo(self):
         """Todos os registros, por nome da tabela: lista de (rótulo, registro)."""
         registros = {nome: [] for nome in ('validar.jsonl', 'validacao-SESSAO.aprovado', 'SESSAO.json',
@@ -371,6 +388,7 @@ class Gerador:
         self.pareceres = sorted(pareceres.glob(f'validacao-{SESSAO}-r*.md'))
         self.codigos_delegar = self.delegar()
         registros['delegacoes.jsonl'] = list(enumerate(self.linhas('delegacoes.jsonl'), 1))
+        registros['coordenadores/SESSAO.json'] = self.atuacoes()
         return registros
 
 

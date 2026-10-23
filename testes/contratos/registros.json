@@ -237,5 +237,21 @@
       "conversa": {"tipo": ["texto"], "obrigatorio": true},
       "sem_fonte": {"tipo": ["numero", "nulo"], "obrigatorio": true}
     }
+  },
+  "coordenadores/SESSAO.json": {
+    "secao": "7",
+    "campos": {
+      "sessao": {"tipo": ["texto"], "obrigatorio": true},
+      "projeto": {"tipo": ["texto"], "obrigatorio": true},
+      "provedor": {"tipo": ["texto"], "obrigatorio": true},
+      "modelo": {"tipo": ["texto"], "obrigatorio": false},
+      "estado": {"tipo": ["texto"], "obrigatorio": true},
+      "ultima_linha": {"tipo": ["texto"], "obrigatorio": true},
+      "desde": {"tipo": ["data"], "obrigatorio": true},
+      "atualizado": {"tipo": ["data"], "obrigatorio": true},
+      "encerrado": {"tipo": ["data"], "obrigatorio": false},
+      "atuacao_id": {"tipo": ["texto"], "obrigatorio": true},
+      "ciclo": {"tipo": ["texto"], "obrigatorio": true}
+    }
   }
 }

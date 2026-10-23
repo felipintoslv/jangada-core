@@ -30,10 +30,11 @@ campos() {
 conferir "os quatro provedores do repositório" test "$(lista)" = "agy claude codex ollama"
 conferir "sessão principal: claude e codex" test "$(lista principal)" = "claude codex"
 conferir "revisão: agy, claude e codex" test "$(lista revisor)" = "agy claude codex"
+conferir "coordenação separada da autoria: agy" test "$(lista coordenador)" = "agy"
 conferir "delegação: agy e ollama" test "$(lista delegacao)" = "agy ollama"
 conferir "claude reproduz o protocolo, o modelo e a reserva" \
   test "$(campos claude)" = "Claude|cli|claude|principal revisor|--append-system-prompt|sonnet|1"
-conferir "agy" test "$(campos agy)" = "Antigravity|cli|agy|revisor delegacao|||2"
+conferir "agy" test "$(campos agy)" = "Antigravity|cli|agy|coordenador revisor delegacao|||2"
 conferir "codex" test "$(campos codex)" = "Codex|cli|codex|principal revisor|||3"
 conferir "ollama só é descrito, sem comando" test "$(campos ollama)" = "Ollama|ollama||delegacao|||"
 
@@ -66,6 +67,7 @@ recusa "tipo de API" TIPO=openai-compat FUNCOES=revisor
 recusa "tipo ausente" FUNCOES=revisor
 recusa "função desconhecida" TIPO=cli FUNCOES=supervisor
 recusa "sem função" TIPO=cli
+recusa "ollama como coordenador" TIPO=ollama FUNCOES=coordenador
 recusa "ollama como principal" TIPO=ollama FUNCOES=principal
 recusa "ollama como principal e delegação" TIPO=ollama "FUNCOES=delegacao principal"
 recusa "argumento de protocolo com comando embutido" TIPO=cli FUNCOES=principal 'PROTOCOLO_ARG=--a $(id)'

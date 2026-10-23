@@ -16,7 +16,7 @@ import tempfile
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(sys.argv[1]) / 'nucleo'))
-from coordenadores import arquivar, gravar
+from coordenadores import arquivar, gravar, ler_registro
 
 with tempfile.TemporaryDirectory(prefix='jangada-registros-') as tmp:
     pasta = Path(tmp)
@@ -107,6 +107,19 @@ with tempfile.TemporaryDirectory(prefix='jangada-registros-') as tmp:
         assert arquivar(fd, encerrado, pasta, original) == 0
         assert json.loads((pasta / 'seguro--coordenador.json').read_text()) == encerrado
         assert not list(pasta.rglob('.reg.*'))
+        for provedor, modelo in (('claude', 'opus'), ('codex', 'gpt-6-astra'),
+                                 ('agy', 'gemini-4-argon-high')):
+            valido = dict(sessao='modelo--coordenador', projeto=str(pasta), provedor=provedor)
+            for valor in (None, modelo, 'modelo-invalido'):
+                dados = dict(valido, modelo=valor) if valor is not None else valido
+                gravar(fd, 'modelo--coordenador.json', dados)
+                esperado = valor == modelo or (valor is None and provedor != 'agy')
+                try:
+                    lido = ler_registro(fd, 'modelo--coordenador')
+                except ValueError:
+                    assert not esperado, (provedor, valor)
+                else:
+                    assert esperado and lido == dados, (provedor, valor)
     finally:
         os.close(fd)
 print('ok    gravação, substituição, exclusividade e histórico em estado sintético')
@@ -171,6 +184,31 @@ if [[ -f .falhar-cliente ]]; then
 fi
 printf '%s\0' "$@" >"$FALSO_DIR/codex.args"
 exec python3 -c 'import os, tty; tty.setraw(0); os.read(0, 1)'
+EOF
+cat >"$tmp/bin/agy" <<'EOF'
+#!/usr/bin/env python3
+import json, os, sys, tty
+from pathlib import Path
+pasta = Path(os.environ['FALSO_DIR'])
+if sys.argv[1:] == ['models']:
+    print((pasta / 'argon.catalogo').read_text() if (pasta / 'argon.catalogo').exists() else 'gemini-4-argon-high')
+    sys.exit(0)
+if '-p' in sys.argv:
+    assert sys.argv[sys.argv.index('-p') + 1] == '/usage'
+    if (pasta / 'argon.uso').exists():
+        print((pasta / 'argon.uso').read_text())
+        sys.exit(0)
+    cota = float((pasta / 'argon.cota').read_text()) if (pasta / 'argon.cota').exists() else 1
+    print(json.dumps({'command': {'data': {'groups': [{'buckets': [
+        {'id': 'gemini-argon-wtu-weekly', 'remaining_fraction': cota},
+        {'id': 'gemini-wtu-weekly', 'remaining_fraction': 0}]}]}}}))
+    sys.exit(0)
+if Path('.falhar-cliente').exists():
+    print('modelo indisponível na partida do agy', file=sys.stderr)
+    sys.exit(42)
+(pasta / 'agy.args').write_bytes(b'\0'.join(a.encode() for a in sys.argv[1:]) + b'\0')
+tty.setraw(0)
+os.read(0, 1)
 EOF
 tmux_real="$(command -v tmux)"
 cat >"$tmp/bin/tmux" <<'EOF'
@@ -386,10 +424,10 @@ conferir "nenhuma sessão nova" [ "$(tm list-sessions -F '#S' | grep -c coordena
 sem_flock="$tmp/sem-flock"
 mkdir -p "$sem_flock" "$tmp/sem-cliente"
 for c in bash dirname sed realpath git basename iconv tr jq mkdir chmod mktemp \
-  date mv rm rmdir stat sleep head python3; do
+  date mv rm rmdir stat sleep head python3 timeout grep env; do
   ln -s "$(command -v "$c")" "$sem_flock/$c"
 done
-for c in tmux claude codex hyprctl jangada-terminal; do
+for c in tmux claude codex agy hyprctl jangada-terminal; do
   ln -s "$tmp/bin/$c" "$sem_flock/$c"
 done
 conferir "o PATH alternativo não oferece flock" \
@@ -474,7 +512,7 @@ tm kill-session -t =outro--coordenador
 rm -f "$reg/outro--coordenador.json"
 
 # Falha imediata preserva a mensagem num painel morto, só na janela nova.
-for provedor in claude codex; do
+for provedor in claude codex agy; do
   mkdir -p "$tmp/falha-$provedor"
   touch "$tmp/falha-$provedor/.falhar-cliente"
   sessao_falha="falha-$provedor--coordenador"
@@ -529,7 +567,7 @@ printf '{"cwd":"/x"}' | rodar env JANGADA_COORDENADOR=projeto--coordenador \
   "$repo_jangada/bin/jangada-hook-codex" aguardando
 conferir "o hook do Codex também grava" [ "$(campo .estado)" = aguardando ]
 hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
-for provedor_hook in claude codex; do
+for provedor_hook in claude codex agy; do
   for evento in concluido fim; do
     printf '{"last_assistant_message":"fim de resposta","reason":"prompt_input_exit"}' \
       | rodar env JANGADA_COORDENADOR=projeto--coordenador JANGADA_ATUACAO_ID="$atuacao_original" \
@@ -711,10 +749,14 @@ for modo_trava in flock fallback; do
   tm kill-session -t =persistencia--coordenador
   conferir "$modo_trava: interrupção não encerra a atuação" \
     jq -e --arg id "$id_persistente" '.ciclo == "aberta" and .atuacao_id == $id and (has("encerrado") | not)' "$persistente"
+  for provedor_retomada in agy codex claude; do
+    rodar env PATH="$caminho_teste" "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/persistencia" --provedor "$provedor_retomada" >"$tmp/saida" 2>&1
+    conferir "$modo_trava, $provedor_retomada: retoma identidade, decisões e autorizações" \
+      jq -e --arg id "$id_persistente" --arg desde "$desde_persistente" --arg p "$provedor_retomada" \
+        '.atuacao_id == $id and .desde == $desde and .decisoes == ["continuar"] and .autorizacoes == ["testar"] and .provedor == $p' "$persistente"
+    tm kill-session -t =persistencia--coordenador
+  done
   rodar env PATH="$caminho_teste" "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/persistencia" --provedor codex >"$tmp/saida" 2>&1
-  conferir "$modo_trava: retoma sem perder identidade, data, decisões e autorizações" \
-    jq -e --arg id "$id_persistente" --arg desde "$desde_persistente" \
-      '.atuacao_id == $id and .desde == $desde and .decisoes == ["continuar"] and .autorizacoes == ["testar"] and .provedor == "codex"' "$persistente"
 done
 tm kill-session -t =persistencia--coordenador
 rodar "$repo_jangada/bin/jangada-coordenador" --finalizar persistencia--coordenador >"$tmp/finalizacao" 2>&1
@@ -736,7 +778,7 @@ conferir "finalização repetida é idempotente" \
   test "$?:$(cat "$persistente"):$(cat "$reg/historico/$id_persistente.json")" = "0:$antes:$checkpoint"
 conferir "finalizar não grava estado ou diário no projeto nem executa texto" \
   bash -c 'cmp -s "$1" "$2/.jangada/estado.md" && [[ "$(find "$2/.jangada" -type f | wc -l)" = 1 && ! -e "$2/NUNCA_EXECUTAR" ]]' _ "$tmp/estado.salvo" "$tmp/persistencia"
-for provedor_hook in claude codex; do
+for provedor_hook in claude codex agy; do
   printf '{"prompt":"atrasado"}' | rodar env JANGADA_COORDENADOR=persistencia--coordenador \
     JANGADA_ATUACAO_ID="$id_persistente" "$repo_jangada/bin/jangada-hook-$provedor_hook" trabalhando
   conferir "$provedor_hook: hook atrasado não altera atuação encerrada" test "$(cat "$persistente")" = "$antes"
@@ -766,7 +808,7 @@ rodar "$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/persistencia" >/de
 conferir "a nova atuação mantém o histórico encerrado" test "$(cat "$reg/historico/$id_persistente.json")" = "$checkpoint"
 conferir "a identidade da nova atuação difere" test "$(jq -r .atuacao_id "$persistente")" != "$id_persistente"
 antes="$(cat "$persistente")"
-for provedor_hook in claude codex; do
+for provedor_hook in claude codex agy; do
   for id_velho in "$id_persistente" ''; do
     printf '{"prompt":"atrasado"}' | rodar env JANGADA_COORDENADOR=persistencia--coordenador \
       JANGADA_ATUACAO_ID="$id_velho" "$repo_jangada/bin/jangada-hook-$provedor_hook" trabalhando
@@ -972,6 +1014,86 @@ tm kill-session -t =vazia--coordenador
 rodar "$repo_jangada/bin/jangada-coordenador" --finalizar vazia--coordenador >"$tmp/saida" 2>&1
 conferir "finalização sem tarefas informa zero e não cria documentos no projeto" \
   bash -c '[[ "$1" = 0 && "$(cat "$2")" == *"pendências preservadas: 0"* && -z "$(find "$3" -mindepth 1 -print -quit)" ]]' _ "$?" "$tmp/saida" "$tmp/vazia"
+
+# Argon usa o mesmo contexto e mantém a atuação após interrupção.
+mkdir -p "$tmp/argon"
+cmd_argon=("$repo_jangada/bin/jangada-coordenador" --projeto "$tmp/argon" --provedor agy)
+rodar "${cmd_argon[@]}" --modelo invalido >"$tmp/saida" 2>&1
+conferir "Argon: modelo diferente é recusado antes de criar sessão" test "$?" = 2
+conferir "Argon: recusa não cria registro" test ! -e "$reg/argon--coordenador.json"
+printf 'gemini-4-argon-medium' >"$tmp/argon.catalogo"
+rodar "${cmd_argon[@]}" >"$tmp/saida" 2>&1
+conferir "Argon: modelo indisponível recusa sem tentar outro" test "$?" = 1
+conferir "Argon: modelo ausente não cria registro" test ! -e "$reg/argon--coordenador.json"
+rm "$tmp/argon.catalogo"
+for cota_invalida in 0.19 -1 1.1 nan; do
+  printf '%s' "$cota_invalida" >"$tmp/argon.cota"
+  rodar "${cmd_argon[@]}" >"$tmp/saida" 2>&1
+  conferir "Argon: cota $cota_invalida recusa" test "$?" = 1
+  conferir "Argon: cota $cota_invalida não cria registro" test ! -e "$reg/argon--coordenador.json"
+done
+for uso_invalido in '{' '{}' '{"command":{"data":{"groups":[{"buckets":[{"id":"gemini-wtu-weekly","remaining_fraction":1}]}]}}}'; do
+  printf '%s' "$uso_invalido" >"$tmp/argon.uso"
+  rodar "${cmd_argon[@]}" >"$tmp/saida" 2>&1
+  conferir "Argon: cota desconhecida não usa grupo Flash" test "$?" = 1
+done
+rm "$tmp/argon.uso"
+printf '0' >"$tmp/argon.cota"
+rodar "${cmd_argon[@]}" >"$tmp/saida" 2>&1
+conferir "Argon: cota zero recusa antes de criar registro" test "$?" = 1
+conferir "Argon: cota zero não abre sessão" bash -c '! "$@" has-session -t =argon--coordenador 2>/dev/null' _ env TMUX_TMPDIR="$sock" tmux -L jangada
+conferir "Argon: cota zero explica bloqueio sem alternativa" grep -q 'cota.*gemini-4-argon-high' "$tmp/saida"
+printf '1' >"$tmp/argon.cota"
+rodar "${cmd_argon[@]}" >"$tmp/saida" 2>&1
+conferir "Argon: abertura com cliente falso" test "$?" = 0
+conferir "Argon: cliente recebeu argumentos" esperar test -s "$tmp/agy.args"
+conferir "Argon: modelo exato, mesmo contexto e permissões do cliente" \
+  python3 - "$tmp/agy.args" "$prompt_inicial" <<'PYTEST'
+import sys
+from pathlib import Path
+assert Path(sys.argv[1]).read_bytes().split(b'\0')[:-1] == [
+    b'--model', b'gemini-4-argon-high', b'--prompt-interactive', sys.argv[2].encode()]
+PYTEST
+argon_reg="$reg/argon--coordenador.json"
+argon_id="$(jq -r .atuacao_id "$argon_reg")"
+argon_antes="$(cat "$argon_reg")"
+rodar "${cmd_argon[@]}" >"$tmp/saida" 2>&1
+conferir "Argon: repetição preserva registro vivo" test "$?:$(cat "$argon_reg")" = "0:$argon_antes"
+hook_argon() {
+  printf '%s' "$2" | rodar env JANGADA_COORDENADOR=argon--coordenador JANGADA_ATUACAO_ID="$argon_id" "${@:3}" "$repo_jangada/bin/jangada-hook-agy" "$1"
+}
+hook_argon trabalhando '{"modelName":"gemini-4-argon-high"}' >/dev/null
+conferir "Argon: PreInvocation registra trabalhando" test "$(jq -r .estado "$argon_reg")" = trabalhando
+argon_antes="$(cat "$argon_reg")"
+hook_argon concluido '{"fullyIdle":false}' >/dev/null
+conferir "Argon: Stop com filho ativo não conclui" test "$(cat "$argon_reg")" = "$argon_antes"
+for extra in JANGADA_HOOK_DESLIGADO=1 JANGADA_ISOLADO=1 JANGADA_AGY_PAPEL=arquiteto JANGADA_ATUACAO_ID=velha; do
+  hook_argon concluido '{"fullyIdle":true}' "$extra" >/dev/null
+  conferir "Argon: $extra não altera o pai" test "$(cat "$argon_reg")" = "$argon_antes"
+done
+hook_argon concluido '{"fullyIdle":true,"terminationReason":"USER_CANCELED"}' >/dev/null
+conferir "Argon: interrupção do turno conserva ciclo e identidade" \
+  jq -e --arg id "$argon_id" '.estado == "concluido" and .ciclo == "aberta" and .atuacao_id == $id and .ultima_linha == "turno interrompido"' "$argon_reg"
+# A trava da delegação pode estar ocupada; abertura não espera por ela nem a retém.
+exec 8>"$estado/agentes/.agy-execucao.lock"
+flock -n 8
+conferir "Argon: saída voluntária termina o processo" tm send-keys -t =argon--coordenador: x
+conferir "Argon: sessão termina sem fechar ciclo" esperar bash -c '! "$@" has-session -t =argon--coordenador 2>/dev/null' _ env TMUX_TMPDIR="$sock" tmux -L jangada
+rodar "${cmd_argon[@]}" >"$tmp/saida" 2>&1
+conferir "Argon: retoma sem disputar trava de filho" test "$?" = 0
+exec 8>&-
+conferir "Argon: processo retomado iniciou" esperar test -s "$tmp/agy.args"
+conferir "Argon: retomada conserva identidade" test "$(jq -r .atuacao_id "$argon_reg")" = "$argon_id"
+rodar "$repo_jangada/bin/jangada-coordenador" --finalizar argon--coordenador >"$tmp/saida" 2>&1
+conferir "Argon: finalizar vivo recusa" test "$?" = 2
+tm send-keys -t =argon--coordenador: x
+esperar bash -c '! "$@" has-session -t =argon--coordenador 2>/dev/null' _ env TMUX_TMPDIR="$sock" tmux -L jangada
+rodar "$repo_jangada/bin/jangada-coordenador" --finalizar argon--coordenador >"$tmp/saida" 2>&1
+conferir "Argon: finalização voluntária arquiva atuação" test "$?:$(jq -r .ciclo "$argon_reg")" = 0:encerrada
+argon_antes="$(cat "$argon_reg")"
+hook_argon trabalhando '{}' >/dev/null
+conferir "Argon: hook atrasado não reabre ciclo" test "$(cat "$argon_reg")" = "$argon_antes"
+rm "$tmp/argon.cota"
 
 if ((falhas)); then
   echo "$falhas falha(s)"

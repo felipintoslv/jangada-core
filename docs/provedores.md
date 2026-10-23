@@ -22,7 +22,7 @@ provedor fora das listas.
 |---|---|---|
 | `NOME` | Texto | Nome mostrado nas mensagens. Sem ela, vale o nome do arquivo |
 | `TIPO` | `cli` ou `ollama` | Obrigatória. Outros tipos são recusados. Em `cli`, o executável é o nome do arquivo |
-| `FUNCOES` | `principal`, `revisor`, `delegacao`, separadas por espaço | Obrigatória |
+| `FUNCOES` | `principal`, `coordenador`, `revisor`, `delegacao`, separadas por espaço | Obrigatória |
 | `PROTOCOLO_ARG` | Uma opção, como `--append-system-prompt` | Opção que recebe o protocolo da sessão. Sem ela, o agente abre sem protocolo |
 | `MODELO_REVISOR` | Nome de modelo | Modelo da revisão quando `--modelo` não é dado |
 | `RESERVA` | Número | Posição na fila de reserva da revisão. Sem ela, o provedor não entra como reserva |
@@ -32,6 +32,10 @@ provedor fora das listas.
 - `principal`: o provedor aparece em `jangada-agente --capacidades-json` e
   os perfis que usam o comando dele aparecem em `--perfis`. A Central lê as
   duas listas. Só vale com `TIPO=cli`; em outro tipo o arquivo é recusado.
+- `coordenador`: permite o adaptador agy no `jangada-coordenador`, com modelo
+  fixo Argon High e conferência própria de cota. Exige `TIPO=cli`. Não concede
+  `principal` nem comprova o aceite de permissões e coexistência. Claude e Codex
+  mantêm compatibilidade com registros antigos que declaram somente `principal`.
 - `revisor`: o nome é aceito em `--revisor` e em `JANGADA_VALIDAR_REVISOR`.
 - `delegacao`: só descreve. Os destinos do `jangada-delegar` não mudaram.
 
@@ -40,7 +44,7 @@ provedor fora das listas.
 | Provedor | Tipo | Funções | Observação |
 |---|---|---|---|
 | `claude` | `cli` | principal, revisor | Protocolo por `--append-system-prompt`; revisa com `sonnet`; primeira reserva |
-| `agy` | `cli` | revisor, delegacao | Delegação padrão; segunda reserva da revisão |
+| `agy` | `cli` | coordenador, revisor, delegacao | Adaptador Argon com aceite real pendente; delegação padrão; segunda reserva da revisão |
 | `codex` | `cli` | principal, revisor | Protocolo pelo `jangada-codex`; terceira reserva |
 | `ollama` | `ollama` | delegacao | Delegação somente por escolha explícita |
 
@@ -57,3 +61,8 @@ Endereço e modelo do Ollama seguem em `JANGADA_OLLAMA_URL` e
 - A fila (`jangada-task`), a saúde dos provedores e os destinos da
   delegação continuam com as listas próprias.
 - Provedores acessados por chave de API não são aceitos.
+
+Argon e Flash pelo agy pertencem ao mesmo provedor. Argon não comprova
+independência ao revisar Flash. No piloto, solicite revisor forte explícito de
+outro provedor: Claude `opus` ou Codex `gpt-6.1-sol`, sem troca silenciosa.
+Os bloqueios e a matriz de ensaio estão no [ciclo da tarefa](ciclo-da-tarefa.md#coordenador).

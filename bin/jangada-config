@@ -231,9 +231,9 @@ jangada_provedor() {
     ollama) ;;
     *) return 1 ;;
   esac
-  [[ "$PROVEDOR_FUNCOES" =~ ^((principal|revisor|delegacao)( |$))+$ ]] || return 1
+  [[ "$PROVEDOR_FUNCOES" =~ ^((principal|coordenador|revisor|delegacao)( |$))+$ ]] || return 1
   # Só um programa de linha de comando abre sessão.
-  [[ "$PROVEDOR_TIPO" == cli || " $PROVEDOR_FUNCOES " != *" principal "* ]] || return 1
+  [[ "$PROVEDOR_TIPO" == cli || ( " $PROVEDOR_FUNCOES " != *" principal "* && " $PROVEDOR_FUNCOES " != *" coordenador "* ) ]] || return 1
   [[ "$PROVEDOR_PROTOCOLO_ARG" =~ ^(--?[a-z][a-z0-9-]*)?$ ]] || return 1
   [[ "$PROVEDOR_MODELO_REVISOR" =~ ^[A-Za-z0-9_.:-]*$ ]] || return 1
   [[ "$PROVEDOR_RESERVA" =~ ^[0-9]*$ ]] || return 1

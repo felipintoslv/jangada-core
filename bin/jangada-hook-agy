@@ -7,7 +7,7 @@
 #   jangada-hook-agy trabalhando|concluido
 # Recebe o JSON do evento pela entrada padrão.
 #
-# Só age dentro de uma sessão do jangada (JANGADA_SESSAO). O agy não tem
+# Age na tarefa (JANGADA_SESSAO) ou atuação (JANGADA_COORDENADOR). O agy não tem
 # evento de pedido de permissão, então o estado "aguardando" não aparece: um
 # agy parado numa pergunta continua como "trabalhando".
 
@@ -17,10 +17,31 @@ echo '{}'
 {
   evento="${1:-}"
   entrada="$(cat 2>/dev/null || true)"
-  [[ -n "${JANGADA_SESSAO:-}" && -z "${JANGADA_HOOK_DESLIGADO:-}" ]] || exit 0
+  [[ -z "${JANGADA_HOOK_DESLIGADO:-}" ]] || exit 0
+  [[ -n "${JANGADA_SESSAO:-}${JANGADA_COORDENADOR:-}" ]] || exit 0
+  jq -e 'type == "object"' <<<"$entrada" >/dev/null 2>&1 || exit 0
   dir_bin="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   # shellcheck source=bin/jangada-config
   source "$dir_bin/jangada-config"
+
+  if [[ -z "${JANGADA_SESSAO:-}" && -n "${JANGADA_COORDENADOR:-}" ]]; then
+    [[ -z "${JANGADA_ISOLADO:-}${JANGADA_AGY_PAPEL:-}" && -n "${JANGADA_ATUACAO_ID:-}" ]] || exit 0
+    case "$evento" in
+      inicio) evento=iniciado; mensagem="" ;;
+      trabalhando) mensagem="" ;;
+      concluido)
+        [[ "$(jq -r 'if .fullyIdle == false then "false" else "true" end' <<<"$entrada")" != false ]] || exit 0
+        mensagem="turno concluído"
+        if [[ "$(jq -r '.terminationReason // ""' <<<"$entrada")" == USER_CANCELED ]]; then
+          mensagem="turno interrompido"
+        elif [[ -n "$(jq -r '.error // ""' <<<"$entrada")" ]]; then
+          mensagem="erro: $(jq -r '.error | tostring | .[0:100]' <<<"$entrada")"
+        fi ;;
+      *) exit 0 ;;
+    esac
+    JANGADA_COORDENADOR_PROVEDOR=agy "$dir_bin/jangada-coordenador" --registrar "$evento" <<<"$mensagem"
+    exit 0
+  fi
 
   arq="$JANGADA_ESTADO/agentes/$JANGADA_SESSAO.json"
   # Sem o arquivo, a sessão não foi aberta pelo jangada-agente (ou já foi

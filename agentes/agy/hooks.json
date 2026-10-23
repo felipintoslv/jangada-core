@@ -1,5 +1,12 @@
 {
   "jangada": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "@JANGADA_CORE_PATH@/bin/jangada-hook-agy inicio",
+        "timeout": 5
+      }
+    ],
     "PreInvocation": [
       {
         "type": "command",

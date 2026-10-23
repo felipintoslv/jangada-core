@@ -547,15 +547,24 @@ subagente tem `.db` próprio.
 - `$JANGADA_ESTADO/tarefas/*.md`: especificações de tarefa escritas à mão.
 - `$JANGADA_ESTADO/coordenadores/SESSAO.json` (pasta modo 700, a partir de
   17/10/2026): um por coordenador aberto pelo `jangada-coordenador`. Campos
-  `sessao`, `projeto` (raiz absoluta), `provedor`, `estado` (`iniciado`,
+  `sessao`, `projeto` (raiz absoluta), `provedor` (`claude`, `codex`, `agy`), `modelo`, `estado` (`iniciado`,
   `trabalhando`, `aguardando`, `concluido`, `encerrado`), `ultima_linha`
   (até 200 caracteres, sem caracteres de controle), `desde`, `atualizado` e,
   depois de `--finalizar` ou `--fim`, `encerrado` (data). Acrescenta
   `atuacao_id` (texto opaco seguro) e `ciclo` (`aberta` ou `encerrada`),
-  independentes do estado dos hooks. O comando cria; os hooks do Claude e
-  do Codex atualizam `estado`, `ultima_linha` e `atualizado` só com
+  independentes do estado dos hooks. `modelo` indica a escolha solicitada,
+  não atesta execução remota. É opcional no legado; a abertura
+  grava `opus`, `gpt-6-astra` ou `gemini-4-argon-high`, conforme o provedor.
+  Registro com modelo divergente é recusado. O comando cria; os hooks dos três
+  provedores atualizam `estado`, `ultima_linha` e `atualizado` só com
   `JANGADA_COORDENADOR` definido e identidade correspondente em
-  `JANGADA_ATUACAO_ID`, por arquivo temporário e troca atômica. Stop,
+  `JANGADA_ATUACAO_ID`, por arquivo temporário e troca atômica. Novos processos
+  recebem `JANGADA_COORDENADOR_PROVEDOR`; o persistidor recusa evento de outro
+  provedor quando essa origem está presente. O hook agy sempre declara a origem,
+  exige identidade e ignora chamadas auxiliares ou com papel de apoio.
+  SessionStart indica início; PreInvocation indica trabalho; Stop com `fullyIdle=false`
+  não muda o registro. `terminationReason=USER_CANCELED` informa turno interrompido
+  sem fechar a atuação. O agy não fornece a última resposta nesse evento. Stop,
   Interrupt, SessionEnd e saída do processo não encerram o ciclo.
   Registro legado ainda sem identidade aceita hooks sem identidade;
   após a migração, hooks antigos são ignorados. Na mesma pasta, `codex-hooks-confianca.json`

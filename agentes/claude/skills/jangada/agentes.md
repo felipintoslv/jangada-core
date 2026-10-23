@@ -548,6 +548,27 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
 
 ## agy como suporte
 
+- MOD-02, 23/10/2026: adaptador de coordenação agy com modelo explícito
+  `gemini-4-argon-high`, função `coordenador` separada de `principal` e mesma
+  skill. O aceite real continua bloqueado: o dono informou Argon com cota 0%,
+  renovando em `2026-10-24T00:02:15Z`. Não executar sem cota nem usar créditos.
+  Ensaios com falsos não comprovam paridade ou coexistência na conta.
+- A documentação local do cliente lista SessionStart, PreInvocation e Stop,
+  mas não PermissionRequest. PreToolUse não comprova que apareceu uma pergunta;
+  usá-lo para marcar toda ferramenta como espera inventaria estado. A observação
+  fiel da permissão continua requisito pendente; não conceder permissão para simular.
+- Não segure `.agy-execucao.lock` durante a vida do coordenador ou enquanto
+  espera filho: o delegador precisa dessa trava. O adaptador não a toma; os
+  falsos conferem ausência de impasse, sem comprovar suporte remoto concorrente.
+  Antes do aceite, provar pai ocioso/delegando, dois filhos, interrupção,
+  saída abrupta e retomada em projeto sintético e estado separado.
+- O `/usage` distingue `gemini-argon-*` da cota Flash. O coordenador confere
+  somente Argon; o delegador antigo ainda mistura todo prefixo `gemini-`.
+  O apoio arquiteto previsto nesta tarefa ficou bloqueado por essa mistura;
+  não houve participação. Corrigir o delegador é escopo da MOD-03.
+- Hooks agy roteiam atuação por `JANGADA_COORDENADOR` e `JANGADA_ATUACAO_ID`,
+  sem criar registro nem reutilizar conversa global. Chamadas auxiliares usam
+  `JANGADA_HOOK_DESLIGADO=1`; papel de apoio não atualiza coordenador.
 - O agy não abre sessão principal desde 03/10/2026: o `jangada-agente`
   recusa `--agente agy` e perfil com `COMANDO=agy`. Ele atende o
   `jangada-delegar` e a revisão do `jangada-validar`. Sessão antiga do agy

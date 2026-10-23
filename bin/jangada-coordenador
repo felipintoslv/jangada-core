@@ -3,7 +3,7 @@
 # jangada, na pasta do projeto, sem worktree e sem isolamento.
 #
 # Uso:
-#   jangada-coordenador --projeto PASTA [--provedor claude|codex] [--janela]
+#   jangada-coordenador --projeto PASTA [--provedor claude|codex|agy] [--modelo MODELO] [--janela]
 #   jangada-coordenador --fim SESSAO
 #   jangada-coordenador --finalizar SESSAO  após sair voluntariamente
 #   jangada-coordenador --registrar ESTADO   uso interno dos hooks; linha pela entrada
@@ -88,7 +88,7 @@ registrar() {
   [[ -n "$estado$linha" ]] || return 0
   _registrar() {
     registro "$nome" >/dev/null || return 0
-    persistir registrar "$nome" "${JANGADA_ATUACAO_ID:-}" "$estado" "$linha" >/dev/null
+    persistir registrar "$nome" "${JANGADA_ATUACAO_ID:-}" "$estado" "$linha" "${JANGADA_COORDENADOR_PROVEDOR:-}" >/dev/null
   }
   jangada_com_trava_dir "$reg_dir" _registrar && jangada_avisar_interface estado-sessao
   return 0
@@ -121,13 +121,37 @@ executar_codex() {
   exec codex "${args_hooks[@]}" -c "$estado_hooks" --model gpt-6-astra "$(texto_inicial)"
 }
 
+# Consultas auxiliares não pertencem à atuação e não atualizam seus hooks.
+# A cota Argon é separada da Flash; catálogo sozinho não comprova execução.
+conferir_agy() {
+  local raiz="$1" catalogo uso
+  catalogo="$(cd "$raiz" && timeout 65 env -u JANGADA_SESSAO -u JANGADA_COORDENADOR \
+    JANGADA_HOOK_DESLIGADO=1 agy models 2>/dev/null)" \
+    && grep -Fx 'gemini-4-argon-high' <<<"$catalogo" >/dev/null \
+    || { echo "jangada-coordenador: gemini-4-argon-high ausente ou catálogo indisponível; nenhuma sessão criada" >&2; return 1; }
+  uso="$(cd "$raiz" && timeout 65 env -u JANGADA_SESSAO -u JANGADA_COORDENADOR \
+    JANGADA_HOOK_DESLIGADO=1 agy -p /usage --output-format json --print-timeout 60s 2>/dev/null)" \
+    && jq -se 'length == 1 and (.[0] | [.command.data.groups[]?.buckets[]?
+      | select((.id | type == "string") and (.id | startswith("gemini-argon-")))
+      | .remaining_fraction]
+      | length > 0 and all(.[]; type == "number" and isfinite and . >= 0.2 and . <= 1))' \
+      <<<"$uso" >/dev/null 2>&1 \
+    || { echo "jangada-coordenador: cota de gemini-4-argon-high desconhecida ou abaixo de 20%; nenhuma sessão criada, sem alternativa de modelo" >&2; return 1; }
+}
+
 abrir() {
-  local projeto="$1" provedor="$2" janela="$3" raiz repo sessao arq rc
+  local projeto="$1" provedor="$2" janela="$3" modelo="${4:-}" raiz repo sessao arq rc funcao=principal esperado agy_conferido=0
   local -a cmd=()
   [[ -z "${JANGADA_ISOLADO:-}" ]] || erro "o coordenador abre fora do isolamento"
-  case "$provedor" in claude|codex) ;; *) erro "provedor deve ser claude ou codex" 2 ;; esac
-  jangada_provedor "$provedor" && [[ " $PROVEDOR_FUNCOES " == *" principal "* ]] \
-    || erro "provedor $provedor sem a função principal no registro"
+  case "$provedor" in
+    claude) esperado=opus ;;
+    codex) esperado=gpt-6-astra ;;
+    agy) esperado=gemini-4-argon-high; funcao=coordenador ;;
+    *) erro "provedor deve ser claude, codex ou agy" 2 ;;
+  esac
+  [[ -z "$modelo" || "$modelo" == "$esperado" ]] || erro "modelo do coordenador $provedor deve ser $esperado; sem alternativa" 2
+  jangada_provedor "$provedor" && [[ " $PROVEDOR_FUNCOES " == *" $funcao "* ]] \
+    || erro "provedor $provedor sem a função $funcao no registro"
   [[ -d "$projeto" ]] || erro "diretório não encontrado: $projeto"
   raiz="$(realpath "$projeto")"
   raiz="$(git -C "$raiz" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$raiz")"
@@ -140,6 +164,8 @@ abrir() {
 
   if [[ "$provedor" == codex ]]; then
     cmd=("$JANGADA_CORE_PATH/bin/jangada-coordenador" --executar-codex)
+  elif [[ "$provedor" == agy ]]; then
+    cmd=("$PROVEDOR_COMANDO" --model gemini-4-argon-high --prompt-interactive "$(texto_inicial)")
   else
     cmd=("$PROVEDOR_COMANDO" --model opus "$(texto_inicial)")
   fi
@@ -180,6 +206,11 @@ abrir() {
         return 2
       fi
     fi
+    # Consulta remota só depois de soltar a trava dos registros: os hooks
+    # de outras atuações não podem esperar pelo catálogo ou pela cota.
+    if [[ "$provedor" == agy ]] && ((!agy_conferido)); then
+      return 11
+    fi
     local dados atuacao
     dados="$(persistir abrir "$sessao" "$raiz" "$provedor")" || return 2
     atuacao="$(jq -r .atuacao_id <<<"$dados")"
@@ -196,13 +227,18 @@ abrir() {
 
     # A opção entra na mesma fila da criação, antes de tratar a saída do filho.
     # É local à janela nova: falhas ficam visíveis e saída normal fecha o painel.
-    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" -e "JANGADA_ATUACAO_ID=$atuacao" -e "PATH=$PATH" "${cmd[@]}" \
+    if ! "${JANGADA_TMUX[@]}" new-session -d -s "$sessao" -c "$raiz" -e "JANGADA_COORDENADOR=$sessao" -e "JANGADA_ATUACAO_ID=$atuacao" -e "JANGADA_COORDENADOR_PROVEDOR=$provedor" -e "JANGADA_HOOK_DESLIGADO=" -e "JANGADA_AGY_PAPEL=" -e "PATH=$PATH" "${cmd[@]}" \
       \; set-option -w -t "=$sessao:" remain-on-exit failed 9<&-; then
       return 1
     fi
   }
   rc=0
   jangada_com_trava_dir "$reg_dir" _abrir || rc=$?
+  if ((rc == 11)); then
+    conferir_agy "$raiz" || return 1
+    agy_conferido=1; rc=0
+    jangada_com_trava_dir "$reg_dir" _abrir || rc=$?
+  fi
   if ((rc == 10)); then
     focar "$sessao"
     return 0
@@ -257,11 +293,12 @@ fim() {
   echo "coordenador encerrado: $sessao; pendências preservadas: $(jq -r .pendencias <<<"$resultado")"
 }
 
-projeto=""; provedor=claude; janela=0; modo=""; alvo=""
+projeto=""; provedor=claude; modelo=""; janela=0; modo=""; alvo=""
 while (($#)); do
   case "$1" in
     --projeto) projeto="${2:?}"; modo="${modo:-abrir}"; shift 2 ;;
     --provedor) provedor="${2:?}"; shift 2 ;;
+    --modelo) modelo="${2:?}"; shift 2 ;;
     --janela) janela=1; shift ;;
     --fim) modo=fim; alvo="${2:?}"; shift 2 ;;
     --finalizar) modo=finalizar; alvo="${2:?}"; shift 2 ;;
@@ -273,7 +310,7 @@ while (($#)); do
 done
 
 case "$modo" in
-  abrir) abrir "$projeto" "$provedor" "$janela" ;;
+  abrir) abrir "$projeto" "$provedor" "$janela" "$modelo" ;;
   fim|finalizar) fim "$alvo" "$modo" ;;
   registrar) registrar "$alvo" || true; exit 0 ;;
   codex) executar_codex ;;

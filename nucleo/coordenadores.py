@@ -17,7 +17,8 @@ from sessoes import LIMITE, eh_sessao, nome_valido  # noqa: E402
 REGISTROS_MAX = 4096
 LINHA_MAX = 200
 ESTADOS = ('iniciado', 'trabalhando', 'aguardando', 'concluido', 'encerrado')
-PROVEDORES = ('claude', 'codex')
+MODELOS = {'claude': 'opus', 'codex': 'gpt-6-astra', 'agy': 'gemini-4-argon-high'}
+PROVEDORES = tuple(MODELOS)
 ANSI = re.compile('\x1b\\[[0-?]*[ -/]*[@-~]')
 CONTROLE = re.compile('[\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]')
 IDENTIDADE = re.compile(r'[A-Za-z0-9_-]{16,128}')
@@ -147,6 +148,8 @@ def ler_registro(fd, sessao):
     if (not isinstance(dados, dict) or dados.get('sessao') != sessao
             or not (texto(dados, 'projeto') or '').startswith('/')
             or dados.get('provedor') not in PROVEDORES
+            or ('modelo' in dados and dados['modelo'] != MODELOS.get(dados.get('provedor')))
+            or (dados.get('provedor') == 'agy' and dados.get('modelo') != MODELOS['agy'])
             or (dados.get('atuacao_id') is not None and not identidade(dados))
             or ('ciclo' in dados and dados['ciclo'] not in ('aberta', 'encerrada'))
             or ('estado' in dados and dados['estado'] not in ESTADOS)
@@ -246,8 +249,9 @@ def persistir(estado, modo, sessao, argumentos):
         original = dados.copy() if dados is not None else None
         agora = datetime.now().astimezone().isoformat(timespec='seconds')
         if modo == 'registrar':
-            esperado, situacao, linha = argumentos
-            if (ciclo(dados) == 'encerrada' or (identidade(dados) or '') != esperado):
+            esperado, situacao, linha, *provedor_hook = argumentos
+            if (ciclo(dados) == 'encerrada' or (identidade(dados) or '') != esperado
+                    or (provedor_hook and provedor_hook[0] and provedor_hook[0] != dados['provedor'])):
                 return None
             if situacao not in ESTADOS + ('',):
                 raise ValueError('Estado de hook inválido.')
@@ -281,7 +285,8 @@ def persistir(estado, modo, sessao, argumentos):
             if dados is None:
                 dados = dict(sessao=sessao, projeto=projeto, desde=agora,
                              atuacao_id=secrets.token_hex(16))
-            dados.update(provedor=provedor, ciclo='aberta', estado='iniciado', atualizado=agora)
+            dados.update(provedor=provedor, modelo=MODELOS[provedor],
+                         ciclo='aberta', estado='iniciado', atualizado=agora)
             dados.setdefault('ultima_linha', '')
         else:
             raise ValueError('Operação interna desconhecida.')

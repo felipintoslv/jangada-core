@@ -41,7 +41,7 @@ mas registra a aprovação como `sujo`, sem avançar o ponto da próxima entrega
 A skill `coordenador` define o papel da sessão que conversa com o dono,
 explora problemas e alternativas, transforma decisões autorizadas em tarefas,
 acompanha e confere a entrega antes de integrar; explorar não autoriza implementar.
-O coordenador pode ser o Claude ou o Codex. A skill vale para qualquer
+O coordenador pode ser Claude, Codex ou agy com Argon. A skill vale para qualquer
 projeto e roda numa sessão comum, fora do isolamento, aberta na pasta do
 projeto. No Codex, abrir tarefa, ler o estado, verificar e integrar passam
 pela aprovação do dono na tela. O texto fica em
@@ -52,18 +52,56 @@ até a skill ser chamada.
 - Codex: `$coordenador` na mensagem, ou o mesmo pedido em texto. Conferido
   no Codex 0.162.1, que lê `~/.codex/skills/coordenador/SKILL.md` pelo link.
 
-Ao abrir uma tarefa, a skill passa `--coordenador claude` ou
-`--coordenador codex` ao `jangada-agente`, que grava o nome no campo
+Ao abrir uma tarefa, a skill passa `--coordenador claude`,
+`--coordenador codex` ou `--coordenador agy` ao `jangada-agente`, que grava o nome no campo
 `coordenador` do registro da sessão. Sem a opção, vale `JANGADA_COORDENADOR`
 e, sem ela, "dono"; registro sem o campo é lido como "dono". O nome é só o
 que foi declarado: a Central de Tarefas e o grafo do painel o mostram ao lado
 do autor e do revisor, e ele não muda nenhuma permissão.
 
-O `jangada-coordenador --projeto PASTA --provedor claude|codex` mantém um
+O `jangada-coordenador --projeto PASTA --provedor claude|codex|agy` mantém um
 coordenador por projeto. Novas sessões usam explicitamente o modelo forte:
-Claude `opus`, Codex `gpt-6-astra`, conforme conferência de 18/10/2026.
+Claude `opus`, Codex `gpt-6-astra`, agy `gemini-4-argon-high`.
 A escolha econômica de autor e revisor não altera o coordenador. O comando
-não consulta a rede nem substitui silenciosamente o modelo por outro mais fraco.
+não substitui silenciosamente o modelo. Claude e Codex não consultam a rede
+na abertura. O adaptador agy consulta catálogo e cota antes de criar sessão.
+
+No agy, `--modelo` só aceita `gemini-4-argon-high`; qualquer outro nome recusa.
+O catálogo precisa informar esse identificador numa linha inteira. Saída desconhecida
+ou consulta sem sucesso recusa antes de alterar a atuação. `/usage` precisa
+informar cota válida de pelo menos 20% em todas as janelas `gemini-argon-*`;
+a cota Flash não entra nessa decisão. Cota desconhecida, inválida ou insuficiente
+recusa sem créditos nem outro modelo. Isso confere disponibilidade declarada,
+não comprova a execução do modelo. Erro posterior do cliente permanece no painel.
+A função `coordenador` do registro é separada de `principal`; adicionar agy
+não libera autor agy no `jangada-agente`.
+
+A skill e o texto inicial são os mesmos para os três provedores. O agy recebe
+`--model gemini-4-argon-high --prompt-interactive TEXTO`, sem retomar conversa
+global nem retirar confirmações do cliente. Instalação e troca da sessão atual
+continuam ações do dono. A atualização do produto só prepara a ligação da skill
+e os hooks; não altera a instalação durante os testes.
+
+**Aceite real pendente da MOD-02:** os ensaios usam clientes falsos, tmux privado
+e estado separado. Em 23/10/2026 o dono informou cota Argon de 0%, com renovação
+em `2026-10-24T00:02:15Z`. Nenhuma execução real Argon foi feita nessa condição.
+O apoio arquiteto Flash também ficou bloqueado: o delegador agrupa cotas Gemini
+e pode recusar Flash por cota Argon; a correção pertence à MOD-03.
+Não houve contribuição de arquiteto a aproveitar.
+
+A paridade de permissões e coexistência ainda não está demonstrada. A documentação
+do cliente não oferece `PermissionRequest`: o adaptador não inventa `aguardando`
+a partir de `PreToolUse`. A pergunta continua no terminal, sem observação fiel
+pelo Core. Isso bloqueia o aceite de paridade até uma solução verificável.
+Não se deve usar este adaptador como capacidade já aceita para coordenar produção.
+
+A abertura não toma `.agy-execucao.lock`; tampouco os hooks a retêm até Stop.
+Os filhos continuam disputando a trava do delegador. Isso evita o impasse
+pai esperando filho, mas não comprova coexistência na mesma conta. A prova real
+exige projeto sintético, estado separado, cota disponível e teto previamente aprovado:
+Argon ocioso com Flash, Argon delegando, dois Flash concorrentes, interrupção
+com filho, saída abrupta, liberação e retomada. Cota baixa, resultado parcial
+e consumo desconhecido devem permanecer visíveis. Não interrompa sessões existentes.
 
 Se a sessão tmux estiver viva com registro regular válido do mesmo projeto
 e provedor, o comando informa e foca a sessão atual. Outro provedor recebe
@@ -93,7 +131,8 @@ O `--fim` conserva sua semântica existente e não participa dessa passagem.
 
 A atuação tem `ciclo=aberta|encerrada`, independente do estado dos hooks.
 Resposta concluída, Stop, Interrupt, SessionEnd e reinício não encerram o
-ciclo. Retome pelo botão Retomar da Central ou pelo comando de abertura;
+ciclo. Retome pelo comando de abertura; o botão Retomar da Central atende Claude e Codex.
+O suporte agy na Central depende da MOD-05.
 não há serviço de login ou início automático. A consulta versão 1 acrescenta
 `ciclo`, `atuacao_id` e `retomavel`, verdadeiro para ciclo aberto sem sessão
 viva. A consulta não migra registros. Legado sem data `encerrado` válida
