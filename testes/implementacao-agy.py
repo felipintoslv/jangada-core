@@ -103,7 +103,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
             except OSError:
                 self.skipTest("/var/tmp sem escrita")
             self.addCleanup(shutil.rmtree, estado, ignore_errors=True)
-            self.env.update(JANGADA_ESTADO=str(estado), XDG_STATE_HOME=str(estado))
+            self.env.update(JANGADA_ESTADO=str(estado / "jangada"), XDG_STATE_HOME=str(estado))
         base = Path(self.env["JANGADA_ESTADO"]) / "contas"
         for i, saldo in enumerate(saldos, 1):
             pasta = base / f"conta{i}"
