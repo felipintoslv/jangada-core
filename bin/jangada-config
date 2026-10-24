@@ -255,7 +255,10 @@ try:
         raise ValueError("esperada lista não vazia")
     nomes, pastas = set(), []
     principal = casa / ".gemini/antigravity-cli"
-    area = arquivo.parent.resolve()
+    area = arquivo.parent
+    # Um link em qualquer parte do caminho da área desviaria as escritas para fora dela.
+    if area.resolve() != area:
+        raise ValueError("a pasta de contas do estado não pode ter links no caminho")
     for conta in contas:
         nome, pasta, argon = conta["nome"], conta["pasta"], conta["argon"]
         if not isinstance(nome, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", nome) or nome in nomes:
@@ -465,6 +468,14 @@ jangada_agy_ajustar_confianca() {
   fi
   jangada_conta_agy || return 1
   local conf_agy="${JANGADA_AGY_SETTINGS:-$CONTA_AGY_PASTA/settings.json}"
+  # Com catálogo, a escrita só vai ao settings.json da conta escolhida ou ao
+  # caminho da caixa, onde ela está montada, nunca a outro arquivo.
+  if [[ -f "$JANGADA_ESTADO/contas/agy.json" && -n "${JANGADA_AGY_SETTINGS:-}" \
+        && "$conf_agy" != "$CONTA_AGY_PASTA/settings.json" \
+        && "$conf_agy" != "$HOME/.gemini/antigravity-cli/settings.json" ]]; then
+    echo "JANGADA_AGY_SETTINGS fora da conta escolhida do agy: $conf_agy" >&2
+    return 1
+  fi
   # A pasta do arquivo é gravável pelo agente isolado: um link ali levaria
   # esta escrita, feita também de fora do isolamento, a outro arquivo.
   [[ -f "$conf_agy" && ! -L "$conf_agy" && -w "$conf_agy" && -n "$caminho" ]] || return 0

@@ -631,6 +631,47 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn(f"principal\t{principal}\tfalse", p.stdout)
 
+    def test_catalogo_recusa_pasta_de_contas_que_e_link(self):
+        contas, catalogo = self.contas()
+        externa = self.tmp / "externa"
+        shutil.copytree(catalogo.parent, externa)
+        shutil.rmtree(catalogo.parent)
+        catalogo.parent.symlink_to(externa)
+        valor = json.loads(catalogo.read_text())
+        for conta in valor:
+            conta["pasta"] = str(externa / conta["nome"])
+        catalogo.write_text(json.dumps(valor))
+        erro = self.delegar_conta(sucesso=False)
+        self.assertIn("catálogo de contas do agy inválido", erro.stderr)
+        self.assertIn("links no caminho", erro.stderr)
+
+    def test_confianca_com_catalogo_nao_grava_em_settings_externo(self):
+        contas, _ = self.contas()
+        externo = self.tmp / "externo.json"
+        externo.write_text('{"trustedWorkspaces": []}')
+        comando = ["bash", "-c", 'source "$JANGADA_CORE_PATH/bin/jangada-config"; '
+                   'jangada_agy_ajustar_confianca adicionar "$1"', "teste", str(self.raiz)]
+        p = subprocess.run(comando, env=dict(self.env, JANGADA_AGY_SETTINGS=str(externo)),
+                           capture_output=True, text=True)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("fora da conta escolhida", p.stderr)
+        self.assertEqual(externo.read_text(), '{"trustedWorkspaces": []}')
+        self.assertFalse(Path(str(externo) + ".jangada-orig").exists())
+        # Nem o de outra conta do catálogo: só o da escolhida.
+        outra = Path(contas[1]["pasta"]) / "settings.json"
+        outra.write_text('{"trustedWorkspaces": []}')
+        p = subprocess.run(comando, env=dict(self.env, JANGADA_AGY_SETTINGS=str(outra), JANGADA_AGY_CONTA="conta1"),
+                           capture_output=True, text=True)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(outra.read_text(), '{"trustedWorkspaces": []}')
+        # O settings.json da conta escolhida continua aceito.
+        propria = Path(contas[0]["pasta"]) / "settings.json"
+        propria.write_text('{"trustedWorkspaces": []}')
+        p = subprocess.run(comando, env=dict(self.env, JANGADA_AGY_SETTINGS=str(propria)),
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(propria.read_text())["trustedWorkspaces"], [str(self.raiz)])
+
     def test_migracao_recusa_sem_terminal_e_preserva_origem(self):
         origem = self.tmp / "estado/catamara/contas"
         for nome in ("conta1", "conta2"):

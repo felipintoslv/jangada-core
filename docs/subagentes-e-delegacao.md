@@ -366,8 +366,8 @@ flowchart TD
 O catálogo opcional `$JANGADA_ESTADO/contas/agy.json` contém uma lista:
 
 ```json
-[{"nome":"argon","pasta":"/caminho/absoluto/conta1","argon":true},
- {"nome":"flash","pasta":"/caminho/absoluto/conta2","argon":false}]
+[{"nome":"argon","pasta":"/home/USUARIO/.local/state/jangada/contas/argon","argon":true},
+ {"nome":"flash","pasta":"/home/USUARIO/.local/state/jangada/contas/flash","argon":false}]
 ```
 
 Sem esse arquivo, permanece a conta implícita `principal`, em
@@ -376,7 +376,8 @@ Nomes são únicos; pastas precisam ser absolutas, sem links ou sobreposição.
 Cada pasta é `~/.gemini/antigravity-cli` (a principal) ou fica dentro de
 `$JANGADA_ESTADO/contas/`, onde a importação cria as contas. Outro lugar
 recusa o catálogo: o jangada grava na pasta da conta (confiança, `bin`), e só
-essas duas áreas já estão na regra 1.
+essas duas áreas já estão na regra 1. A pasta `contas` não pode ser link, e
+com catálogo a escrita de confiança só vai ao `settings.json` da conta escolhida.
 O arquivo é lido como dados. O dono o configura fora da sessão isolada.
 
 `jangada-delegar PAPEL "pedido" --conta NOME` fixa uma conta. Sem a opção,
