@@ -457,9 +457,9 @@ def dominios_pesquisa(urls):
         partes = urlsplit(url)
         host = partes.hostname or ""
         if (partes.scheme != "https" or partes.username is not None or partes.password is not None or partes.port is not None
-                or not re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)+", host)
-                or host.endswith(".localhost") or host == "localhost"
-                or all(c.isdecimal() or c == "." for c in host)):
+                or not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", host)
+                or any(host == sufixo or host.endswith("." + sufixo)
+                       for sufixo in ("localhost", "local", "internal", "lan", "home.arpa"))):
             raise ValueError("pesquisa exige URL HTTPS de domínio público, sem credenciais ou porta")
         dominios.add(host)
     if not dominios:
@@ -541,7 +541,6 @@ def pesquisa(argumentos):
     if (registro.parent != esperado or esperado.resolve() != esperado
             or registro.exists() or registro.is_symlink()):
         raise ValueError("registro da pesquisa fora do estado ou já existente")
-    registro.mkdir(mode=0o700)
     casa = Path.home()
     cli = casa / ".gemini/antigravity-cli"
     cfg = casa / ".gemini/config"
@@ -551,6 +550,7 @@ def pesquisa(argumentos):
         raise ValueError("pesquisa exige confiança existente na pasta")
     permissoes = {"allow": ["read_url(" + d + ")" for d in dominios],
                   "deny": settings.get("permissions", {}).get("deny", [])}
+    registro.mkdir(mode=0o700)
     # As fontes das montagens somente leitura ficam fora da pasta gravável.
     with tempfile.TemporaryDirectory(prefix="apoio-runtime-", dir=esperado) as temporaria:
         runtime = Path(temporaria)

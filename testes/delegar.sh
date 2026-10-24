@@ -408,6 +408,18 @@ for papel_privado in leitor redator arquiteto; do
     '.codigo_saida == 0 and (.registro_ferramentas | length) > 0 and .fontes_autorizadas == [$fonte]' "$tmp/saida"
   conferir "$papel_privado: somente o conteúdo fornecido chega ao pedido" grep -q '2: segunda linha inteira' "$tmp/falso/agy.args"
 done
+ISOLADO=1 delegar --permitir-remoto arquiteto "avalie" --destino agy \
+  --modelo gemini-3.8-flash-high --json --arquivos "$tmp/projeto/subpasta"
+conferir "arquiteto: pasta recusa antes do modelo" jqok -e \
+  '.codigo_saida == 4 and .motivo_codigo == "entrada_invalida" and .chamadas_executor == 0' "$tmp/saida"
+conferir "arquiteto: pasta não chega ao agy" test ! -e "$tmp/falso/agy.args"
+python3 -c 'import pathlib,sys; pathlib.Path(sys.argv[1]).write_text("x" * (97 * 1024))' "$tmp/projeto/grande.txt"
+ISOLADO=1 delegar --permitir-remoto arquiteto "avalie" --destino agy \
+  --modelo gemini-3.8-flash-high --json --arquivos "$tmp/projeto/grande.txt"
+conferir "arquiteto: pedido e fontes acima de 96 KiB recusam antes do modelo" jqok -e \
+  '.codigo_saida == 4 and .motivo_codigo == "entrada_invalida" and .chamadas_executor == 0' "$tmp/saida"
+conferir "arquiteto: excesso informa o limite sem chamar agy" bash -c \
+  'grep -q "96 KiB" "$1" && [ ! -e "$2" ]' _ "$tmp/saida" "$tmp/falso/agy.args"
 ISOLADO=1 SUBPASTA=subpasta delegar --permitir-remoto leitor "leia" --destino agy --json \
   --arquivos 'literal.txt:1-1'
 conferir "fonte literal: sufixo de faixa existente vale inteiro" grep -q \

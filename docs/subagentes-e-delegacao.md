@@ -266,7 +266,9 @@ jangada-delegar pesquisador "Busque e abra a documentação oficial" \
 Leitor e redator remotos exigem fontes explícitas. O controlador extrai somente
 o texto autorizado, numerado por linha ou página, e entrega ao papel privado
 sem ferramentas ou MCP. O arquiteto com fontes explícitas usa a mesma cópia de
-texto, evitando buscas fora dos arquivos autorizados. A faixa de linhas vale para texto; PDF exige o arquivo
+texto, evitando buscas fora dos arquivos autorizados. Aceita somente arquivos
+regulares e faixas de linhas; pastas são recusadas antes de chamar o modelo.
+A faixa de linhas vale para texto; PDF exige o arquivo
 inteiro e `pdftotext`. Fontes com links, conteúdo inválido ou acima de 2 MiB são
 recusadas. Pedido e texto extraído juntos têm limite de 96 KiB; delimite uma
 faixa menor quando necessário. A pasta do projeto e a configuração pessoal ficam ocultas no executor.

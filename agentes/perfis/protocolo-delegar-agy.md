@@ -13,8 +13,12 @@
    - `pesquisador` usa `jangada-delegar pesquisador "pedido" --destino agy
      --permitir-remoto --modelo gemini-3.8-flash-high --url URL_OFICIAL`,
      sem `--arquivos`. Exija busca, abertura, URL, data e trecho sustentado.
+   - `arquiteto` usa `--destino agy --permitir-remoto --arquivos FONTES`.
+     Aceita somente arquivos regulares e faixas `ARQUIVO:INI-FIM`, sem
+     ferramentas ou MCP. Pastas são recusadas.
+     Pedido e fontes extraídas juntos têm limite de 96 KiB; delimite as fontes.
    - Os demais papéis (explorador, verificador, auditor,
-     arquiteto, designer, otimizador, supervisor):
+     designer, otimizador, supervisor):
      `jangada-delegar PAPEL "pedido" --destino agy --permitir-remoto`, com
      escopo e fontes autorizados nesta tarefa em `--arquivos`. A preferência
      global não autoriza compartilhar dados confidenciais.

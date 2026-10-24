@@ -151,14 +151,42 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
             with self.assertRaisesRegex(ValueError, "confiança existente"):
                 modulo.pesquisa(argumentos)
             chamada.assert_called_once()
+            self.assertFalse(Path(argumentos[1]).exists())
         self.assertEqual(json.loads(padrao.read_text()), original)
         self.assertEqual(json.loads(alternativo.read_text()), {"trustedWorkspaces": []})
 
+    def test_pesquisa_nao_cria_registro_com_settings_invalidos(self):
+        settings = self.tmp / "settings-invalido.json"
+        ambiente = dict(self.env, JANGADA_AGY_SETTINGS=str(settings))
+        registros = Path(self.env["JANGADA_ESTADO"]) / "agentes"
+        registros.mkdir(parents=True)
+        for i, conteudo in enumerate((None, "{", json.dumps({"trustedWorkspaces": []}))):
+            registro = registros / ("pesquisa-negada-" + str(i))
+            with self.subTest(conteudo=conteudo):
+                if conteudo is not None:
+                    settings.write_text(conteudo)
+                with mock.patch.dict(os.environ, ambiente, clear=True), \
+                        mock.patch.object(Path, "home", return_value=self.casa), \
+                        mock.patch.object(Path, "cwd", return_value=self.raiz), \
+                        mock.patch.object(modulo.subprocess, "run") as chamada:
+                    with self.assertRaises((ValueError, OSError)):
+                        modulo.pesquisa(["--registro", str(registro), "--url", "https://ai.google.dev/docs",
+                                         "--", "agy", "-p", "Leia"])
+                    chamada.assert_not_called()
+                self.assertFalse(registro.exists())
+
     def test_pesquisa_rejeita_enderecos_locais_credenciais_e_portas(self):
         for url in ("http://ai.google.dev", "https://localhost/x", "https://127.0.0.1/",
+                    "https://nas-casa/", "https://roteador-admin/", "https://impressora.local/",
+                    "https://git.internal/", "https://servidor.lan/", "https://host.home.arpa/",
+                    "https://home.arpa/", "https://sub.localhost/", "https://[::1]/",
+                    "https://[2001:db8::1]/", "https://dominio.123/", "https://-site.example/",
                     "https://u:p@ai.google.dev/", "https://ai.google.dev:443/", "file:///etc/passwd"):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 modulo.dominios_pesquisa([url])
+
+    def test_pesquisa_aceita_subdominio_publico_com_hifen(self):
+        self.assertEqual(modulo.dominios_pesquisa(["https://DOCS-API.Example.com/guia"]), ["docs-api.example.com"])
 
     def test_pesquisa_le_so_corpo_baixado_da_propria_conversa(self):
         corpo = self.casa / ".gemini/antigravity-cli/brain/conversa/.system_generated/steps/4/content.md"
