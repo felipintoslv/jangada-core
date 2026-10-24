@@ -240,6 +240,60 @@ jangada_provedor() {
   [[ -n "$PROVEDOR_NOME" ]] || PROVEDOR_NOME="$1"
 }
 
+# Catálogo de dados, nunca código. Pastas distintas não podem se sobrepor nem
+# usar links: ocultar um nome alternativo não oculta o destino de um link.
+jangada_contas_agy() {
+  python3 -I - "$JANGADA_ESTADO/contas/agy.json" "$HOME" <<'PY'
+import json, os, pathlib, re, sys
+try:
+    arquivo, casa = map(pathlib.Path, sys.argv[1:])
+    if not arquivo.exists() and not arquivo.is_symlink():
+        print("principal\t" + str(casa / ".gemini/antigravity-cli") + "\ttrue")
+        sys.exit()
+    contas = json.loads(arquivo.read_text())
+    if not isinstance(contas, list) or not contas:
+        raise ValueError("esperada lista não vazia")
+    nomes, pastas = set(), []
+    for conta in contas:
+        nome, pasta, argon = conta["nome"], conta["pasta"], conta["argon"]
+        if not isinstance(nome, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", nome) or nome in nomes:
+            raise ValueError("nome inválido ou repetido")
+        if not isinstance(pasta, str) or any(ord(c) < 32 for c in pasta) or type(argon) is not bool:
+            raise ValueError("pasta ou indicação de Argon inválida")
+        p = pathlib.Path(pasta)
+        if not p.is_absolute() or str(p.resolve()) != pasta or ":" in pasta:
+            raise ValueError("pasta precisa ser absoluta, sem links ou dois-pontos")
+        # Uma conta não pode encobrir a casa nem a pasta de estado inteira.
+        protegidos = [casa, arquivo.parent, pathlib.Path.cwd(), pathlib.Path(os.environ["JANGADA_CORE_PATH"])]
+        if any(q == p or q.is_relative_to(p) for q in protegidos):
+            raise ValueError("pasta da conta encobre o projeto ou o estado")
+        if any(p == q or p.is_relative_to(q) or q.is_relative_to(p) for q in pastas):
+            raise ValueError("pastas de contas sobrepostas")
+        nomes.add(nome)
+        pastas.append(p)
+    for conta in contas:
+        print(conta["nome"], conta["pasta"], str(conta["argon"]).lower(), sep="\t")
+except (OSError, ValueError, KeyError, TypeError) as erro:
+    sys.exit("catálogo de contas do agy inválido: " + str(erro))
+PY
+}
+
+# Preenche CONTA_AGY_{NOME,PASTA,ARGON}. Sem catálogo, preserva a conta antiga.
+# shellcheck disable=SC2034  # CONTA_AGY_* são lidas por quem carrega este arquivo
+jangada_conta_agy() {
+  local nome="${1:-${JANGADA_AGY_CONTA:-}}" contas n p a
+  contas="$(jangada_contas_agy)" || return 1
+  [[ -n "$nome" ]] || nome="${contas%%$'\t'*}"
+  while IFS=$'\t' read -r n p a; do
+    if [[ "$n" == "$nome" ]]; then
+      CONTA_AGY_NOME="$n"; CONTA_AGY_PASTA="$p"; CONTA_AGY_ARGON="$a"
+      return 0
+    fi
+  done <<<"$contas"
+  echo "conta do agy inexistente: $nome" >&2
+  return 1
+}
+
 # Nomes dos provedores válidos do registro; com FUNCAO, só os que a declaram.
 jangada_provedores() {
   local _a _n
@@ -383,7 +437,9 @@ _jangada_agy_guardar_original() {
 # simbólico por onde a pasta foi aberta, então vale o caminho resolvido ou o
 # original.
 jangada_agy_confia() {
-  local conf_agy="${JANGADA_AGY_SETTINGS:-$HOME/.gemini/antigravity-cli/settings.json}"
+  local CONTA_AGY_PASTA
+  jangada_conta_agy || return 1
+  local conf_agy="${JANGADA_AGY_SETTINGS:-$CONTA_AGY_PASTA/settings.json}"
   jq -e --arg w "$(realpath "$1" 2>/dev/null || echo "$1")" --arg o "$1" \
     '(.trustedWorkspaces // []) as $t | ($t | index($w)) or ($t | index($o))' "$conf_agy" >/dev/null 2>&1
 }
@@ -392,7 +448,17 @@ jangada_agy_confia() {
 # Mantém travas e arquivos de trabalho isolados em JANGADA_ESTADO e preserva permissões.
 jangada_agy_ajustar_confianca() {
   local modo="$1" caminho="$2"
-  local conf_agy="${JANGADA_AGY_SETTINGS:-$HOME/.gemini/antigravity-cli/settings.json}"
+  local CONTA_AGY_PASTA
+  if [[ "$modo" == remover && -f "$JANGADA_ESTADO/contas/agy.json" && -z "${JANGADA_AGY_CONTA:-}${JANGADA_AGY_SETTINGS:-}" ]]; then
+    local contas nome _pasta _argon
+    contas="$(jangada_contas_agy)" || return 1
+    while IFS=$'\t' read -r nome _pasta _argon; do
+      (export JANGADA_AGY_CONTA="$nome"; jangada_agy_ajustar_confianca "$modo" "$caminho") || return 1
+    done <<<"$contas"
+    return 0
+  fi
+  jangada_conta_agy || return 1
+  local conf_agy="${JANGADA_AGY_SETTINGS:-$CONTA_AGY_PASTA/settings.json}"
   # A pasta do arquivo é gravável pelo agente isolado: um link ali levaria
   # esta escrita, feita também de fora do isolamento, a outro arquivo.
   [[ -f "$conf_agy" && ! -L "$conf_agy" && -w "$conf_agy" && -n "$caminho" ]] || return 0
@@ -468,6 +534,21 @@ _jangada_agy_worktree_da_raiz() {
 jangada_agy_sincronizar_worktree() {
   local raiz worktree
   [[ -z "${JANGADA_ISOLADO:-}" ]] || return 5
+  if [[ -f "$JANGADA_ESTADO/contas/agy.json" && -z "${JANGADA_AGY_CONTA:-}${JANGADA_AGY_SETTINGS:-}" ]]; then
+    local contas nome _pasta _argon r alguma=0
+    contas="$(jangada_contas_agy)" || return 4
+    while IFS=$'\t' read -r nome _pasta _argon; do
+      r=0
+      (export JANGADA_AGY_CONTA="$nome"; jangada_agy_sincronizar_worktree "$1" "$2") || r=$?
+      case "$r" in
+        0) alguma=1 ;;
+        2) ;;
+        *) return "$r" ;;
+      esac
+    done <<<"$contas"
+    ((alguma)) || return 2
+    return 0
+  fi
   raiz="$(realpath -e -- "$1" 2>/dev/null)" && worktree="$(realpath -e -- "$2" 2>/dev/null)" || return 3
   [[ "$raiz" != "$worktree" ]] && _jangada_agy_worktree_da_raiz "$raiz" "$worktree" || return 3
   jangada_agy_confia "$raiz" || return 2

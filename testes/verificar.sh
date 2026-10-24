@@ -18,14 +18,14 @@ passo "capacidades da máquina"
 testes/capacidades.sh || falha "falta capacidade exigida em JANGADA_TESTES_EXIGIR"
 
 passo "sintaxe bash"
-for f in install.sh install/*.sh bin/* testes/*.sh; do
+for f in install.sh install/*.sh migrations/*.sh bin/* testes/*.sh; do
   [[ -f "$f" ]] || continue
   bash -n "$f" || falha "bash -n: $f"
 done
 
 passo "shellcheck"
 if command -v shellcheck >/dev/null; then
-  shellcheck -x -S warning install.sh install/*.sh bin/* testes/*.sh || falha "shellcheck"
+  shellcheck -x -S warning install.sh install/*.sh migrations/*.sh bin/* testes/*.sh || falha "shellcheck"
 else
   echo "shellcheck ausente; etapa ignorada"
 fi

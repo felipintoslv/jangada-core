@@ -85,6 +85,233 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
         p.write_text("#!/usr/bin/python3\n" + codigo)
         p.chmod(0o755)
 
+
+    def contas(self, saldos=(0.4, 0.8)):
+        capacidade = subprocess.run(["/usr/bin/bwrap", "--ro-bind", "/", "/", "--unshare-pid", "true"],
+                                    capture_output=True)
+        if capacidade.returncode:
+            self.skipTest("Bubblewrap indisponível")
+        (self.bin / "bwrap").unlink(missing_ok=True)
+        contas = []
+        for i, saldo in enumerate(saldos, 1):
+            pasta = self.casa / f"contas/conta{i}"
+            pasta.mkdir(parents=True)
+            (pasta / "segredo").write_text(f"conta{i}")
+            (pasta / "settings.json").write_text(json.dumps({"trustedWorkspaces": [str(self.raiz)],
+                "permissions": {"deny": [f"read_url(conta{i}.example)"]}}))
+            buckets = [{"id": "gemini-weekly", "remaining_fraction": saldo}]
+            if i == 1:
+                buckets.append({"id": "gemini-argon-wtu-weekly", "remaining_fraction": 0.6})
+            (pasta / "usage.json").write_text(json.dumps({"command": {"data": {"groups": [{"buckets": buckets}]}}}))
+            contas.append({"nome": f"conta{i}", "pasta": str(pasta), "argon": i == 1})
+        catalogo = Path(self.env["JANGADA_ESTADO"]) / "contas/agy.json"
+        catalogo.parent.mkdir(parents=True)
+        catalogo.write_text(json.dumps(contas))
+        self.script("agy", '''import json,os,sys
+from pathlib import Path
+cli=Path.home()/".gemini/antigravity-cli"
+for origem in filter(None, os.environ.get("CONTAS_ORIGENS", "").split(":")):
+ assert not (Path(origem)/"segredo").exists(), "outra conta visível: "+origem
+if sys.argv[1:]==["agents"]:
+ print("explorador\nimplementador\nleitor\npesquisador"); sys.exit()
+if "/usage" in sys.argv:
+ with (cli/"consultas").open("a") as arq: arq.write("usage\n")
+ print((cli/"usage.json").read_text()); sys.exit()
+conta=os.environ.get("JANGADA_AGY_CONTA", "privada")
+print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 conta "+conta}))
+''')
+        self.env["CONTAS_ORIGENS"] = ":".join(c["pasta"] for c in contas)
+        return contas, catalogo
+
+    def delegar_conta(self, *args, sucesso=True):
+        p = self.chamar("explorador", "Leia dados.txt", "--destino", "agy", "--permitir-remoto",
+                        "--modelo", "gemini-3.8-flash-high", "--json", *args, sucesso=sucesso)
+        self.assertNotIn("AUTORIZACAO_RECUSADA", p.stderr, p.stderr)
+        return p
+
+    def test_contas_escolha_saldo_argon_e_registro(self):
+        contas, _ = self.contas()
+        resultado = json.loads(self.delegar_conta().stdout)
+        self.assertEqual(resultado["conta"], "conta2")
+        self.assertEqual(resultado["cota_antes"], 80)
+        for c in contas:
+            n = len((Path(c["pasta"]) / "consultas").read_text().splitlines())
+            self.assertEqual(n, 2 if c["nome"] == "conta2" else 1)
+        resultado = json.loads(self.chamar("explorador", "Leia", "--destino", "agy", "--permitir-remoto",
+            "--modelo", "gemini-4-argon-high", "--json").stdout)
+        self.assertEqual(resultado["conta"], "conta1")
+        self.assertEqual(resultado["cota_antes"], 60)
+        self.assertTrue(all(m.get("conta") == "conta1" for m in resultado["cotas_modelos"]))
+        bloqueada = self.chamar("explorador", "Leia", "--destino", "agy", "--permitir-remoto",
+            "--modelo", "gemini-4-argon-high", "--conta", "conta2", "--json", sucesso=False)
+        self.assertEqual(json.loads(bloqueada.stdout)["chamadas_executor"], 0)
+        self.assertIn("nenhuma conta habilitada", bloqueada.stderr)
+
+    def test_contas_sem_dado_zero_e_inexistente(self):
+        self.contas((None, 0))
+        resultado = json.loads(self.delegar_conta(sucesso=False).stdout)
+        self.assertEqual(resultado["conta"], "conta2")
+        self.assertEqual(resultado["cota_antes"], 0)
+        self.assertEqual(resultado["motivo_codigo"], "cota_insuficiente")
+        medidas = [m for m in resultado["cotas_modelos"] if m.get("conta") == "conta1"]
+        self.assertTrue(medidas)
+        self.assertTrue(all(m["percentual"] is None for m in medidas))
+        erro = self.delegar_conta("--conta", "ausente", sucesso=False)
+        self.assertIn("inexistente", erro.stderr)
+        cache = Path(self.env["XDG_CACHE_HOME"]) / "jangada"
+        self.assertFalse((cache / "agy-usage-conta1.json").exists())
+
+    def test_contas_cache_expirado_nao_vira_cota(self):
+        contas, _ = self.contas()
+        cache = Path(self.env["XDG_CACHE_HOME"]) / "jangada/agy-usage-conta1.json"
+        cache.parent.mkdir(parents=True)
+        cache.write_bytes((Path(contas[0]["pasta"]) / "usage.json").read_bytes())
+        os.utime(cache, (0, 0))
+        (Path(contas[0]["pasta"]) / "usage.json").write_text("{}")
+        resultado = json.loads(self.delegar_conta("--conta", "conta1", sucesso=False).stdout)
+        self.assertIsNone(resultado["cota_antes"])
+        self.assertEqual(resultado["motivo_codigo"], "cota_desconhecida")
+        self.assertEqual(resultado["chamadas_executor"], 0)
+
+    def test_contas_isolamento_real_oculta_origens_e_nao_altera_outra(self):
+        contas, _ = self.contas()
+        self.env["JANGADA_ISOLAR_ESCRITA"] = contas[0]["pasta"]
+        codigo = ("from pathlib import Path; import os; cli=Path.home()/'.gemini/antigravity-cli'; "
+                  "assert (cli/'segredo').read_text()=='conta2'; "
+                  "assert all(not (Path(p)/'segredo').exists() for p in os.environ['CONTAS_ORIGENS'].split(':')); "
+                  "(cli/'gravado').write_text('ok')")
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--conta", "conta2", "--", "python3", "-c", codigo],
+                           cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((Path(contas[1]["pasta"]) / "gravado").read_text(), "ok")
+        self.assertFalse((Path(contas[0]["pasta"]) / "gravado").exists())
+
+    def test_contas_verificacao_nao_expoe_conta_escolhida(self):
+        self.contas()
+        codigo = ("from pathlib import Path; import os; "
+                  "assert not (Path.home()/'.gemini/antigravity-cli/segredo').exists(); "
+                  "assert all(not (Path(p)/'segredo').exists() for p in os.environ['CONTAS_ORIGENS'].split(':'))")
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--conta", "conta2", "--", "python3", "-c", codigo],
+                           cwd=self.raiz, env=dict(self.env, JANGADA_ISOLAR_PERFIL="verificacao"),
+                           capture_output=True, text=True, timeout=20)
+        self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_contas_confianca_derivada_exige_raiz_em_cada_conta(self):
+        contas, _ = self.contas()
+        worktree = self.tmp / "worktree"
+        self.git("worktree", "add", "-qb", "outra", str(worktree))
+        outro = Path(contas[1]["pasta"]) / "settings.json"
+        outro.write_text('{"trustedWorkspaces": []}')
+        codigo = 'source "$JANGADA_CORE_PATH/bin/jangada-config"; jangada_agy_sincronizar_worktree "$1" "$2"'
+        p = subprocess.run(["bash", "-c", codigo, "teste", str(self.raiz), str(worktree)],
+                           env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        primeiro = Path(contas[0]["pasta"]) / "settings.json"
+        self.assertIn(str(worktree), json.loads(primeiro.read_text())["trustedWorkspaces"])
+        self.assertNotIn(str(worktree), json.loads(outro.read_text())["trustedWorkspaces"])
+        self.assertTrue(primeiro.with_suffix('.json.jangada-orig').is_file())
+        # Remover a confiança derivada não pode deixar autorização em outra conta.
+        outro.write_text(json.dumps({"trustedWorkspaces": [str(worktree)]}))
+        p = subprocess.run(["bash", "-c", 'source "$JANGADA_CORE_PATH/bin/jangada-config"; jangada_agy_ajustar_confianca remover "$1"',
+                            "teste", str(worktree)], env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        for c in contas:
+            self.assertNotIn(str(worktree), json.loads((Path(c["pasta"]) / "settings.json").read_text())["trustedWorkspaces"])
+
+    def test_contas_mod03_recebe_permissoes_selecionadas(self):
+        self.contas()
+        p = self.chamar("leitor", "Leia", "--destino", "agy", "--permitir-remoto", "--conta", "conta2",
+                       "--modelo", "gemini-3.8-flash-high", "--arquivos", "fonte.txt", "--json")
+        resultado = json.loads(p.stdout)
+        registro = Path(resultado["registro_ferramentas"])
+        self.assertEqual(resultado["conta"], "conta2")
+        self.assertEqual(json.loads((registro / "settings.json").read_text())["permissions"]["deny"],
+                         ["read_url(conta2.example)"])
+        # O implementador usa a mesma seleção antes de gerar sua configuração privada.
+        (self.casa / ".gemini/antigravity-cli/settings.json").write_text('{"trustedWorkspaces": []}')
+        resultado = json.loads(self.executar("--conta", "conta2").stdout)
+        self.assertEqual(json.loads((Path(resultado["pasta"]) / "registro.json").read_text())["conta"], "conta2")
+        # O caminho exato da execução vem do registro, sem inferir sua estrutura.
+        settings = list(Path(self.env["JANGADA_ESTADO"]).rglob("runtime/settings.json"))
+        self.assertEqual(len(settings), 1)
+        self.assertEqual(json.loads(settings[0].read_text())["permissions"]["deny"], ["read_url(conta2.example)"])
+
+    def test_sem_catalogo_delegar_preserva_argumentos_isolamento(self):
+        import shutil
+        arvore = self.tmp / "arvore"
+        (arvore / "bin").mkdir(parents=True)
+        for nome in ("jangada-delegar", "jangada-config"):
+            shutil.copyfile(REPO / "bin" / nome, arvore / "bin" / nome)
+        isolador = arvore / "bin/jangada-isolar"
+        isolador.write_text("#!/usr/bin/python3\nimport json,os,sys\n"
+                            "from pathlib import Path\n"
+                            "Path(os.environ['FALSO_ARGUMENTOS']).write_text(json.dumps(sys.argv[1:]))\n"
+                            "os.execvp('agy',sys.argv[2:])\n")
+        isolador.chmod(0o755)
+        agy = self.bin / "agy"
+        agy.write_text(agy.read_text().replace('print("implementador")', 'print("explorador")'))
+        ambiente = dict(self.env, JANGADA_CORE_PATH=str(arvore), FALSO_ARGUMENTOS=str(self.tmp / "argumentos.json"))
+        # Lista conferida na base de T1, antes de acrescentar contas.
+        esperado = ["--", "agy", "-p", "Leia\n\nSe uma ferramenta ou comando for negado, pare e informe qual ação foi negada.",
+                    "--agent", "explorador", "--model", "gemini-3.8-flash-high", "--sandbox",
+                    "--output-format", "json", "--print-timeout", "300s"]
+        for conta in ([], ["--conta", "principal"]):
+            p = subprocess.run(["bash", str(arvore / "bin/jangada-delegar"), "explorador", "Leia",
+                                "--destino", "agy", "--permitir-remoto", "--modelo", "gemini-3.8-flash-high", *conta],
+                               cwd=self.raiz, env=ambiente, capture_output=True, text=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertEqual(json.loads(Path(ambiente["FALSO_ARGUMENTOS"]).read_text()), esperado)
+
+    def test_catalogo_recusa_pastas_sobrepostas_links_e_nomes_repetidos(self):
+        contas, catalogo = self.contas()
+        for defeito in ("sobreposta", "nome", "link", "relativa", "invalido"):
+            valor = json.loads(json.dumps(contas))
+            if defeito == "sobreposta": valor[1]["pasta"] = valor[0]["pasta"] + "/filha"
+            elif defeito == "nome": valor[1]["nome"] = valor[0]["nome"]
+            elif defeito == "link":
+                link = self.casa / "ligacao"
+                link.symlink_to(valor[0]["pasta"])
+                valor[0]["pasta"] = str(link)
+            elif defeito == "relativa": valor[0]["pasta"] = "relativa"
+            else: valor = {}
+            catalogo.write_text(json.dumps(valor))
+            erro = self.delegar_conta(sucesso=False)
+            self.assertIn("catálogo de contas do agy inválido", erro.stderr)
+
+    def test_migracao_recusa_sem_terminal_e_preserva_origem(self):
+        origem = self.tmp / "estado/catamara/contas"
+        for nome in ("conta1", "conta2"):
+            (origem / nome).mkdir(parents=True)
+            (origem / nome / "settings.json").write_text("segredo " + nome)
+        migracao = REPO / "migrations/202610241200-importar-contas-agy.sh"
+        def rodar(env=None, entrada=None):
+            return subprocess.run(["bash", str(migracao)], env=env or self.env, stdin=entrada or subprocess.DEVNULL,
+                                  capture_output=True, text=True, timeout=10)
+        p = rodar()
+        self.assertNotEqual(p.returncode, 0)
+        destino = Path(self.env["JANGADA_ESTADO"]) / "contas"
+        self.assertFalse(destino.exists())
+        p = rodar(dict(self.env, JANGADA_SIMULAR="1"))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse(destino.exists())
+        import pty
+        mestre, escravo = pty.openpty()
+        try:
+            os.write(mestre, b"s\ns\nn\n")
+            p = rodar(entrada=escravo)
+        finally:
+            os.close(mestre)
+            os.close(escravo)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        contas = json.loads((destino / "agy.json").read_text())
+        self.assertEqual([c["argon"] for c in contas], [True, False])
+        for conta in contas:
+            self.assertEqual((Path(conta["pasta"]) / "settings.json").read_text(),
+                             (origem / conta["nome"] / "settings.json").read_text())
+        antes = (destino / "agy.json").read_bytes()
+        self.assertEqual(rodar().returncode, 0)
+        self.assertEqual((destino / "agy.json").read_bytes(), antes)
+
     def test_pesquisa_autoriza_so_dominio_na_copia(self):
         settings = self.casa / ".gemini/antigravity-cli/settings.json"
         original = {"trustedWorkspaces": [str(self.raiz)],
@@ -624,4 +851,6 @@ raise AssertionError("modelo chamado sem papel privado")
 
 
 if __name__ == "__main__":
+    import isolamento
+    isolamento.instalar()
     unittest.main()

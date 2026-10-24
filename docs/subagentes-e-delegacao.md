@@ -361,6 +361,43 @@ flowchart TD
   investigação pode continuar na sessão, sem declarar o apoio concluído.
   O `jangada-delegar` nunca chama o Claude.
 
+### Várias contas do agy
+
+O catálogo opcional `$JANGADA_ESTADO/contas/agy.json` contém uma lista:
+
+```json
+[{"nome":"argon","pasta":"/caminho/absoluto/conta1","argon":true},
+ {"nome":"flash","pasta":"/caminho/absoluto/conta2","argon":false}]
+```
+
+Sem esse arquivo, permanece a conta implícita `principal`, em
+`~/.gemini/antigravity-cli`, com os mesmos argumentos de isolamento.
+Nomes são únicos; pastas precisam ser absolutas, sem links ou sobreposição.
+O arquivo é lido como dados. O dono o configura fora da sessão isolada.
+
+`jangada-delegar PAPEL "pedido" --conta NOME` fixa uma conta. Sem a opção,
+o comando preserva a prioridade dos modelos e escolhe, para cada família,
+a conta habilitada com maior saldo real. Argon exige `argon: true`.
+Medida ausente fica atrás de qualquer saldo conhecido, inclusive zero;
+continua desconhecida e não autoriza chamar o modelo. Empates preservam a
+ordem do catálogo. Cada conta tem cache de cota próprio. O registro inclui
+`conta`; as medidas por modelo também identificam a conta consultada.
+
+`jangada-isolar --conta NOME -- COMANDO` monta a conta em
+`~/.gemini/antigravity-cli` e oculta as pastas originais das contas.
+Sem opção, usa `JANGADA_AGY_CONTA` ou a primeira conta do catálogo.
+A seleção também chega à leitura e à implementação privadas da MOD-03.
+A confiança é conferida por conta; o delegador não cria autorização.
+Ao preparar ou encerrar um worktree sem conta explícita, os ajustes de
+confiança existentes são aplicados a todas as contas cadastradas. A adição
+exige que a raiz já seja confiável naquela conta.
+
+`jangada-migrar` oferece copiar `conta1` e `conta2` do estado do Catamarã.
+Exige confirmação em terminal e pergunta quais contas têm Argon. Sem
+confirmação, não grava a marca da migração; em simulação, apenas informa.
+Catálogo ou destino existente são preservados. Nada é movido ou apagado
+na origem.
+
 ## Avaliação controlada do Ollama
 
 `jangada-avaliar-ollama` executa três repetições de cada caso pelo

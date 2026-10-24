@@ -58,6 +58,7 @@ do mesmo jeito.
 | Repositórios em `JANGADA_PROJETOS` | `jangada-agente`, `jangada-agente-fim` | ramos `agente/*`, registro dos worktrees e a integração que o usuário confirma |
 | Pasta atual, com `--saida` | `jangada-avaliar-ollama` | fontes sintéticas e registros da avaliação local, em uma pasta nova por execução |
 | `~/.cache/jangada` | `jangada-delegar` | cache da cota do agy |
+| `$JANGADA_ESTADO/contas/agy.json`, pastas declaradas em `pasta` | migração de contas, `jangada-isolar`, `jangada-config` | catálogo e cópias confirmadas das contas do agy; cada pasta declarada recebe só dados da própria conta e cópia do `settings.json` antes de ajustar confiança |
 | `~/.cache/cliphist` | `jangada-isolar` | pasta criada com 0700 para poder ocultá-la do agente |
 | `$XDG_RUNTIME_DIR/jangada-isolar` | `jangada-isolar` | soquetes do proxy do D-Bus e, em `atendente-*`, o soquete do atendente da revisão |
 | `$TMPDIR/jangada-consulta-*` (ou `/tmp/jangada-consulta-*`) | `nucleo/consultas.py` | cópia privada temporária do SQLite e WAL, removida ao fechar a consulta; evita gravar arquivos auxiliares na origem |

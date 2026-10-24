@@ -2,7 +2,7 @@
 # Roda um comando no bubblewrap, com o sistema somente leitura e a pasta atual
 # gravável. O jangada-agente abre o agente por aqui.
 #
-# Uso: jangada-isolar [--mostrar] [--] COMANDO [ARGUMENTOS]
+# Uso: jangada-isolar [--mostrar] [--conta NOME] [--] COMANDO [ARGUMENTOS]
 #   --mostrar   imprime a chamada ao bwrap, um argumento por linha, e sai
 #
 # Graváveis: a pasta atual, do .git comum só o que um commit precisa, as
@@ -57,9 +57,11 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
 
 mostrar=0
+conta_opt=""
 while (($#)); do
   case "$1" in
     --mostrar) mostrar=1; shift ;;
+    --conta) [[ $# -ge 2 && -n "$2" ]] || exit 2; conta_opt="$2"; shift 2 ;;
     -h|--ajuda|--help) sed -n '2,54s/^# \{0,1\}//p' "$0"; exit 0 ;;
     --) shift; break ;;
     *) break ;;
@@ -82,7 +84,14 @@ case "$perfil" in
   *) echo "jangada-isolar: perfil desconhecido em JANGADA_ISOLAR_PERFIL: $perfil" >&2; exit 1 ;;
 esac
 
-if [[ "$perfil" == agente ]] && ja_isolado; then
+contas_agy="$(jangada_contas_agy)" || exit 1
+if [[ -n "$conta_opt" ]]; then export JANGADA_AGY_CONTA="$conta_opt"; fi
+jangada_conta_agy || exit 1
+cli_agy="$HOME/.gemini/antigravity-cli"
+conta_configurada=0
+[[ ! -e "$JANGADA_ESTADO/contas/agy.json" ]] || conta_configurada=1
+if [[ "$perfil" == agente ]] && ja_isolado \
+   && { ((!conta_configurada)) || [[ "${JANGADA_AGY_CONTA_MONTADA:-}" == "$CONTA_AGY_NOME" ]]; }; then
   exec "$@"
 fi
 if [[ "$perfil" == agente && "$JANGADA_AGENTE_ISOLAR" == 0 ]]; then
@@ -153,11 +162,11 @@ temporario() {
     bwrap --ro-bind / / --overlay-src "$1" --tmp-overlay "$1" true 2>/dev/null && sobreposicao_ok=1
   fi
   if ((sobreposicao_ok)); then
-    args+=(--overlay-src "$1" --tmp-overlay "$1")
+    args+=(--overlay-src "$1" --tmp-overlay "${3:-$1}")
   elif [[ "${2:-}" == ro ]]; then
-    args+=(--ro-bind "$1" "$1")
+    args+=(--ro-bind "$1" "${3:-$1}")
   else
-    args+=(--tmpfs "$1")
+    args+=(--tmpfs "${3:-$1}")
   fi
 }
 
@@ -294,8 +303,11 @@ gravavel "$pasta"
 # Numa instalação nova as pastas ainda não existem, e sem o bind o agente não
 # conseguiria criá-las.
 mkdir -p "$HOME/.claude" "$HOME/.cache" 2>/dev/null || true
-command -v agy >/dev/null 2>&1 && { mkdir -p "$HOME/.gemini/antigravity-cli" 2>/dev/null || true; }
-for p in "$HOME/.claude" "$HOME/.gemini/antigravity-cli"; do
+if ((!conta_configurada)); then
+  command -v agy >/dev/null 2>&1 && { mkdir -p "$CONTA_AGY_PASTA" 2>/dev/null || true; }
+fi
+for p in "$HOME/.claude" "$CONTA_AGY_PASTA"; do
+  ((conta_configurada)) && [[ "$p" == "$CONTA_AGY_PASTA" ]] && continue
   gravavel "$p"
 done
 # O ~/.cache alimenta código que roda fora: clones do AUR que o yay compila
@@ -440,8 +452,10 @@ done
 # agy: os executáveis que ele chama (agentapi, webm_encoder). Ele regrava o
 # agentapi antes de cada comando, e somente leitura impediria todo comando.
 # Sem a pasta, o agente a criaria no disco pela pasta do CLI, gravável.
-[[ -d "$HOME/.gemini/antigravity-cli" ]] && { mkdir -p "$HOME/.gemini/antigravity-cli/bin" 2>/dev/null || true; }
-temporario "$HOME/.gemini/antigravity-cli/bin" ro
+if ((!conta_configurada)); then
+  [[ -d "$CONTA_AGY_PASTA" ]] && { mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true; }
+  temporario "$cli_agy/bin" ro
+fi
 # Clones do AUR, caso JANGADA_ISOLAR_ESCRITA tenha liberado o ~/.cache.
 somente_leitura "$HOME/.cache/yay"
 somente_leitura "$HOME/.cache/paru"
@@ -747,6 +761,26 @@ while IFS= read -r v; do
     CLAUDECODE | CLAUDE_CODE_*) credenciais+=(--unsetenv "$v") ;;
   esac
 done < <(compgen -e)
+if ((conta_configurada)); then
+  if [[ "$perfil" == agente && ! -d "$CONTA_AGY_PASTA" ]]; then
+    echo "jangada-isolar: pasta da conta $CONTA_AGY_NOME indisponível" >&2; exit 1
+  fi
+  # Estas montagens vêm depois de qualquer liberação extra de escrita ou leitura.
+  while IFS=$'\t' read -r _nome conta_pasta _argon; do
+    [[ ! -d "$conta_pasta" ]] || args+=(--tmpfs "$conta_pasta")
+  done <<<"$contas_agy"
+  args+=(--tmpfs "$cli_agy")
+  if [[ "$perfil" == agente ]]; then
+    args+=(--bind "$CONTA_AGY_PASTA" "$cli_agy"
+           --setenv JANGADA_AGY_CONTA "$CONTA_AGY_NOME"
+           --setenv JANGADA_AGY_CONTA_MONTADA "$CONTA_AGY_NOME"
+           --setenv JANGADA_AGY_PASTA "$cli_agy"
+           --setenv JANGADA_AGY_SETTINGS "$cli_agy/settings.json")
+    mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true
+    # A origem pertence à conta, mas o destino é sempre a pasta esperada pelo CLI.
+    temporario "$CONTA_AGY_PASTA/bin" ro "$cli_agy/bin"
+  fi
+fi
 args+=(--unsetenv TMUX --unsetenv TMUX_PANE --unsetenv SSH_AUTH_SOCK
        --unsetenv HYPRLAND_INSTANCE_SIGNATURE --unsetenv HYPRLAND_CMD
        --unsetenv WAYLAND_DISPLAY --unsetenv DISPLAY --unsetenv GPG_AGENT_INFO

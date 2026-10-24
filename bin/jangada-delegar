@@ -15,6 +15,7 @@
 #   --arquivo SAIDA   grava o relatório completo em SAIDA
 #   --capacidade C    leitura_documental, resumo_curto ou analise_documental
 #   --permitir-remoto obrigatório no agy; autoriza fontes desta tarefa, sujeito ao perfil
+#   --conta NOME     escolhe uma conta do agy
 #   --modelo MODELO  fixa um modelo agy, sem alternativa automática
 #   --url URL        autoriza um domínio HTTPS só nesta pesquisa (repetível)
 #   --permitir-codex  autoriza também o Codex econômico (exige capacidade)
@@ -69,6 +70,7 @@ executor_contrato=""
 uso() { sed -n '7,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 papel=""; pedido=""; arquivo=""; destino_opt=""
+conta_opt=""; conta_usada=""
 capacidade=""; permitir_remoto=0; permitir_codex=0; modo_json=0; modelo_opt=""
 declare -a urls=()
 declare -a arquivos=()
@@ -79,6 +81,7 @@ while (($#)); do
     --executor-contrato) [[ $# -ge 2 ]] || uso; executor_contrato="$2"; shift 2 ;;
     --arquivo) [[ $# -ge 2 ]] || uso; arquivo="$2"; shift 2 ;;
     --destino) [[ $# -ge 2 ]] || uso; destino_opt="$2"; shift 2 ;;
+    --conta) [[ $# -ge 2 && -n "$2" ]] || uso; conta_opt="$2"; shift 2 ;;
     --modelo) [[ $# -ge 2 && "$2" =~ ^[a-z0-9][a-z0-9.-]+$ ]] || uso; modelo_opt="$2"; shift 2 ;;
     --url) [[ $# -ge 2 ]] || uso; urls+=("$2"); shift 2 ;;
     --capacidade) [[ $# -ge 2 && -n "$2" ]] || uso; capacidade="$2"; shift 2 ;;
@@ -204,7 +207,7 @@ registrar() {
     --argjson segundos "$((SECONDS - inicio))" --argjson codigo "$1" --arg motivo "${2:-}" \
     --argjson palavras "$palavras" --argjson retorno "$retorno" --arg passos "$passos" \
     --arg tokens_agy "$tokens_agy" --arg antes "$cota" --arg depois "$cota_depois" \
-    --arg conversa "$conversa" --arg sem_fonte "$sem_fonte" \
+    --arg conta "$conta_usada" --arg conversa "$conversa" --arg sem_fonte "$sem_fonte" \
     --arg tokens_local_entrada "$tokens_local_entrada" --arg tokens_local_saida "$tokens_local_saida" \
     --arg tokens_codex_entrada "$tokens_codex_entrada" --arg tokens_codex_saida "$tokens_codex_saida" \
     --arg id "$delegacao_id" --arg execucao "${JANGADA_EXECUCAO:-}" --argjson chamadas "$chamadas_local" \
@@ -220,7 +223,7 @@ registrar() {
     --arg artefato "$artefato" --argjson cortado "$cortado" \
     'def num: if . == "" then null else tonumber end;
      {data: $data, sessao: $sessao, projeto: $projeto, pasta: $pasta, papel: $papel,
-      destino: $destino, modelo: $modelo, segundos: $segundos, codigo_saida: $codigo,
+      destino: $destino, conta: (if $conta == "" then null else $conta end), modelo: $modelo, segundos: $segundos, codigo_saida: $codigo,
       palavras: $palavras, tokens_retorno: $retorno, passos: ($passos | num),
       tokens_agy: ($tokens_agy | num),
       tokens_local_entrada: ($tokens_local_entrada | num),
@@ -300,6 +303,10 @@ if [[ "$perfil_delegar" == nativo || "$destino" == nativo ]]; then
   recusar "delegação nativa não usa jangada-delegar; nesta sessão do agy, use invoke_subagent com o papel $papel" destino_proibido
 fi
 
+if [[ -n "$conta_opt" && "$destino" != agy ]]; then
+  recusar "--conta exige destino agy" entrada_invalida
+fi
+
 if [[ -n "$capacidade" ]]; then
   limite_chamadas="${JANGADA_DELEGAR_CHAMADAS_RESTANTES:-${JANGADA_DELEGAR_CHAMADAS_MAX:-8}}"
   tempo_total="${JANGADA_DELEGAR_TEMPO_TOTAL:-600}"
@@ -355,6 +362,7 @@ if [[ -n "$capacidade" ]]; then
       fi
       args=("$papel" "$pedido" --destino "$candidato" --capacidade "$capacidade" --json)
       [[ -z "$modelo_opt" ]] || args+=(--modelo "$modelo_opt")
+      [[ -z "$conta_opt" ]] || args+=(--conta "$conta_opt")
       ((permitir_remoto)) && args+=(--permitir-remoto)
       ((permitir_codex)) && args+=(--permitir-codex)
       [[ -n "$arquivo" ]] && args+=(--arquivo "$arquivo")
@@ -851,14 +859,26 @@ fi
 # ==============================================================================
 # DESTINO AGY
 # ==============================================================================
+contas_agy="$(jangada_contas_agy)" || recusar "catálogo de contas do agy inválido" entrada_invalida
+contas_configuradas=0
+[[ ! -f "$JANGADA_ESTADO/contas/agy.json" ]] || contas_configuradas=1
+jangada_conta_agy "$conta_opt" || recusar "conta do agy inexistente ou inválida: $conta_opt" entrada_invalida
+conta_usada="$CONTA_AGY_NOME"
 if [[ -n "${JANGADA_AGY_SETTINGS:-}" ]]; then
   JANGADA_AGY_SETTINGS="$(realpath -- "$JANGADA_AGY_SETTINGS")" \
     || recusar "caminho da configuração do agy inválido" entrada_invalida
   export JANGADA_AGY_SETTINGS
 fi
-agy_limpo() { env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 agy "$@" </dev/null {agy_fd}<&-; }
+agy_limpo() {
+  if ((contas_configuradas)); then
+    env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 JANGADA_ISOLAR_PERFIL=agente \
+      "$JANGADA_CORE_PATH/bin/jangada-isolar" --conta "$conta_usada" -- agy "$@" </dev/null {agy_fd}<&-
+  else
+    env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 agy "$@" </dev/null {agy_fd}<&-
+  fi
+}
 command -v agy >/dev/null 2>&1 || recusar "agy não instalado" indisponivel
-# Uma conta existente; leitura e implementação disputam a mesma trava.
+# Leitura e implementação disputam a mesma trava, inclusive entre contas.
 mkdir -p "$JANGADA_ESTADO/agentes"
 trava_agy="$JANGADA_ESTADO/agentes/.agy-execucao.lock"
 [[ ! -L "$trava_agy" ]] || recusar "link na trava do agy" destino_proibido
@@ -868,41 +888,6 @@ exec {agy_fd}<"$trava_agy"
 flock -n "$agy_fd" || recusar "execução agy já em andamento" execucao_ocupada
 
 
-# Sem terminal, o agy só roda em pasta confiável, e a confiança vale para o
-# caminho exato. O jangada-delegar não confia por conta própria: a pergunta de
-# confiança do agy barra agentes, regras e MCP da própria pasta, que num clone
-# de fora mandariam no subagente. Vale o worktree da sessão, que o
-# jangada-worktree-preparar confia quando o usuário já confiou no repositório
-# principal, ou a pasta que o usuário já confiou.
-if ! jangada_agy_confia "$pasta"; then
-  # Só diagnóstico: quem sincroniza a confiança é a abertura ou a retomada da
-  # tarefa, fora do isolamento.
-  principal="$(jangada_git_seguro -C "$pasta" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p' || true)"
-  retomar="fora da sessão isolada, rode jangada-agentes --confianca ${JANGADA_SESSAO:-SESSAO}"
-  if [[ -n "$principal" && "$principal" != "$pasta" ]]; then
-    if jangada_agy_confia "$principal"; then
-      recusar "o agy não confia em $pasta: a raiz $principal está autorizada, mas este worktree ainda não recebeu a confiança derivada ($retomar)" destino_proibido
-    fi
-    recusar "o agy não confia na raiz $principal deste worktree (abra o agy nela, responda à pergunta de confiança e, $retomar)" destino_proibido
-  fi
-  recusar "o agy não confia em $pasta (abra o agy nessa pasta e responda à pergunta de confiança, ou trabalhe num worktree do jangada)" destino_proibido
-fi
-# Com --agent de nome desconhecido o agy roda o agente padrão, com todas as
-# ferramentas, e só o log avisa: confere antes de mandar o pedido.
-erro_catalogo="$(mktemp)"
-codigo_catalogo=0
-catalogo="$(agy_limpo agents 2>"$erro_catalogo")" || codigo_catalogo=$?
-if ((codigo_catalogo)); then
-  diagnostico_catalogo="$(tail -c 600 "$erro_catalogo")"
-  [[ "$papel" != implementador ]] || diagnostico_catalogo="diagnóstico bruto omitido na implementação"
-  rm -f "$erro_catalogo"
-  recusar "consulta dos papéis do agy falhou (código $codigo_catalogo): $diagnostico_catalogo" indisponivel
-fi
-rm -f "$erro_catalogo"
-# Consumir o catálogo completo evita SIGPIPE do produtor após uma correspondência.
-if ! grep -Fx -- "$papel" <<<"$catalogo" >/dev/null; then
-  recusar "o agy não achou o agente $papel (rode ./install.sh 50)" capacidade_incompativel
-fi
 # Cota do grupo real do modelo, em % restante, com duas casas: a
 # menor entre as janelas ativas do grupo. O agy desliga a de 5 horas quando a
 # semanal acaba, e a semanal zerada recusa qualquer modelo do grupo.
@@ -960,7 +945,85 @@ ler_cota() {
   return 0
 }
 
-log_agy="${JANGADA_AGY_LOG:-$HOME/.gemini/antigravity-cli/log}"
+# Cada conta tem cache próprio; uma falha de leitura não recupera dado expirado.
+declare -A consultas_contas=() cotas_atuais=()
+ativar_conta() {
+  jangada_conta_agy "$1" || recusar "conta do agy inválida: $1" entrada_invalida
+  conta_usada="$CONTA_AGY_NOME"
+  if [[ "${JANGADA_AGY_CONTA_MONTADA:-}" == "$conta_usada" ]]; then
+    CONTA_AGY_PASTA="$HOME/.gemini/antigravity-cli"
+  fi
+  export JANGADA_AGY_CONTA="$conta_usada" JANGADA_AGY_PASTA="$CONTA_AGY_PASTA"
+  export JANGADA_AGY_SETTINGS="$CONTA_AGY_PASTA/settings.json"
+  cache="${XDG_CACHE_HOME:-$HOME/.cache}/jangada/agy-usage-$conta_usada.json"
+  cota_consultada="${consultas_contas[$conta_usada]:-0}"
+  cota_atual="${cotas_atuais[$conta_usada]:-0}"
+}
+selecionar_conta() {
+  local n _p argon melhor="" saldo="" melhor_saldo="" elegivel=0
+  while IFS=$'\t' read -r n _p argon; do
+    [[ -z "$conta_opt" || "$n" == "$conta_opt" ]] || continue
+    [[ "$1" != gemini-4-argon-* || "$argon" == true ]] || continue
+    elegivel=1
+    ativar_conta "$n"
+    ler_cota "$1"
+    consultas_contas[$n]="$cota_consultada"; cotas_atuais[$n]="$cota_atual"
+    saldo="$cota_lida"
+    cotas_modelos="$(jq -c --arg m "$1" --arg conta "$n" --arg g "$(grupo_do_modelo "$1")" --arg c "$saldo" \
+      '. + [{modelo:$m, conta:$conta, grupo:$g, percentual:(if $c == "" then null else ($c|tonumber) end)}]' <<<"$cotas_modelos")"
+    if [[ -z "$melhor" ]] || { [[ -n "$saldo" ]] && { [[ -z "$melhor_saldo" ]] || \
+         awk -v s="$saldo" -v m="$melhor_saldo" 'BEGIN {exit !(s > m)}'; }; }; then
+      melhor="$n"; melhor_saldo="$saldo"
+    fi
+  done <<<"$contas_agy"
+  ((elegivel)) || return 1
+  ativar_conta "$melhor"
+}
+conferir_conta() {
+  # Sem terminal, o agy só roda em pasta confiável, e a confiança vale para o
+  # caminho exato. O jangada-delegar não confia por conta própria: a pergunta de
+  # confiança do agy barra agentes, regras e MCP da própria pasta, que num clone
+  # de fora mandariam no subagente. Vale o worktree da sessão, que o
+  # jangada-worktree-preparar confia quando o usuário já confiou no repositório
+  # principal, ou a pasta que o usuário já confiou.
+  if ! jangada_agy_confia "$pasta"; then
+    # Só diagnóstico: quem sincroniza a confiança é a abertura ou a retomada da
+    # tarefa, fora do isolamento.
+    principal="$(jangada_git_seguro -C "$pasta" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p' || true)"
+    retomar="fora da sessão isolada, rode jangada-agentes --confianca ${JANGADA_SESSAO:-SESSAO}"
+    if [[ -n "$principal" && "$principal" != "$pasta" ]]; then
+      if jangada_agy_confia "$principal"; then
+        recusar "o agy não confia em $pasta: a raiz $principal está autorizada, mas este worktree ainda não recebeu a confiança derivada ($retomar)" destino_proibido
+      fi
+      recusar "o agy não confia na raiz $principal deste worktree (abra o agy nela, responda à pergunta de confiança e, $retomar)" destino_proibido
+    fi
+    recusar "o agy não confia em $pasta (abra o agy nessa pasta e responda à pergunta de confiança, ou trabalhe num worktree do jangada)" destino_proibido
+  fi
+  # Com --agent de nome desconhecido o agy roda o agente padrão, com todas as
+  # ferramentas, e só o log avisa: confere antes de mandar o pedido.
+  erro_catalogo="$(mktemp)"
+  codigo_catalogo=0
+  catalogo="$(agy_limpo agents 2>"$erro_catalogo")" || codigo_catalogo=$?
+  if ((codigo_catalogo)); then
+    diagnostico_catalogo="$(tail -c 600 "$erro_catalogo")"
+    [[ "$papel" != implementador ]] || diagnostico_catalogo="diagnóstico bruto omitido na implementação"
+    rm -f "$erro_catalogo"
+    recusar "consulta dos papéis do agy falhou (código $codigo_catalogo): $diagnostico_catalogo" indisponivel
+  fi
+  rm -f "$erro_catalogo"
+  # Consumir o catálogo completo evita SIGPIPE do produtor após uma correspondência.
+  if ! grep -Fx -- "$papel" <<<"$catalogo" >/dev/null; then
+    recusar "o agy não achou o agente $papel (rode ./install.sh 50)" capacidade_incompativel
+  fi
+
+}
+conta_conferida=""
+if ((!contas_configuradas)); then
+  conferir_conta
+  conta_conferida="$conta_usada"
+fi
+
+log_agy="${JANGADA_AGY_LOG:-$CONTA_AGY_PASTA/log}"
 marca="$(mktemp)"
 saida="$(mktemp)"
 trap 'rm -f "$marca" "$saida"' EXIT
@@ -1010,9 +1073,19 @@ limite_agy=()
 minimo="${JANGADA_DELEGAR_COTA_MIN:-20}"
 sem_cota=""; sem_cota_codigo=""; atendido=0; cota_primeira=""
 for modelo in "${modelos_agy[@]}"; do
+  if ((contas_configuradas)); then
+    selecionar_conta "$modelo" || continue
+    if [[ "$conta_conferida" != "$conta_usada" ]]; then
+      conferir_conta
+      conta_conferida="$conta_usada"
+    fi
+    log_agy="${JANGADA_AGY_LOG:-$CONTA_AGY_PASTA/log}"
+  fi
   ler_cota "$modelo"; cota="$cota_lida"
-  cotas_modelos="$(jq -c --arg m "$modelo" --arg g "$(grupo_do_modelo "$modelo")" --arg c "$cota" \
-    '. + [{modelo:$m, grupo:$g, percentual:(if $c == "" then null else ($c|tonumber) end)}]' <<<"$cotas_modelos")"
+  if ((!contas_configuradas)); then
+    cotas_modelos="$(jq -c --arg conta "$conta_usada" --arg m "$modelo" --arg g "$(grupo_do_modelo "$modelo")" --arg c "$cota" \
+    '. + [{modelo:$m, conta:$conta, grupo:$g, percentual:(if $c == "" then null else ($c|tonumber) end)}]' <<<"$cotas_modelos")"
+  fi
   [[ "$modelo" == "${modelos_agy[0]}" ]] && cota_primeira="$cota"
   if [[ -z "$cota" ]]; then
     : "${sem_cota:=não consegui ler uma cota válida e atual do agy para $modelo (agy -p /usage)}"
@@ -1072,7 +1145,7 @@ for modelo in "${modelos_agy[@]}"; do
 done
 if ((!atendido)); then
   modelo="${modelos_agy[0]}"; cota="$cota_primeira"
-  recusar "$sem_cota" "$sem_cota_codigo"
+  recusar "${sem_cota:-nenhuma conta habilitada para a família do modelo}" "${sem_cota_codigo:-capacidade_incompativel}"
 fi
 if [[ -d "$log_agy" ]] && find "$log_agy" -name 'cli-*.log' -newer "$marca" -print0 2>/dev/null \
      | xargs -0r grep -l "Agent \"$papel\" not found" 2>/dev/null | grep -q .; then
@@ -1080,7 +1153,7 @@ if [[ -d "$log_agy" ]] && find "$log_agy" -name 'cli-*.log' -newer "$marca" -pri
 fi
 conversa="$(jq -r '.conversation_id // ""' <<<"$resposta" 2>/dev/null || true)"
 tokens_agy="$(jq -r '.usage.total_tokens // ""' <<<"$resposta" 2>/dev/null || true)"
-banco="${JANGADA_AGY_CONVERSAS:-$HOME/.gemini/antigravity-cli/conversations}/$conversa.db"
+banco="${JANGADA_AGY_CONVERSAS:-$CONTA_AGY_PASTA/conversations}/$conversa.db"
 [[ -z "$registro_ferramentas" ]] || banco="$registro_ferramentas/conversations/$conversa.db"
 if [[ -n "$conversa" && -f "$banco" ]] && command -v sqlite3 >/dev/null 2>&1; then
   passos="$(sqlite3 -readonly "$banco" 'select count(*) from steps' 2>/dev/null || true)"

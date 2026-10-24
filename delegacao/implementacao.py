@@ -284,17 +284,6 @@ def executar(args, raiz):
         gravar(agentes, "implementador/agent.md", (PAPEL_PRIVADO + partes[2]).encode(), novo=True)
         gravar(configuracao, "agents.json", codificar({"entries": [{"path": "/tmp/jangada-implementador-agentes"}]}), novo=True)
         gravar(configuracao, "hooks.json", b"{}", novo=True)
-        settings = json.loads((Path.home() / ".gemini/antigravity-cli/settings.json").read_text())
-        if str(raiz) not in settings.get("trustedWorkspaces", []):
-            raise ValueError("pasta sem confiança existente no agy; não criar autorização")
-        # Só a confiança já autorizada e as permissões existentes; sem tokens, MCP ou hooks.
-        # Sem terminal, o agy nega a escrita que não estiver liberada: libera só
-        # o caminho exato de cada permitido.
-        permissoes = dict(settings.get("permissions", {}))
-        permissoes["allow"] = list(permissoes.get("allow", [])) + [
-            "write_file(" + str(raiz / nome) + ")" for nome in permitidos]
-        gravar(runtime, "settings.json", codificar({"trustedWorkspaces": [str(raiz)],
-               "permissions": permissoes}), novo=True)
         gravar(execucao, "contrato.json", codificar(contrato), novo=True)
         estado(execucao, atual)
         pedido = ("Atividade delimitada em cópia da base " + args.base + ". Sem Git, commit ou exclusão. "
@@ -305,6 +294,8 @@ def executar(args, raiz):
                    "--executor-contrato", str(execucao / "contrato.json"), "implementador", pedido,
                    "--destino", "agy", "--permitir-remoto", "--arquivos", *fontes,
                    "--arquivo", str(execucao / "relatorio.md"), "--json"]
+        if args.conta:
+            comando += ["--conta", args.conta]
         ambiente = os.environ.copy()
         ambiente["JANGADA_DELEGAR_MODELOS"] = MODELO
         ambiente["JANGADA_DELEGAR_ROTEAMENTO_ID"] = identificador
@@ -329,7 +320,7 @@ def executar(args, raiz):
         except ValueError:
             registro = {}
         evidencia = {k: registro.get(k) for k in ("delegacao_id", "modelo", "papel", "codigo_saida",
-                     "motivo_codigo", "cota_antes", "cota_depois", "tokens_agy", "conversa")}
+                     "motivo_codigo", "conta", "cota_antes", "cota_depois", "tokens_agy", "conversa")}
         gravar(execucao, "registro.json", codificar(evidencia), novo=True)
         atual["motivo_codigo"] = registro.get("motivo_codigo", "saida_invalida")
         if processo.returncode:
@@ -398,6 +389,24 @@ def decidir(args, raiz):
         os.close(fd)
 
 
+def pasta_agy():
+    return Path(os.environ.get("JANGADA_AGY_PASTA") or Path.home() / ".gemini/antigravity-cli")
+
+
+def preparar_settings(runtime, raiz, permitidos):
+    settings = json.loads(Path(os.environ.get("JANGADA_AGY_SETTINGS") or pasta_agy() / "settings.json").read_text())
+    if str(raiz) not in settings.get("trustedWorkspaces", []):
+        raise ValueError("pasta sem confiança existente no agy; não criar autorização")
+    # Só a confiança já autorizada e as permissões existentes; sem tokens, MCP ou hooks.
+    # Sem terminal, o agy nega a escrita que não estiver liberada: libera só
+    # o caminho exato de cada permitido.
+    permissoes = dict(settings.get("permissions", {}))
+    permissoes["allow"] = list(permissoes.get("allow", [])) + [
+        "write_file(" + str(raiz / nome) + ")" for nome in permitidos]
+    gravar(runtime, "settings.json", codificar({"trustedWorkspaces": [str(raiz)],
+           "permissions": permissoes}), novo=not (runtime / "settings.json").exists())
+
+
 def montagem(manifesto):
     arquivo = Path(manifesto)
     contrato = json.loads(ler(arquivo.parent, arquivo.name))
@@ -423,6 +432,8 @@ def montagem(manifesto):
     cfg = casa / ".gemini/config"
     # O CLI pode gravar logs e binários apenas em memória.
     runtime = arquivo.parent / "runtime"
+    preparar_settings(runtime, raiz, contrato["permitidos"])
+    origem_cli = pasta_agy()
     args += ["--tmpfs", str(cli),
              "--ro-bind", str(runtime / "settings.json"), str(cli / "settings.json")]
     # O agy cria config/projects ao abrir conversa; sem ela, sai com código 1.
@@ -431,8 +442,8 @@ def montagem(manifesto):
     for nome in ("agents.json", "hooks.json"):
         args += ["--ro-bind", str(runtime / "config" / nome), str(cfg / nome)]
     args += ["--tmpfs", str(cfg / "projects"), "--remount-ro", str(cfg)]
-    if (cli / "builtin").is_dir():
-        args += ["--ro-bind", str(cli / "builtin"), str(cli / "builtin")]
+    if (origem_cli / "builtin").is_dir():
+        args += ["--ro-bind", str(origem_cli / "builtin"), str(cli / "builtin")]
     args += ["--ro-bind", str(runtime / "agentes"), "/tmp/jangada-implementador-agentes"]
     # O executável pode estar na pasta pessoal; só seu arquivo volta à casa.
     agy = Path(shutil.which("agy") or "/inexistente").resolve(strict=True)
@@ -550,7 +561,8 @@ def pesquisa(argumentos):
     casa = Path.home()
     cli = casa / ".gemini/antigravity-cli"
     cfg = casa / ".gemini/config"
-    settings_path = Path(os.environ.get("JANGADA_AGY_SETTINGS") or cli / "settings.json")
+    origem_cli = pasta_agy()
+    settings_path = Path(os.environ.get("JANGADA_AGY_SETTINGS") or origem_cli / "settings.json")
     settings = json.loads(settings_path.read_text())
     if str(raiz) not in settings.get("trustedWorkspaces", []):
         raise ValueError("pesquisa exige confiança existente na pasta")
@@ -587,8 +599,8 @@ def pesquisa(argumentos):
                          "/tmp/jangada-pesquisa-agentes"]
         if args.papel == "pesquisador":
             montagem_args += ["--ro-bind", str(runtime / "gancho.py"), "/tmp/jangada-pesquisa-gancho.py"]
-        if (cli / "builtin").is_dir():
-            montagem_args += ["--ro-bind", str(cli / "builtin"), str(cli / "builtin")]
+        if (origem_cli / "builtin").is_dir():
+            montagem_args += ["--ro-bind", str(origem_cli / "builtin"), str(cli / "builtin")]
         agy = Path(shutil.which("agy") or "/inexistente").resolve(strict=True)
         montagem_args += ["--ro-bind", str(agy), str(agy), "--chdir", str(raiz),
                          "--die-with-parent", "--", "python3", "-c",
@@ -614,6 +626,7 @@ def principal():
     parser.add_argument("pedido", nargs="?")
     parser.add_argument("--destino", choices=["agy"], default="agy")
     parser.add_argument("--permitir-remoto", action="store_true")
+    parser.add_argument("--conta")
     parser.add_argument("--modelo", choices=[MODELO], default=MODELO)
     parser.add_argument("--base", required=True)
     parser.add_argument("--arquivos", nargs="+", default=[])
