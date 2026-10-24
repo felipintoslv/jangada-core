@@ -15,6 +15,8 @@
 #   --arquivo SAIDA   grava o relatório completo em SAIDA
 #   --capacidade C    leitura_documental, resumo_curto ou analise_documental
 #   --permitir-remoto obrigatório no agy; autoriza fontes desta tarefa, sujeito ao perfil
+#   --modelo MODELO  fixa um modelo agy, sem alternativa automática
+#   --url URL        autoriza um domínio HTTPS só nesta pesquisa (repetível)
 #   --permitir-codex  autoriza também o Codex econômico (exige capacidade)
 #   --json            devolve resultado e decisão em JSON
 #   --requisito TEXTO exige seção com explicação e referência (repetível, com capacidade)
@@ -64,10 +66,11 @@ fi
 executor_contrato=""
 
 
-uso() { sed -n '7,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+uso() { sed -n '7,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 papel=""; pedido=""; arquivo=""; destino_opt=""
-capacidade=""; permitir_remoto=0; permitir_codex=0; modo_json=0
+capacidade=""; permitir_remoto=0; permitir_codex=0; modo_json=0; modelo_opt=""
+declare -a urls=()
 declare -a arquivos=()
 declare -a requisitos=()
 declare -a campos_extracao=()
@@ -76,6 +79,8 @@ while (($#)); do
     --executor-contrato) [[ $# -ge 2 ]] || uso; executor_contrato="$2"; shift 2 ;;
     --arquivo) [[ $# -ge 2 ]] || uso; arquivo="$2"; shift 2 ;;
     --destino) [[ $# -ge 2 ]] || uso; destino_opt="$2"; shift 2 ;;
+    --modelo) [[ $# -ge 2 && "$2" =~ ^[a-z0-9][a-z0-9.-]+$ ]] || uso; modelo_opt="$2"; shift 2 ;;
+    --url) [[ $# -ge 2 ]] || uso; urls+=("$2"); shift 2 ;;
     --capacidade) [[ $# -ge 2 && -n "$2" ]] || uso; capacidade="$2"; shift 2 ;;
     --permitir-remoto) permitir_remoto=1; shift ;;
     --permitir-codex) permitir_codex=1; shift ;;
@@ -111,6 +116,7 @@ while (($#)); do
   esac
 done
 [[ -n "$papel" && -n "$pedido" ]] || uso
+[[ -z "$modelo_opt" || "$destino_opt" == agy ]] || uso
 if [[ "$destino_opt" == codex-economico && -z "$capacidade" ]]; then uso; fi
 ((${#requisitos[@]} == 0)) || [[ -n "$capacidade" ]] || uso
 esquema_extracao='null'
@@ -133,6 +139,11 @@ if [[ -n "$executor_contrato" ]]; then
   JANGADA_DELEGAR_MODELOS=gemini-3.8-flash-high
 fi
 read -ra modelos_agy <<<"$JANGADA_DELEGAR_MODELOS"
+[[ -z "$modelo_opt" ]] || modelos_agy=("$modelo_opt")
+if ((${#urls[@]})); then
+  [[ "$papel" == pesquisador && "$destino_opt" == agy && -z "$capacidade" && ${#arquivos[@]} == 0 ]] || uso
+fi
+[[ -z "$executor_contrato" || -z "$modelo_opt" || "$modelo_opt" == gemini-3.8-flash-high ]] || uso
 ((${#modelos_agy[@]})) || { echo "jangada-delegar: JANGADA_DELEGAR_MODELOS vazio" >&2; exit 2; }
 
 perfil_delegar="${JANGADA_DELEGAR:-agy}"
@@ -169,6 +180,7 @@ tokens_codex_entrada=""; tokens_codex_saida=""
 delegacao_id="$(cat /proc/sys/kernel/random/uuid)"
 chamadas_local='[]'; documento_chars=""; retorno_chars=""; ctx=""
 texto=""; motivo_codigo=""; verificacao="nao_exigida"; chamadas_executor=0
+registro_ferramentas=""; cotas_modelos='[]'
 artefato=""; cortado=false
 tentativas="${JANGADA_DELEGAR_TENTATIVAS:-[]}"
 roteamento_id="${JANGADA_DELEGAR_ROTEAMENTO_ID:-$delegacao_id}"
@@ -202,6 +214,9 @@ registrar() {
     --argjson campos_extracao "$(jq -nc --args '$ARGS.positional' "${campos_extracao[@]}")" --arg consolidacao "$consolidacao" \
     --arg roteamento_id "$roteamento_id" --argjson tentativas "$tentativas" --argjson total_chamadas "$chamadas_executor" \
     --arg decisao "${decisao:-destino_configurado}" \
+    --argjson fontes "$(jq -nc --args '$ARGS.positional' "${arquivos[@]}")" \
+    --argjson urls "$(jq -nc --args '$ARGS.positional' "${urls[@]}")" \
+    --argjson cotas_modelos "$cotas_modelos" --arg registro_ferramentas "$registro_ferramentas" \
     --arg artefato "$artefato" --argjson cortado "$cortado" \
     'def num: if . == "" then null else tonumber end;
      {data: $data, sessao: $sessao, projeto: $projeto, pasta: $pasta, papel: $papel,
@@ -217,6 +232,8 @@ registrar() {
       requisitos: $requisitos,
       campos_extracao: $campos_extracao, consolidacao: $consolidacao,
       chamadas_executor: $total_chamadas, decisao: $decisao,
+      fontes_autorizadas: $fontes, urls_autorizadas: $urls, cotas_modelos: $cotas_modelos,
+      registro_ferramentas: $registro_ferramentas,
       artefato: $artefato, relatorio_cortado: $cortado,
       verificacao_escopo: (if $capacidade == "" then "nenhum" else "relatorio_completo" end),
       tentativas: ($tentativas + (if $destino == "" then [] else
@@ -337,6 +354,7 @@ if [[ -n "$capacidade" ]]; then
         cache_prefixo="${XDG_CACHE_HOME:-$HOME/.cache}/jangada/agy-usage.json.$roteamento_id"
       fi
       args=("$papel" "$pedido" --destino "$candidato" --capacidade "$capacidade" --json)
+      [[ -z "$modelo_opt" ]] || args+=(--modelo "$modelo_opt")
       ((permitir_remoto)) && args+=(--permitir-remoto)
       ((permitir_codex)) && args+=(--permitir-codex)
       [[ -n "$arquivo" ]] && args+=(--arquivo "$arquivo")
@@ -404,6 +422,12 @@ fi
 
 if [[ "$destino" == agy ]] && ((!permitir_remoto)); then
   recusar "a tarefa não autoriza envio remoto; use --permitir-remoto somente para fontes autorizadas" destino_proibido
+fi
+if [[ "$destino" == agy && ( "$papel" == leitor || "$papel" == redator ) ]]; then
+  ((${#arquivos[@]})) || recusar "leitor e redator remotos exigem --arquivos com fontes autorizadas" destino_proibido
+fi
+if [[ "$destino" == agy && "$papel" == pesquisador ]]; then
+  ((${#urls[@]})) || recusar "pesquisa remota exige --url com domínio autorizado" destino_proibido
 fi
 
 if ((${#requisitos[@]})); then
@@ -875,14 +899,6 @@ rm -f "$erro_catalogo"
 if ! grep -Fx -- "$papel" <<<"$catalogo" >/dev/null; then
   recusar "o agy não achou o agente $papel (rode ./install.sh 50)" capacidade_incompativel
 fi
-# O leitor lê documentos de fora; o que o limita no terminal é o
-# jangada-hook-leitor, que o reconhece pelo JANGADA_AGY_PAPEL. Sem o hook, o
-# permissions.allow do usuário (que pode ter cp, curl) valeria para ele.
-if [[ "$papel" == leitor ]] && ! jq -e --arg bin "${JANGADA_CORE_PATH%/}/bin/jangada-hook-leitor"      '[.[]?.PreToolUse[]? | select(.matcher == "run_command") | .hooks[]?.command]
-      | any(. == ($bin + " --agy"))' "$HOME/.gemini/config/hooks.json" >/dev/null 2>&1; then
-  recusar "o hook do leitor não está em ~/.gemini/config/hooks.json (rode ./install.sh 50)" destino_proibido
-fi
-
 # Cota do grupo real do modelo, em % restante, com duas casas: a
 # menor entre as janelas ativas do grupo. O agy desliga a de 5 horas quando a
 # semanal acaba, e a semanal zerada recusa qualquer modelo do grupo.
@@ -963,6 +979,8 @@ minimo="${JANGADA_DELEGAR_COTA_MIN:-20}"
 sem_cota=""; sem_cota_codigo=""; atendido=0; cota_primeira=""
 for modelo in "${modelos_agy[@]}"; do
   ler_cota "$modelo"; cota="$cota_lida"
+  cotas_modelos="$(jq -c --arg m "$modelo" --arg g "$(grupo_do_modelo "$modelo")" --arg c "$cota" \
+    '. + [{modelo:$m, grupo:$g, percentual:(if $c == "" then null else ($c|tonumber) end)}]' <<<"$cotas_modelos")"
   [[ "$modelo" == "${modelos_agy[0]}" ]] && cota_primeira="$cota"
   if [[ -z "$cota" ]]; then
     : "${sem_cota:=não consegui ler uma cota válida e atual do agy para $modelo (agy -p /usage)}"
@@ -978,9 +996,21 @@ for modelo in "${modelos_agy[@]}"; do
   contar_chamada
   perfil_execucao=agente
   [[ "$papel" == implementador ]] && perfil_execucao=implementacao
+  executor_agy=(agy)
+  if ((${#urls[@]})) || [[ "$papel" == leitor || "$papel" == redator || ( "$papel" == arquiteto && ${#arquivos[@]} != 0 ) ]]; then
+    registro_ferramentas="$JANGADA_ESTADO/agentes/pesquisa-$delegacao_id-$chamadas_executor"
+    executor_agy=(python3 "$JANGADA_CORE_PATH/delegacao/implementacao.py" pesquisa --registro "$registro_ferramentas" --papel "$papel")
+    for url in "${urls[@]}"; do executor_agy+=(--url "$url"); done
+    for fonte in "${arquivos[@]}"; do executor_agy+=(--fonte "$fonte"); done
+    executor_agy+=(-- agy)
+    if ((${#urls[@]})); then
+      pedido+=$'\n\nFaça uma busca e abra a fonte pública oficial autorizada. Informe URL, data e trecho lido. Domínios autorizados:\n'
+      pedido+="$(printf '%s\n' "${urls[@]}")"
+    fi
+  fi
   chamada_agy=(timeout "${limite_agy[@]}" "$((tempo + 30))" env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 JANGADA_AGY_PAPEL="$papel"
     JANGADA_ISOLAR_PERFIL="$perfil_execucao" JANGADA_IMPLEMENTACAO_MANIFESTO="$executor_contrato" \
-    "$JANGADA_CORE_PATH/bin/jangada-isolar" -- agy -p "$pedido" --agent "$papel" --model "$modelo" --sandbox \
+    "$JANGADA_CORE_PATH/bin/jangada-isolar" -- "${executor_agy[@]}" -p "$pedido" --agent "$papel" --model "$modelo" --sandbox \
     --output-format json --print-timeout "${tempo}s")
   resposta="$(
     cd "$pasta"
@@ -1022,6 +1052,7 @@ fi
 conversa="$(jq -r '.conversation_id // ""' <<<"$resposta" 2>/dev/null || true)"
 tokens_agy="$(jq -r '.usage.total_tokens // ""' <<<"$resposta" 2>/dev/null || true)"
 banco="${JANGADA_AGY_CONVERSAS:-$HOME/.gemini/antigravity-cli/conversations}/$conversa.db"
+[[ -z "$registro_ferramentas" ]] || banco="$registro_ferramentas/conversations/$conversa.db"
 if [[ -n "$conversa" && -f "$banco" ]] && command -v sqlite3 >/dev/null 2>&1; then
   passos="$(sqlite3 -readonly "$banco" 'select count(*) from steps' 2>/dev/null || true)"
 fi
@@ -1034,7 +1065,7 @@ if [[ -n "$capacidade" ]] && ! jq -e '.response | type == "string"' <<<"$respost
 fi
 texto="$(jq -r '.response // ""' <<<"$resposta")"
 negados="$(jq -r '.denied_actions // [] | map(.display_name // .action // tostring) | unique | join(", ")' <<<"$resposta" 2>/dev/null || true)"
-if [[ ( -n "$capacidade" || "$papel" == implementador ) && -n "$negados" ]]; then
+if [[ -n "$negados" ]]; then
   texto=""
   recusar "o agy negou ações necessárias: ${negados:0:300}" destino_proibido
 fi

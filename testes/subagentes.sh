@@ -75,6 +75,8 @@ conferir "designer: não usa run_command no agy" designer_sem_comandos "$designe
 conferir "designer: não edita e exige referências" designer_com_referencias "$designer_agy"
 conferir "só o pesquisador busca na web (Claude)" \
   [ "$(grep -l '^tools:.*WebSearch' agentes/claude/agents/*.md | xargs -n1 basename)" = pesquisador.md ]
+conferir "pesquisador agy: busca, abertura e leitura do corpo baixado" \
+  [ "$(cabeca agentes/agy/agents/pesquisador/agent.md | sed -n 's/^  - //p' | sort | paste -sd,)" = read_url_content,search_web,view_file ]
 # O agy roda comandos com run_command quando o Claude do mesmo papel tem Bash.
 for p in "${papeis[@]}"; do
   bash_claude=0; cmd_agy=0

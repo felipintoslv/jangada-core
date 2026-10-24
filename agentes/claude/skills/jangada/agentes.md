@@ -732,6 +732,28 @@ Testes de 27/09/2026, agy 1.2.12:
 - `--dangerously-skip-permissions` não serve para delegar: libera escrita.
   O `jangada-delegar` usa `--sandbox` e depende do `permissions.allow`.
 
+Pegadinhas conferidas na MOD-03, em 23/10/2026:
+
+- `ReadUrlContent` sem autorização do domínio fica em `denied_actions`.
+  Use `pesquisador --destino agy --permitir-remoto --modelo gemini-3.8-flash-high
+  --url URL_OFICIAL`: a regra `read_url(dominio)` vale apenas na configuração
+  privada da chamada, com as recusas pessoais preservadas.
+- `read_url_content` salva o corpo em `brain/CONVERSA/.system_generated/steps/N/content.md`.
+  A abertura não basta quando o modelo precisa ler esse artefato com `view_file`.
+  O hook privado permite somente o corpo baixado da própria conversa; outros
+  caminhos e links são recusados. Confira ferramentas, URL, data e trecho;
+  resposta textual ou código zero não comprovam pesquisa concluída.
+- Um segundo Bubblewrap com raiz somente leitura precisa de `/tmp` privado
+  antes de montar caminhos novos ali. Sem isso, falha antes do modelo com
+  `Read-only file system`. A montagem tem teste com kernel real e cliente falso.
+- Não edite um script Bash durante sua execução: o interpretador pode retomar
+  a leitura em posições alteradas e executar fragmentos. Fixe o código durante
+  provas e testes; uma saída dessa condição não comprova o resultado do comando.
+- A lista de fontes no pedido não bloqueia buscas fora dela. Leitor, redator
+  e arquiteto com fontes explícitas recebem texto extraído em papel privado,
+  sem ferramentas ou MCP. Os demais papéis continuam exigindo conferência do
+  escopo efetivamente acessado, não apenas das referências do relatório.
+
 Pegadinhas da delegação local:
 
 Testes de 29/09/2026, Ollama 0.34.4:

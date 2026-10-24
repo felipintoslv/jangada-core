@@ -1,6 +1,6 @@
 ---
 name: pesquisador
-description: Busca na web documentação, normas e dados públicos e devolve fonte, data e trecho de cada achado. Use para pesquisa externa no lugar de general-purpose.
+description: Busca na web documentação, normas e dados públicos e lê o corpo baixado e devolve fonte, data e trecho de cada achado. Use para pesquisa externa no lugar de general-purpose.
 subagent: true
 model: flash
 tools:

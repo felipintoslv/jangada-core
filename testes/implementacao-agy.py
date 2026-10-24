@@ -85,6 +85,112 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
         p.write_text("#!/usr/bin/python3\n" + codigo)
         p.chmod(0o755)
 
+    def test_pesquisa_autoriza_so_dominio_na_copia(self):
+        settings = self.casa / ".gemini/antigravity-cli/settings.json"
+        original = {"trustedWorkspaces": [str(self.raiz)],
+                    "permissions": {"allow": ["command(cp)"], "deny": ["read_url(negado.example)"]}}
+        settings.write_text(json.dumps(original))
+        registro = Path(self.env["JANGADA_ESTADO"]) / "agentes/pesquisa-teste"
+        registro.parent.mkdir(parents=True)
+
+        def conferir(comando, **_):
+            self.assertEqual(comando[0], "bwrap")
+            destino = str(settings)
+            i = comando.index(destino)
+            privado = json.loads(Path(comando[i-1]).read_text())
+            self.assertEqual(privado["permissions"], {"allow": ["read_url(ai.google.dev)"],
+                                                     "deny": ["read_url(negado.example)"]})
+            self.assertIn(["--tmpfs", str(self.raiz)], [comando[i:i+2] for i in range(len(comando)-1)])
+            self.assertIn(["--tmpfs", str(self.casa)], [comando[i:i+2] for i in range(len(comando)-1)])
+            self.assertNotIn("--dangerously-skip-permissions", comando)
+            return subprocess.CompletedProcess(comando, 0)
+
+        with mock.patch.dict(os.environ, self.env, clear=True), \
+                mock.patch.object(Path, "home", return_value=self.casa), \
+                mock.patch.object(Path, "cwd", return_value=self.raiz), \
+                mock.patch.object(modulo.subprocess, "run", side_effect=conferir), \
+                self.assertRaises(SystemExit) as fim:
+            modulo.pesquisa(["--registro", str(registro), "--url", "https://ai.google.dev/gemini-api/docs",
+                             "--", "agy", "-p", "Busque e abra a documentação"])
+        self.assertEqual(fim.exception.code, 0)
+        self.assertEqual(json.loads(settings.read_text()), original)
+
+    def test_pesquisa_rejeita_enderecos_locais_credenciais_e_portas(self):
+        for url in ("http://ai.google.dev", "https://localhost/x", "https://127.0.0.1/",
+                    "https://u:p@ai.google.dev/", "https://ai.google.dev:443/", "file:///etc/passwd"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                modulo.dominios_pesquisa([url])
+
+    def test_pesquisa_le_so_corpo_baixado_da_propria_conversa(self):
+        corpo = self.casa / ".gemini/antigravity-cli/brain/conversa/.system_generated/steps/4/content.md"
+        corpo.parent.mkdir(parents=True)
+        corpo.write_text("documentação pública")
+        for alvo, conversa, decisao in ((corpo, "conversa", "ask"),
+                                       (corpo, "outra", "deny"),
+                                       (self.raiz / "fonte.txt", "conversa", "deny")):
+            evento = {"conversationId": conversa, "toolCall": {"args": {"AbsolutePath": str(alvo)}}}
+            p = subprocess.run(["python3", "-c", modulo.GANCHO_PESQUISA], env=self.env,
+                               input=json.dumps(evento), capture_output=True, text=True, check=True)
+            self.assertEqual(json.loads(p.stdout)["decision"], decisao)
+        corpo.unlink()
+        corpo.symlink_to(self.raiz / "fonte.txt")
+        p = subprocess.run(["python3", "-c", modulo.GANCHO_PESQUISA], env=self.env,
+                           input=json.dumps({"conversationId": "conversa", "toolCall": {
+                               "args": {"AbsolutePath": str(corpo)}}}), capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(p.stdout)["decision"], "deny")
+
+    def test_leitura_remota_recebe_apenas_faixa_sem_ferramentas(self):
+        fonte = self.raiz / "fonte.txt"
+        fonte.write_text("público\nnão autorizado nesta faixa\n")
+        registro = Path(self.env["JANGADA_ESTADO"]) / "agentes/leitura-teste"
+        registro.parent.mkdir(parents=True)
+
+        def conferir(comando, **_):
+            texto = comando[comando.index("-p")+1]
+            self.assertIn("Fonte: " + str(fonte) + "\n1: público", texto)
+            self.assertNotIn("não autorizado nesta faixa", texto)
+            i = comando.index("/tmp/jangada-pesquisa-agentes")
+            papel = (Path(comando[i-1]) / "leitor/agent.md").read_text()
+            self.assertIn("tools: []", papel)
+            self.assertIn("inheritMcp: false", papel)
+            return subprocess.CompletedProcess(comando, 0)
+
+        with mock.patch.dict(os.environ, self.env, clear=True), \
+                mock.patch.object(Path, "home", return_value=self.casa), \
+                mock.patch.object(Path, "cwd", return_value=self.raiz), \
+                mock.patch.object(modulo.subprocess, "run", side_effect=conferir), \
+                self.assertRaises(SystemExit):
+            modulo.pesquisa(["--registro", str(registro), "--papel", "leitor", "--fonte", str(fonte)+":1-1",
+                             "--", "agy", "-p", "Leia a fonte"])
+
+    def test_apoio_fronteira_real_sem_modelo_remoto(self):
+        capacidade = subprocess.run(["/usr/bin/bwrap", "--ro-bind", "/", "/", "--unshare-pid", "true"],
+                                    capture_output=True)
+        if capacidade.returncode:
+            self.skipTest("Bubblewrap indisponível")
+        (self.bin / "bwrap").unlink()
+        self.script("agy", '''import json,sys
+from pathlib import Path
+if sys.argv[1:] == ["agents"]: print("pesquisador"); sys.exit()
+cfg=Path.home()/".gemini"
+settings=json.loads((cfg/"antigravity-cli/settings.json").read_text())
+assert settings["permissions"]["allow"]==["read_url(ai.google.dev)"]
+assert not Path("fonte.txt").exists()
+assert not Path(".git").exists()
+assert not (Path.home()/"segredo.txt").exists()
+assert json.loads((cfg/"config/hooks.json").read_text())["jangada-pesquisa"]["PreToolUse"][0]["matcher"] == "view_file"
+print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"}))
+''')
+        (self.casa / "segredo.txt").write_text("privado")
+        registro = Path(self.env["JANGADA_ESTADO"]) / "agentes/pesquisa-real"
+        registro.parent.mkdir(parents=True)
+        p = subprocess.run(["python3", str(REPO / "delegacao/implementacao.py"), "pesquisa",
+                            "--registro", str(registro), "--url", "https://ai.google.dev/gemini-api/docs",
+                            "--", "agy", "-p", "Pesquise"], cwd=self.raiz, env=self.env,
+                           capture_output=True, text=True, timeout=20)
+        self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
+        self.assertEqual(json.loads(p.stdout)["status"], "SUCCESS")
+
     def git(self, *args):
         return subprocess.check_output(["git", "-C", str(self.raiz), *args], text=True)
 
