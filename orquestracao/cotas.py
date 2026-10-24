@@ -213,7 +213,8 @@ def medir_agy(core, conta, catalogo, atualizar, cache, agora):
             dados = consultar_agy(core, conta, catalogo)
         except (OSError, ValueError, TypeError, subprocess.SubprocessError):
             return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
-        return grupos_agy(dados, esperados, ORIGEM_AGY, agora_iso(agora), agora_iso(agora + validade))
+        medido = time.time()
+        return grupos_agy(dados, esperados, ORIGEM_AGY, agora_iso(medido), agora_iso(medido + validade))
     arquivo = cache / ('agy-usage-%s.json' % conta['nome'] if catalogo else 'agy-usage.json')
     try:
         lido = ler_regular(arquivo)
@@ -269,19 +270,29 @@ def consulta_codex(raiz_estado, agora):
     try:
         pasta.mkdir(mode=0o700, parents=True, exist_ok=True)
         dados = consultar(pasta)
-        cota, validade = percentual_codex(dados, agora)
-        confirmadas, _ = janelas_codex(dados, agora)
-    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        medido = time.time()
+        cota, validade = percentual_codex(dados, medido)
+        confirmadas, _ = janelas_codex(dados, medido)
+        janelas = [{'id': 'codex-' + nome, 'percentual': round(restante, 2), 'renova_em': agora_iso(fim)}
+                   for nome, restante, fim in confirmadas]
+        return grupo_medido('codex', round(cota, 2), janelas, ORIGEM_CODEX, agora_iso(medido),
+                            agora_iso(medido + validade))
+    except (OSError, OverflowError, ValueError, TypeError, subprocess.SubprocessError):
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX)
-    janelas = [{'id': 'codex-' + nome, 'percentual': round(restante, 2), 'renova_em': agora_iso(fim)}
-               for nome, restante, fim in confirmadas]
-    return grupo_medido('codex', round(cota, 2), janelas, ORIGEM_CODEX, agora_iso(agora),
-                        agora_iso(agora + validade))
 
 
 def entrada_codex(raiz_estado, atualizar, permitir_remoto, agora):
     grupo = consulta_codex(raiz_estado, agora) if atualizar and permitir_remoto else estado_codex(raiz_estado, agora)
     return {'provedor': 'codex', 'conta': None, 'grupos': [grupo], 'motivo': None}
+
+
+def vencer(documento, agora):
+    """Troca por null o número cuja validade acabou durante as consultas."""
+    for provedor in documento['provedores']:
+        for indice, grupo in enumerate(provedor['grupos']):
+            if grupo['percentual'] is not None and datetime.datetime.fromisoformat(grupo['valido_ate']).timestamp() <= agora:
+                provedor['grupos'][indice] = grupo_nulo(grupo['grupo'], 'cache_vencido', grupo['origem'],
+                                                        grupo['medido_em'], grupo['valido_ate'])
 
 
 def montar(raiz_estado, core, atualizar=False, permitir_remoto=False, agora=None):
@@ -292,6 +303,10 @@ def montar(raiz_estado, core, atualizar=False, permitir_remoto=False, agora=None
                  'provedores': entradas_agy(core, raiz_estado, consultar_rede, agora)
                  + [entrada_codex(raiz_estado, atualizar, permitir_remoto, agora),
                     {'provedor': 'claude', 'conta': None, 'grupos': [], 'motivo': 'nao_medido_por_este_provedor'}]}
+    # A validade é conferida no instante da entrega, não no da partida.
+    agora = max(agora, time.time())
+    vencer(documento, agora)
+    documento['gerado'] = agora_iso(agora)
     validar(documento, agora)
     return documento
 

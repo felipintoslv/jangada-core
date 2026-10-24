@@ -295,6 +295,46 @@ class Cotas(unittest.TestCase):
         self.assertEqual(codex['origem'], cotas.ORIGEM_CODEX)
         cotas.validar(lido(casa), time.time())
 
+    def test_codex_com_data_de_renovacao_fora_do_intervalo_vira_nulo(self):
+        casa = self.casa()
+        autenticacao_falsa(casa)
+        resposta = {'id': 2, 'result': {'rateLimits': {'limitId': 'codex',
+                                                       'primary': {'usedPercent': 20, 'resetsAt': 10 ** 20}}}}
+        executavel(casa.bin, 'codex', "read l; echo '{\"id\":1,\"result\":{}}'; read l; read l\n"
+                   "echo '%s'; sleep 1" % json.dumps(resposta))
+        saida = casa.router('cotas', '--atualizar', '--permitir-remoto')
+        self.assertEqual(saida.returncode, 0, saida.stderr)
+        codex = grupos(lido(casa), 'codex', None)['codex']
+        self.assertEqual((codex['percentual'], codex['motivo']), (None, 'consulta_falhou'))
+        self.assertEqual(lido(casa)['provedores'][-1]['provedor'], 'claude')
+
+    def test_numero_que_venceu_durante_as_consultas_vira_nulo(self):
+        medido = cotas.grupo_medido('gemini', 50.0, [], cotas.ORIGEM_AGY, cotas.agora_iso(1000), cotas.agora_iso(1060))
+        entrada = {'provedor': 'agy', 'conta': 'principal', 'grupos': [medido], 'motivo': None}
+        with tempfile.TemporaryDirectory() as pasta, \
+                patch.object(cotas, 'entradas_agy', return_value=[entrada]), \
+                patch.object(cotas.time, 'time', side_effect=[1000, 1061]):
+            documento = cotas.montar(pathlib.Path(pasta), RAIZ)
+        grupo = documento['provedores'][0]['grupos'][0]
+        self.assertEqual((grupo['percentual'], grupo['motivo']), (None, 'cache_vencido'))
+        self.assertEqual(grupo['valido_ate'], cotas.agora_iso(1060))
+
+    def test_validade_no_ultimo_segundo_nao_derruba_o_comando(self):
+        medido = cotas.grupo_medido('gemini', 50.0, [], cotas.ORIGEM_AGY, cotas.agora_iso(940), cotas.agora_iso(1000.9))
+        documento = {'versao': 1, 'gerado': cotas.agora_iso(1000.5),
+                     'provedores': [{'provedor': 'agy', 'conta': None, 'grupos': [medido], 'motivo': None}]}
+        cotas.vencer(documento, 1000.5)
+        cotas.validar(documento, 1000.5)
+        self.assertEqual(documento['provedores'][0]['grupos'][0]['motivo'], 'cache_vencido')
+
+    def test_validade_do_cache_zero_vira_nulo_na_atualizacao(self):
+        casa = self.casa()
+        executavel(casa.bin, 'agy', "cat <<'FIM'\n%s\nFIM" % json.dumps(AGY_USO))
+        saida = casa.router('cotas', '--atualizar', '--permitir-remoto', JANGADA_DELEGAR_CACHE='0')
+        self.assertEqual(saida.returncode, 0, saida.stderr)
+        gemini = grupos(lido(casa))['gemini']
+        self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'cache_vencido'))
+
     def test_codex_do_estado_so_vale_dentro_da_validade(self):
         casa = self.casa()
         banco = casa.estado / 'agentes/runtime/tarefas.sqlite'
