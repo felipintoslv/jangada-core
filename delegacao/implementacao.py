@@ -545,12 +545,14 @@ def pesquisa(argumentos):
     casa = Path.home()
     cli = casa / ".gemini/antigravity-cli"
     cfg = casa / ".gemini/config"
-    settings = json.loads((cli / "settings.json").read_text())
+    settings_path = Path(os.environ.get("JANGADA_AGY_SETTINGS") or cli / "settings.json")
+    settings = json.loads(settings_path.read_text())
     if str(raiz) not in settings.get("trustedWorkspaces", []):
         raise ValueError("pesquisa exige confiança existente na pasta")
     permissoes = {"allow": ["read_url(" + d + ")" for d in dominios],
                   "deny": settings.get("permissions", {}).get("deny", [])}
-    with tempfile.TemporaryDirectory(prefix="runtime-", dir=registro) as temporaria:
+    # As fontes das montagens somente leitura ficam fora da pasta gravável.
+    with tempfile.TemporaryDirectory(prefix="apoio-runtime-", dir=esperado) as temporaria:
         runtime = Path(temporaria)
         gravar(runtime, "settings.json", codificar({"trustedWorkspaces": [str(raiz)],
                "permissions": permissoes}), novo=True)

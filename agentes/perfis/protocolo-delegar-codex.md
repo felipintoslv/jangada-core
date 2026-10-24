@@ -13,7 +13,10 @@
      e redator podem usar `--destino agy --permitir-remoto --modelo
      gemini-3.8-flash-high --arquivos FONTES`. Recebem somente o texto extraído,
      sem ferramentas ou MCP. Falha local nunca autoriza essa escolha.
-   - Os demais papéis (explorador, pesquisador, verificador, auditor,
+   - `pesquisador` usa `jangada-delegar pesquisador "pedido" --destino agy
+     --permitir-remoto --modelo gemini-3.8-flash-high --url URL_OFICIAL`,
+     sem `--arquivos`. Exija busca, abertura, URL, data e trecho sustentado.
+   - Os demais papéis (explorador, verificador, auditor,
      arquiteto, designer, otimizador, supervisor):
      `jangada-delegar PAPEL "pedido" --destino agy --permitir-remoto`, com
      escopo e fontes autorizados nesta tarefa em `--arquivos`. A preferência

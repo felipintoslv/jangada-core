@@ -107,6 +107,9 @@ if [[ -n "${FALSO_ESPERA:-}" ]]; then
 fi
 printf '%s\n' "${JANGADA_AGY_PAPEL:-}" >"$FALSO_DIR/agy.papel"
 pwd >"$FALSO_DIR/agy.pasta"
+if [[ -f "$HOME/.gemini/antigravity-cli/settings.json" ]]; then
+  cat "$HOME/.gemini/antigravity-cli/settings.json" >"$FALSO_DIR/agy.settings.json"
+fi
 if [[ -n "${FALSO_PASSOS:-}" ]]; then
   mkdir -p "$HOME/.gemini/antigravity-cli/conversations"
   sqlite3 "$HOME/.gemini/antigravity-cli/conversations/c1.db" \
@@ -150,13 +153,14 @@ mkdir -p "$tmp/home/.gemini/config"
 sed "s|@JANGADA_CORE_PATH@|$repo_jangada|g" agentes/agy/hooks.json >"$tmp/home/.gemini/config/hooks.json"
 
 delegar() {
-  rm -f "$tmp/falso/agy.args"
+  rm -f "$tmp/falso/agy.args" "$tmp/falso/agy.settings.json"
   (cd "$tmp/projeto${SUBPASTA:+/$SUBPASTA}" && executar "$tmp" env -u JANGADA_DELEGAR -u JANGADA_DELEGAR_MODELOS -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
     -u JANGADA_DELEGAR_ROTEAMENTO_ID -u JANGADA_DELEGAR_TENTATIVAS -u JANGADA_DELEGAR_CHAMADAS_RESTANTES \
     HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
     FALSO_COTA="${COTA:-0.9}" FALSO_RESPOSTA="${RESPOSTA-relatorio em a.sh:1}" \
     FALSO_CODIGO="${CODIGO:-0}" FALSO_NEGADO="${NEGADO:-}" FALSO_LOG="${LOG:-}" FALSO_USAGE_FALHA="${USAGE_FALHA:-0}" \
     ${AGENTES:+FALSO_AGENTES="$AGENTES"} \
+    ${SETTINGS_AGY:+JANGADA_AGY_SETTINGS="$SETTINGS_AGY"} \
     ${PASSOS:+FALSO_PASSOS="$PASSOS"} \
     ${USAGE_JSON:+FALSO_USAGE_JSON="$USAGE_JSON"} \
     ${SEMANAL:+FALSO_SEMANAL=$SEMANAL} \
@@ -186,7 +190,7 @@ delegar() {
   local privado
   privado="$(tail -n 1 "$tmp/home/.local/state/jangada/delegacoes.jsonl" 2>/dev/null | jq -r '.registro_ferramentas // empty')"
   if [[ -n "$privado" && -f "$privado/agy.args" ]]; then
-    for nome in agy.args agy.papel agy.pasta temporario; do
+    for nome in agy.args agy.papel agy.pasta agy.settings.json temporario; do
       [[ ! -f "$privado/$nome" ]] || cp "$privado/$nome" "$tmp/falso/$nome"
     done
   fi
@@ -355,6 +359,12 @@ conferir "caso 13: ação negada com resposta também recusa" \
 delegar --permitir-remoto pesquisador "busque" --destino agy --json
 conferir "pesquisa: sem domínio autorizado não chama modelo" jqok -e \
   '.codigo_saida == 4 and .chamadas_executor == 0 and .motivo_codigo == "destino_proibido"' "$tmp/saida"
+printf 'fonte local não autorizada para pesquisa\n' >"$tmp/projeto/fonte-pesquisa.txt"
+ISOLADO=1 delegar --permitir-remoto pesquisador "busque" --destino agy --json \
+  --arquivos "$tmp/projeto/fonte-pesquisa.txt"
+conferir "pesquisa: arquivos sem URL recusam antes do modelo" jqok -e \
+  '.codigo_saida == 4 and .chamadas_executor == 0 and .motivo_codigo == "destino_proibido"' "$tmp/saida"
+conferir "pesquisa: arquivo local sem URL não chega ao agy" test ! -e "$tmp/falso/agy.args"
 
 delegar leitor "leia" --destino local --modelo gemini-3.8-flash-high
 conferir "modelo: destino local com modelo agy dá código 2" [ "$(codigo)" = 2 ]
@@ -412,6 +422,16 @@ conferir "fonte inválida: motivo próprio sem contar modelo" jqok -e \
   '.codigo_saida == 4 and .motivo_codigo == "entrada_invalida" and .chamadas_executor == 0' "$tmp/saida"
 conferir "fonte inválida: sem traceback ou chamada ao agy" bash -c \
   '! grep -q Traceback "$1" && [ ! -e "$2" ]' _ "$tmp/erro" "$tmp/falso/agy.args"
+jq '.permissions.deny = ["read_url(negado.example)"]' "$conf_agy" \
+  >"$tmp/projeto/subpasta/settings-selecionado.json"
+jq '.trustedWorkspaces = []' "$conf_agy" >"$tmp/conf" && cp "$tmp/conf" "$conf_agy"
+ISOLADO=1 SUBPASTA=subpasta SETTINGS_AGY=settings-selecionado.json delegar --permitir-remoto pesquisador "busque" \
+  --destino agy --modelo gemini-3.8-flash-high --url https://ai.google.dev/ --json
+conferir "settings: caminho relativo mantém a confiança escolhida após o cd" jqok -e \
+  '.codigo_saida == 0 and (.registro_ferramentas | length) > 0' "$tmp/saida"
+conferir "settings: preserva as recusas do arquivo escolhido" jqok -e \
+  '.permissions.deny == ["read_url(negado.example)"]' "$tmp/falso/agy.settings.json"
+jq -n --arg w "$(realpath "$tmp/projeto")" '{trustedWorkspaces: [$w]}' >"$conf_agy"
 rm -rf "$tmp/projeto/.git"
 
 # Pasta sem confiança do agy: recusa, sem confiar por conta própria.

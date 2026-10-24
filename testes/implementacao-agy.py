@@ -97,6 +97,9 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
             self.assertEqual(comando[0], "bwrap")
             destino = str(settings)
             i = comando.index(destino)
+            runtime = Path(comando[i-1]).parent
+            self.assertEqual(runtime.parent, registro.parent)
+            self.assertFalse(runtime.is_relative_to(registro))
             privado = json.loads(Path(comando[i-1]).read_text())
             self.assertEqual(privado["permissions"], {"allow": ["read_url(ai.google.dev)"],
                                                      "deny": ["read_url(negado.example)"]})
@@ -114,6 +117,42 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
                              "--", "agy", "-p", "Busque e abra a documentação"])
         self.assertEqual(fim.exception.code, 0)
         self.assertEqual(json.loads(settings.read_text()), original)
+        self.assertEqual(list(registro.parent.glob("apoio-runtime-*")), [])
+
+    def test_pesquisa_respeita_settings_explicitamente_selecionado(self):
+        padrao = self.casa / ".gemini/antigravity-cli/settings.json"
+        original = {"trustedWorkspaces": [], "permissions": {"deny": ["read_url(outro.example)"]}}
+        padrao.write_text(json.dumps(original))
+        alternativo = self.tmp / "settings-alternativo.json"
+        escolhido = {"trustedWorkspaces": [str(self.raiz)],
+                     "permissions": {"deny": ["read_url(negado.example)"]}}
+        alternativo.write_text(json.dumps(escolhido))
+        registro = Path(self.env["JANGADA_ESTADO"]) / "agentes/pesquisa-settings"
+        registro.parent.mkdir(parents=True)
+
+        def conferir(comando, **_):
+            i = comando.index(str(padrao))
+            privado = json.loads(Path(comando[i-1]).read_text())
+            self.assertEqual(privado["permissions"]["deny"], escolhido["permissions"]["deny"])
+            return subprocess.CompletedProcess(comando, 0)
+
+        ambiente = dict(self.env, JANGADA_AGY_SETTINGS=str(alternativo))
+        argumentos = ["--registro", str(registro), "--url", "https://ai.google.dev/docs", "--", "agy", "-p", "Leia"]
+        with mock.patch.dict(os.environ, ambiente, clear=True), \
+                mock.patch.object(Path, "home", return_value=self.casa), \
+                mock.patch.object(Path, "cwd", return_value=self.raiz), \
+                mock.patch.object(modulo.subprocess, "run", side_effect=conferir) as chamada:
+            with self.assertRaises(SystemExit) as fim:
+                modulo.pesquisa(argumentos)
+            self.assertEqual(fim.exception.code, 0)
+            chamada.assert_called_once()
+            alternativo.write_text(json.dumps({"trustedWorkspaces": []}))
+            argumentos[1] += "-negado"
+            with self.assertRaisesRegex(ValueError, "confiança existente"):
+                modulo.pesquisa(argumentos)
+            chamada.assert_called_once()
+        self.assertEqual(json.loads(padrao.read_text()), original)
+        self.assertEqual(json.loads(alternativo.read_text()), {"trustedWorkspaces": []})
 
     def test_pesquisa_rejeita_enderecos_locais_credenciais_e_portas(self):
         for url in ("http://ai.google.dev", "https://localhost/x", "https://127.0.0.1/",
@@ -209,8 +248,17 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
 from pathlib import Path
 if sys.argv[1:] == ["agents"]: print("pesquisador"); sys.exit()
 cfg=Path.home()/".gemini"
-settings=json.loads((cfg/"antigravity-cli/settings.json").read_text())
+cli=cfg/"antigravity-cli"
+settings=json.loads((cli/"settings.json").read_text())
 assert settings["permissions"]["allow"]==["read_url(ai.google.dev)"]
+assert not list(cli.glob("*runtime-*"))
+assert not [p for p in cli.rglob("*") if p.name in ("hooks.json","agents.json","agent.md","gancho.py")]
+for alvo in (cli/"settings.json", cfg/"config/hooks.json", cfg/"config/agents.json",
+             Path("/tmp/jangada-pesquisa-agentes/pesquisador/agent.md"), Path("/tmp/jangada-pesquisa-gancho.py")):
+ try:
+  with alvo.open("r+b"): pass
+ except OSError: pass
+ else: raise AssertionError("controle gravável: "+str(alvo))
 assert not Path("fonte.txt").exists()
 assert not Path(".git").exists()
 assert not (Path.home()/"segredo.txt").exists()
@@ -226,6 +274,7 @@ print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"
                            capture_output=True, text=True, timeout=20)
         self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
         self.assertEqual(json.loads(p.stdout)["status"], "SUCCESS")
+        self.assertEqual(list(registro.parent.glob("apoio-runtime-*")), [])
 
     def git(self, *args):
         return subprocess.check_output(["git", "-C", str(self.raiz), *args], text=True)

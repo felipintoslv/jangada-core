@@ -174,8 +174,10 @@ hooks ou ferramentas externas. Mais detalhes em `docs/codex.md`.
 ## Peças
 
 Os perfis `claude-codex` e `codex-claude` seguem a mesma regra: `leitor` e
-`redator` com `--destino local --arquivos FONTES`; os demais papéis com
-`--destino agy --permitir-remoto`. O protocolo da abertura e o da retomada
+`redator` com `--destino local --arquivos FONTES`; `pesquisador` com
+`--destino agy --permitir-remoto --modelo gemini-3.8-flash-high --url URL_OFICIAL`,
+sem `--arquivos`. Os demais papéis usam `--destino agy --permitir-remoto
+--arquivos FONTES`. O protocolo da abertura e o da retomada
 trazem essa regra. O `jangada-delegar --capacidade` seleciona destinos para
 leitura documental. O envio ao agy exige autorização da tarefa
 (`--permitir-remoto`) e do perfil. Uma falha do Ollama não autoriza esse
@@ -736,7 +738,7 @@ Pegadinhas conferidas na MOD-03, em 23/10/2026:
 
 - `ReadUrlContent` sem autorização do domínio fica em `denied_actions`.
   Use `pesquisador --destino agy --permitir-remoto --modelo gemini-3.8-flash-high
-  --url URL_OFICIAL`: a regra `read_url(dominio)` vale apenas na configuração
+  --url URL_OFICIAL`, sem `--arquivos`: a regra `read_url(dominio)` vale apenas na configuração
   privada da chamada, com as recusas pessoais preservadas.
 - `read_url_content` salva o corpo em `brain/CONVERSA/.system_generated/steps/N/content.md`.
   A abertura não basta quando o modelo precisa ler esse artefato com `view_file`.
@@ -746,6 +748,11 @@ Pegadinhas conferidas na MOD-03, em 23/10/2026:
 - Um segundo Bubblewrap com raiz somente leitura precisa de `/tmp` privado
   antes de montar caminhos novos ali. Sem isso, falha antes do modelo com
   `Read-only file system`. A montagem tem teste com kernel real e cliente falso.
+- As fontes das montagens somente leitura precisam ficar fora da pasta de
+  registros montada com escrita. Um caminho alternativo nessa pasta permite
+  mudar as mesmas regras e hooks. Use pasta temporária irmã, removida ao fim,
+  e confira a fronteira com processo hostil. O Python e o Bash precisam ler
+  o mesmo `JANGADA_AGY_SETTINGS`, preservando confiança e recusas pessoais.
 - Não edite um script Bash durante sua execução: o interpretador pode retomar
   a leitura em posições alteradas e executar fragmentos. Fixe o código durante
   provas e testes; uma saída dessa condição não comprova o resultado do comando.

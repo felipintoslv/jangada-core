@@ -851,6 +851,11 @@ fi
 # ==============================================================================
 # DESTINO AGY
 # ==============================================================================
+if [[ -n "${JANGADA_AGY_SETTINGS:-}" ]]; then
+  JANGADA_AGY_SETTINGS="$(realpath -- "$JANGADA_AGY_SETTINGS")" \
+    || recusar "caminho da configuração do agy inválido" entrada_invalida
+  export JANGADA_AGY_SETTINGS
+fi
 agy_limpo() { env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 agy "$@" </dev/null {agy_fd}<&-; }
 command -v agy >/dev/null 2>&1 || recusar "agy não instalado" indisponivel
 # Uma conta existente; leitura e implementação disputam a mesma trava.
