@@ -85,10 +85,9 @@ e os hooks; não altera a instalação durante os testes.
 **Aceite real pendente da MOD-02:** os ensaios usam clientes falsos, tmux privado
 e estado separado. Em 23/10/2026 a consulta delimitada de `/usage` confirmou
 cota Argon de 0%, com renovação em `2026-10-24T00:02:15Z`. Nenhuma execução real Argon foi feita nessa condição.
-O apoio arquiteto Flash também ficou bloqueado: o delegador agrupa cotas Gemini
-e recusou Flash por cota Argon, embora as janelas Flash informassem 100%.
-A tentativa fixou `gemini-3.8-flash-high`, retornou código 4 e zero chamadas ao modelo.
-A correção pertence à MOD-03. Não houve contribuição de arquiteto a aproveitar.
+O bloqueio Flash por agrupamento de cota foi corrigido na MOD-03.
+O apoio arquiteto foi feito na retomada da MOD-02 após a renovação:
+uma chamada, sem mudança de produto.
 
 A paridade de permissões e coexistência ainda não está demonstrada. A documentação
 do cliente não oferece `PermissionRequest`: o adaptador não inventa `aguardando`

@@ -707,9 +707,12 @@ Testes de 27/09/2026, agy 1.2.12:
   e toda chamada falha com 429 (`RESOURCE_EXHAUSTED`). Em 03/10/2026 o
   `jangada-delegar` lia só o `gemini-5h` e mandava ao agy sem cota. A cota de
   um grupo é a menor fração entre os buckets sem `disabled`.
-- Flash e Pro dividem o grupo `gemini-*`; trocar entre eles não rende cota.
-  Os modelos Claude e GPT do agy usam o grupo `3p-*`. Por isso
-  `JANGADA_DELEGAR_MODELOS` põe depois do Flash modelos do outro grupo.
+- Flash e Pro dividem `gemini-weekly` e `gemini-5h`; trocar entre eles não rende cota.
+  Argon usa `gemini-argon-wtu-weekly`, separado. Em 23/10/2026, procurar
+  qualquer `gemini-*` misturava os grupos e recusava Flash pela cota Argon.
+  O delegador seleciona os identificadores exatos do grupo do modelo.
+  Grupo ausente ou inválido não usa a cota de outro; janelas desativadas não contam.
+  Claude e GPT do agy usam `3p-weekly` e `3p-5h`.
 - Falha ao iniciar `agy agents` não comprova ausência de um papel.
   No sandbox do Codex, soquete local proibido e logs somente leitura fizeram
   a consulta sair com código 1, sem catálogo. Capture código e erro antes

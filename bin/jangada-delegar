@@ -883,14 +883,24 @@ if [[ "$papel" == leitor ]] && ! jq -e --arg bin "${JANGADA_CORE_PATH%/}/bin/jan
   recusar "o hook do leitor não está em ~/.gemini/config/hooks.json (rode ./install.sh 50)" destino_proibido
 fi
 
-# Cota de um grupo do /usage (gemini ou 3p), em % restante, com duas casas: a
+# Cota do grupo real do modelo, em % restante, com duas casas: a
 # menor entre as janelas ativas do grupo. O agy desliga a de 5 horas quando a
 # semanal acaba, e a semanal zerada recusa qualquer modelo do grupo.
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/jangada/agy-usage.json"
 mkdir -p "${cache%/*}"
+grupo_do_modelo() {
+  case "$1" in
+    gemini-4-argon-*) echo gemini-argon-wtu ;;
+    gemini-*-flash-*|gemini-*-pro-*) echo gemini ;;
+    claude-*|gpt-*) echo 3p ;;
+  esac
+}
 cota_do_grupo() {
-  jq -er --arg prefixo "$1-" '[.command.data.groups[]?.buckets[]?
-      | select((.id | type == "string") and (.id | startswith($prefixo)) and .disabled != true)
+  local grupo
+  grupo="$(grupo_do_modelo "$1")"
+  [[ -n "$grupo" ]] || return 0
+  jq -er --arg semanal "$grupo-weekly" --arg horas "$grupo-5h" '[.command.data.groups[]?.buckets[]?
+      | select((.id == $semanal or .id == $horas) and .disabled != true)
       | .remaining_fraction]
     | if length > 0 and all(.[]; type == "number" and isfinite and . >= 0 and . <= 1)
       then min * 10000 | round / 100 else empty end' "$2" 2>/dev/null || true
@@ -900,8 +910,7 @@ cota_do_grupo() {
 # válida de algum grupo configurado; cada modelo exige a cota do próprio grupo.
 cota_consultada=0; cota_atual=0; cota_lida=""
 ler_cota() {
-  local tmp atualizado agora grupo=3p grupo_cache candidato cache_valido
-  [[ "$1" == gemini-* ]] && grupo=gemini
+  local tmp atualizado agora candidato cache_valido
   if [[ "${2:-}" == nova ]] || ((!cota_consultada)); then
     cota_consultada=1; cota_atual=1
     atualizado="$(stat -c %Y "$cache" 2>/dev/null || echo 0)"
@@ -912,9 +921,7 @@ ler_cota() {
       cache_valido=0
       if agy_limpo -p "/usage" --output-format json --print-timeout 60s 2>/dev/null >"$tmp"; then
         for candidato in "${modelos_agy[@]}"; do
-          grupo_cache=3p
-          [[ "$candidato" == gemini-* ]] && grupo_cache=gemini
-          if [[ -n "$(cota_do_grupo "$grupo_cache" "$tmp")" ]]; then
+          if [[ -n "$(cota_do_grupo "$candidato" "$tmp")" ]]; then
             cache_valido=1
             break
           fi
@@ -929,7 +936,7 @@ ler_cota() {
     fi
   fi
   cota_lida=""
-  ((cota_atual)) && cota_lida="$(cota_do_grupo "$grupo" "$cache")"
+  ((cota_atual)) && cota_lida="$(cota_do_grupo "$1" "$cache")"
   return 0
 }
 

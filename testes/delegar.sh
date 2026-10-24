@@ -76,6 +76,10 @@ if [[ "$2" == /usage ]]; then
     sleep "$FALSO_ESPERA_USAGE"
   fi
   [[ "${FALSO_USAGE_FALHA:-0}" == 1 ]] && exit 1
+  if [[ -n "${FALSO_USAGE_JSON:-}" ]]; then
+    printf '%s\n' "$FALSO_USAGE_JSON"
+    exit 0
+  fi
   terceiros=""
   if [[ -n "${FALSO_TERCEIROS:-}" ]]; then
     terceiros=',{"name":"Claude and GPT models","buckets":[{"id":"3p-weekly","remaining_fraction":1},{"id":"3p-5h","remaining_fraction":'"$FALSO_TERCEIROS"'}]}'
@@ -146,6 +150,7 @@ delegar() {
     FALSO_COTA="${COTA:-0.9}" FALSO_RESPOSTA="${RESPOSTA-relatorio em a.sh:1}" \
     FALSO_CODIGO="${CODIGO:-0}" FALSO_NEGADO="${NEGADO:-}" FALSO_LOG="${LOG:-}" FALSO_USAGE_FALHA="${USAGE_FALHA:-0}" \
     ${AGENTES:+FALSO_AGENTES="$AGENTES"} \
+    ${USAGE_JSON:+FALSO_USAGE_JSON="$USAGE_JSON"} \
     ${SEMANAL:+FALSO_SEMANAL=$SEMANAL} \
     ${TERCEIROS:+FALSO_TERCEIROS=$TERCEIROS} \
     ${ESGOTADO:+FALSO_ESGOTADO=$ESGOTADO} \
@@ -218,6 +223,39 @@ conferir "caso 3c: Gemini sem cota passa ao modelo seguinte" [ "$(codigo)" = 0 ]
 conferir "caso 3c: chama o Sonnet do agy" grep -qx -- claude-sonnet-5-5-high "$tmp/falso/agy.args"
 conferir "caso 3c: registra o modelo usado e a cota do grupo dele" \
   jqok -se 'last | .modelo == "claude-sonnet-5-5-high" and .cota_antes == 80 and .recusa == false' "$reg"
+
+# Argon tem orçamento separado de Flash/Pro, inclusive quando falta um grupo.
+for caso in flash_livre argon_livre flash_ausente argon_ausente flash_invalido argon_invalido; do
+  flash=0.8; argon=0.9; esperado=0; cota_esperada=80
+  MODELOS=gemini-3.8-flash-high
+  case "$caso" in
+    flash_livre) argon=0 ;;
+    argon_livre) flash=0; MODELOS=gemini-4-argon-high; cota_esperada=90 ;;
+    flash_ausente) flash=null; esperado=4 ;;
+    argon_ausente) argon=null; MODELOS=gemini-4-argon-high; esperado=4 ;;
+    flash_invalido) flash='"inválida"'; esperado=4 ;;
+    argon_invalido) argon='"inválida"' ;;
+  esac
+  USAGE_JSON="$(jq -nc --argjson f "$flash" --argjson a "$argon" '
+    {command:{data:{groups:[
+      {buckets: (if $f == null then [] else
+        [{id:"gemini-weekly",remaining_fraction:$f},{id:"gemini-5h",remaining_fraction:1}] end)},
+      {buckets: (if $a == null then [] else
+        [{id:"gemini-argon-wtu-weekly",remaining_fraction:$a}] end)}]}}}')"
+  rm -f "$tmp/home/.cache/jangada/agy-usage.json"
+  delegar --permitir-remoto explorador "mapeie" --json
+  conferir "grupos $caso: código esperado" [ "$(codigo)" = "$esperado" ]
+  if [[ "$esperado" == 0 ]]; then
+    conferir "grupos $caso: modelo e cota próprios" jqok -e \
+      --arg m "$MODELOS" --argjson c "$cota_esperada" '.modelo == $m and .cota_antes == $c' "$tmp/saida"
+  else
+    conferir "grupos $caso: cota desconhecida sem chamada" jqok -e \
+      '.motivo_codigo == "cota_desconhecida" and .chamadas_executor == 0' "$tmp/saida"
+    conferir "grupos $caso: não usa cota alheia" test ! -e "$tmp/falso/agy.args"
+  fi
+done
+unset MODELOS USAGE_JSON
+rm -f "$tmp/home/.cache/jangada/agy-usage.json"
 
 # O /usage diz que há cota, mas o agy responde que acabou: tenta o seguinte.
 rm -f "$tmp/home/.cache/jangada/agy-usage.json"
