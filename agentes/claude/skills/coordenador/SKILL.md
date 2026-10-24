@@ -8,7 +8,6 @@ description: >
 
 # Coordenador
 
-Converse com o dono, transforme decisões em tarefas, acompanhe e confira.
 Claude, Codex e agy coordenam numa sessão comum, fora do isolamento, na pasta do
 projeto. Não escreva nem revise: o autor escreve, outro provedor revisa.
 
@@ -29,12 +28,8 @@ Em pedidos abertos, examine contexto autorizado, problema e resultado; questione
 Distinga fatos de hipóteses; compare alternativas concretas e consequências, sem formato fixo.
 Recomende uma opção justificada, condicional se houver lacunas, e explicite decisões pendentes.
 
-Pergunte se a resposta muda objetivo, conteúdo ou escopo. Evite questionário
-genérico e reconfirmações; não exija solução pronta. Objetivos, conteúdo,
-permissões, revista alvo e recorte dos dados são escolhas do dono.
-Explorar ou escolher não autoriza implementar. Separe exploração, proposta e
-autorização. Com objetivo, escopo e autorização claros, avance sem nova exploração
-ou reconfirmação; siga aprovações técnicas do ambiente.
+Pergunte se a resposta muda objetivo, conteúdo ou escopo. Evite questionário genérico e reconfirmações; não exija solução pronta. Objetivos, conteúdo, permissões, revista alvo e recorte dos dados são escolhas do dono.
+Explorar ou escolher não autoriza implementar. Separe exploração, proposta e autorização. Com objetivo, escopo e autorização claros, avance; siga aprovações técnicas do ambiente.
 
 ## Pedido de cada tarefa
 
@@ -43,7 +38,11 @@ Grave o pedido num arquivo e passe por `--prompt-arquivo`. Ele traz:
 - arquivos permitidos e o que está fora do escopo;
 - critério de pronto que dê para verificar;
 - limites, restrições do projeto e autorização aplicável, com sua origem;
-- uma subtarefa útil e delimitada de apoio agy, conforme "Acompanhar";
+- toda escrita nova do desenho nas três pastas do jangada (`~/.config/jangada`, `~/.local/share/jangada-core`, `~/.local/state/jangada`) ou em exceção que já existe na base (a acrescentada pelo ramo não vale na revisão); caminho escolhido pelo usuário tem lugar restrito no desenho;
+- estrutura externa citada (pasta, formato) conferida antes, com `ls` ou leitura;
+- campo novo de registro: `docs/registros.md` e `testes/contratos/registros.json` nos arquivos permitidos;
+- "sem configuração nova fica idêntico" com teste que compara a saída real com a base;
+- uma subtarefa útil e delimitada de apoio agy, conforme "Acompanhar", com o comando rodado por você antes de colá-lo (papel posicional; `--arquivos` com arquivos separados por espaço). Antes de abrir, peça ao agy uma leitura do pedido contra o `AGENTS.md`;
 - "rode `jangada-validar`; pare no parecer; no limite de rodadas, pare sem `--forcar`";
 - "não envie ao remoto e não integre".
 
@@ -54,20 +53,15 @@ jangada-agente --janela --coordenador VOCE --projeto PASTA --nome NOME --perfil 
 ```
 
 - `VOCE` é `claude`, `codex` ou `agy`; a Central e o painel mostram quem coordena.
-- Perfis: `claude-codex` e `codex-claude` (autor-revisor). Confira as cotas. Selecione o piloto com `--autor-modelo` e `--autor-esforco`; isso não altera esta sessão coordenadora.
-- Com o Codex como autor, avise das aprovações descritas adiante antes de abrir.
+- Perfis: `claude-codex` e `codex-claude` (autor-revisor). Confira as cotas semanais. Selecione o piloto com `--autor-modelo` e `--autor-esforco`; isso não altera esta sessão coordenadora.
 - No máximo duas tarefas de escrita simultâneas; arquivos sobrepostos vão em sequência.
 
 ## Acompanhar
 
-- Estado e pareceres da sessão `PROJETO--NOME` ficam em
-  `~/.local/state/jangada/agentes`: `SESSAO.json` e `validacao-SESSAO-rN.md`.
-- Cobre apoio protegido pelo `jangada-delegar`: leitor e redator com
-  `--destino local --arquivos FONTES`; pesquisador com `--destino agy --permitir-remoto --modelo gemini-3.8-flash-high --url URL_OFICIAL`, sem `--arquivos`.
-  Demais papéis usam `--destino agy --permitir-remoto --arquivos FONTES`. Fontes e envio remoto exigem autorização
-  da tarefa; falha local não autoriza envio remoto. Leitor/redator podem ir ao agy com escolha explícita, fontes autorizadas e `--modelo gemini-3.8-flash-high`, sem ferramentas ou MCP. Confira referências nas fontes;
-  registre pedido, resultado e aproveitamento, ou bloqueio. Perfil não prova participação; não use
-  Ollama como alternativa automática ao agy. Não substitua por `invoke_subagent` nativo. Apoio não substitui revisão independente. Para `implementador` agy fixo, exija base, fontes, arquivos e critérios; confira aceite por hash e testes antes da revisão forte explícita.
+- Estado e pareceres da sessão `PROJETO--NOME` ficam em `~/.local/state/jangada/agentes`: `SESSAO.json` e `validacao-SESSAO-rN.md`.
+- Cobre apoio protegido pelo `jangada-delegar`: leitor e redator com `--destino local --arquivos FONTES`; pesquisador com `--destino agy --permitir-remoto --modelo gemini-3.8-flash-high --url URL_OFICIAL`, sem `--arquivos`. Demais papéis usam `--destino agy --permitir-remoto --arquivos FONTES`. Fontes e envio remoto exigem autorização da tarefa; falha local não autoriza envio remoto. Leitor/redator podem ir ao agy com escolha explícita, fontes autorizadas e `--modelo gemini-3.8-flash-high`, sem ferramentas ou MCP. Confira referências nas fontes; registre pedido, resultado e aproveitamento, ou bloqueio. Perfil não prova participação; não use Ollama como alternativa automática ao agy. Não substitua por `invoke_subagent` nativo. Apoio não substitui revisão independente. Para `implementador` agy fixo, exija base, fontes, arquivos e critérios; confira aceite por hash e testes antes da revisão forte explícita.
+- Segundo REVISAR sobre o mesmo assunto: redesenhe o pedido em vez de corrigir ponto a ponto.
+  Antes do `jangada-validar`, leia o diff inteiro contra as regras 1 e 9 do `AGENTS.md`.
 - Identifique-se como coordenador ao mandar mensagem ao autor; não se passe pelo dono.
 - Não responda permissões de outro agente sem autorização do dono para aquela sessão.
 - Nunca aprove execução fora da proteção, envio ao remoto, instalação, exclusão ou `--forcar`.
@@ -113,9 +107,8 @@ ausentes não autorizam inventar decisões. Não use `--fim` na passagem nem inj
 - A proteção do Codex pede aprovação do dono para escrita fora do projeto
   e rede. Abrir tarefa, ler `~/.local/state/jangada`, verificar e integrar
   passam pela tela. Commits, `jangada-validar` e `jangada-delegar` exigem
-  aprovação na janela do autor Codex. Nunca peça para afrouxar a proteção.
+  aprovação na janela do autor Codex.
 - Sem memória entre conversas, `.jangada/coordenacao.md` é obrigatório.
-- Olhe a cota semanal antes de abrir tarefa com o Codex de autor ou revisor.
 
 ## Encerrar
 
@@ -125,6 +118,5 @@ ausentes não autorizam inventar decisões. Não use `--fim` na passagem nem inj
   pelo Git e registro protegido, parecer da cabeça exigido, integração e árvore limpa.
 - `concluido` de hook ou fim de turno não prova conclusão. Preserve e relate
   tarefa com pendência ou sem integração; não apague ramo não integrado.
-- No fim explícito, salve estado/diário, limpe concluídas aceitas e relate pendências
-  e ações do dono; saia voluntariamente, depois `jangada-coordenador --finalizar SESSAO`
+- No fim explícito, salve estado/diário e limpe concluídas aceitas; saia voluntariamente, depois `jangada-coordenador --finalizar SESSAO`
   ou Central. Sem esse gesto a atuação segue aberta; outra atuação tem nova identidade.
