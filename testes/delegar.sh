@@ -107,6 +107,11 @@ if [[ -n "${FALSO_ESPERA:-}" ]]; then
 fi
 printf '%s\n' "${JANGADA_AGY_PAPEL:-}" >"$FALSO_DIR/agy.papel"
 pwd >"$FALSO_DIR/agy.pasta"
+if [[ -n "${FALSO_PASSOS:-}" ]]; then
+  mkdir -p "$HOME/.gemini/antigravity-cli/conversations"
+  sqlite3 "$HOME/.gemini/antigravity-cli/conversations/c1.db" \
+    "create table steps(n); insert into steps values(1),(2);"
+fi
 [[ -n "${FALSO_LOG:-}" ]] && echo "$FALSO_LOG" >"$HOME/.gemini/antigravity-cli/log/cli-1.log"
 [[ "${FALSO_CODIGO:-0}" != 0 ]] && { echo "falha falsa" >&2; exit "$FALSO_CODIGO"; }
 jq -n --arg r "$FALSO_RESPOSTA" --arg n "${FALSO_NEGADO:-}" \
@@ -146,12 +151,13 @@ sed "s|@JANGADA_CORE_PATH@|$repo_jangada|g" agentes/agy/hooks.json >"$tmp/home/.
 
 delegar() {
   rm -f "$tmp/falso/agy.args"
-  (cd "$tmp/projeto" && executar "$tmp" env -u JANGADA_DELEGAR -u JANGADA_DELEGAR_MODELOS -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
+  (cd "$tmp/projeto${SUBPASTA:+/$SUBPASTA}" && executar "$tmp" env -u JANGADA_DELEGAR -u JANGADA_DELEGAR_MODELOS -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
     -u JANGADA_DELEGAR_ROTEAMENTO_ID -u JANGADA_DELEGAR_TENTATIVAS -u JANGADA_DELEGAR_CHAMADAS_RESTANTES \
     HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
     FALSO_COTA="${COTA:-0.9}" FALSO_RESPOSTA="${RESPOSTA-relatorio em a.sh:1}" \
     FALSO_CODIGO="${CODIGO:-0}" FALSO_NEGADO="${NEGADO:-}" FALSO_LOG="${LOG:-}" FALSO_USAGE_FALHA="${USAGE_FALHA:-0}" \
     ${AGENTES:+FALSO_AGENTES="$AGENTES"} \
+    ${PASSOS:+FALSO_PASSOS="$PASSOS"} \
     ${USAGE_JSON:+FALSO_USAGE_JSON="$USAGE_JSON"} \
     ${SEMANAL:+FALSO_SEMANAL=$SEMANAL} \
     ${TERCEIROS:+FALSO_TERCEIROS=$TERCEIROS} \
@@ -349,6 +355,64 @@ conferir "caso 13: ação negada com resposta também recusa" \
 delegar --permitir-remoto pesquisador "busque" --destino agy --json
 conferir "pesquisa: sem domínio autorizado não chama modelo" jqok -e \
   '.codigo_saida == 4 and .chamadas_executor == 0 and .motivo_codigo == "destino_proibido"' "$tmp/saida"
+
+delegar leitor "leia" --destino local --modelo gemini-3.8-flash-high
+conferir "modelo: destino local com modelo agy dá código 2" [ "$(codigo)" = 2 ]
+conferir "modelo: combinação inválida não chama agy" test ! -e "$tmp/falso/agy.args"
+delegar leitor "leia" --destino agy --url https://ai.google.dev/
+conferir "URL: papel diferente de pesquisador dá código 2" [ "$(codigo)" = 2 ]
+delegar pesquisador "busque" --destino agy --url https://ai.google.dev/ --arquivos fonte.txt
+conferir "URL: fontes locais na pesquisa dão código 2" [ "$(codigo)" = 2 ]
+delegar pesquisador "busque" --destino agy --url https://ai.google.dev/ --capacidade leitura_documental
+conferir "URL: capacidade na pesquisa dá código 2" [ "$(codigo)" = 2 ]
+conferir "URL: combinações inválidas não chamam agy" test ! -e "$tmp/falso/agy.args"
+
+mkdir -p "$tmp/home/.gemini/antigravity-cli/conversations"
+sqlite3 "$tmp/home/.gemini/antigravity-cli/conversations/c1.db" \
+  'create table steps(n); insert into steps values(1),(2),(3),(4),(5);'
+ISOLADO=1 PASSOS=1 delegar --permitir-remoto pesquisador "busque" --destino agy \
+  --modelo gemini-3.8-flash-high --url https://ai.google.dev/ --json
+conferir "pesquisa: executor e banco privados" jqok -e \
+  '.codigo_saida == 0 and (.registro_ferramentas | length) > 0 and .passos == 2' "$tmp/saida"
+conferir "pesquisa: instrução para parar na ação negada" grep -q \
+  'Se uma ferramenta ou comando for negado, pare e informe qual ação foi negada.' "$tmp/falso/agy.args"
+
+rm -f "$tmp/home/.cache/jangada/agy-usage.json"
+ISOLADO=1 TERCEIROS=0.8 ESGOTADO=gemini-3.8-flash-high delegar --permitir-remoto pesquisador \
+  "busque" --destino agy --url https://ai.google.dev/ --json
+conferir "pesquisa: segunda tentativa privada conclui" jqok -e \
+  '.codigo_saida == 0 and .modelo == "claude-sonnet-5-5-high" and .chamadas_executor == 2' "$tmp/saida"
+conferir "pesquisa: instrução aparece uma vez na segunda tentativa" \
+  [ "$(grep -c 'Faça uma busca e abra a fonte pública oficial autorizada' "$tmp/falso/agy.args")" = 1 ]
+rm -f "$tmp/home/.cache/jangada/agy-usage.json"
+
+git init -q "$tmp/projeto"
+mkdir -p "$tmp/projeto/subpasta"
+printf 'autorizado\nsegunda linha inteira\n' >"$tmp/projeto/subpasta/relatório final.txt"
+printf 'literal inteiro\nlinha que também precisa seguir\n' >"$tmp/projeto/subpasta/literal.txt:1-1"
+for papel_privado in leitor redator arquiteto; do
+  ISOLADO=1 SUBPASTA=subpasta delegar --permitir-remoto "$papel_privado" "leia" --destino agy \
+    --modelo gemini-3.8-flash-high --json --arquivos 'relatório final.txt'
+  conferir "$papel_privado: nome acentuado relativo à subpasta no executor privado" jqok -e \
+    --arg fonte "$tmp/projeto/subpasta/relatório final.txt" \
+    '.codigo_saida == 0 and (.registro_ferramentas | length) > 0 and .fontes_autorizadas == [$fonte]' "$tmp/saida"
+  conferir "$papel_privado: somente o conteúdo fornecido chega ao pedido" grep -q '2: segunda linha inteira' "$tmp/falso/agy.args"
+done
+ISOLADO=1 SUBPASTA=subpasta delegar --permitir-remoto leitor "leia" --destino agy --json \
+  --arquivos 'literal.txt:1-1'
+conferir "fonte literal: sufixo de faixa existente vale inteiro" grep -q \
+  '2: linha que também precisa seguir' "$tmp/falso/agy.args"
+ISOLADO=1 SUBPASTA=subpasta delegar --permitir-remoto leitor "leia" --destino agy --json \
+  --arquivos 'relatório final.txt:1-1'
+conferir "fonte em faixa: segunda linha não é enviada" bash -c \
+  'grep -q "1: autorizado" "$1" && ! grep -q "segunda linha inteira" "$1"' _ "$tmp/falso/agy.args"
+ISOLADO=1 SUBPASTA=subpasta delegar --permitir-remoto leitor "leia" --destino agy --json \
+  --arquivos 'relatório final.txt:9-10'
+conferir "fonte inválida: motivo próprio sem contar modelo" jqok -e \
+  '.codigo_saida == 4 and .motivo_codigo == "entrada_invalida" and .chamadas_executor == 0' "$tmp/saida"
+conferir "fonte inválida: sem traceback ou chamada ao agy" bash -c \
+  '! grep -q Traceback "$1" && [ ! -e "$2" ]' _ "$tmp/erro" "$tmp/falso/agy.args"
+rm -rf "$tmp/projeto/.git"
 
 # Pasta sem confiança do agy: recusa, sem confiar por conta própria.
 jq '.trustedWorkspaces = []' "$conf_agy" >"$tmp/conf" && cp "$tmp/conf" "$conf_agy"

@@ -961,7 +961,20 @@ marca="$(mktemp)"
 saida="$(mktemp)"
 trap 'rm -f "$marca" "$saida"' EXIT
 
-# Sem terminal, a ação negada encerra a vez do agente sem resposta.
+apoio_privado=0
+if ((${#urls[@]})) || [[ "$papel" == leitor || "$papel" == redator || ( "$papel" == arquiteto && ${#arquivos[@]} != 0 ) ]]; then
+  apoio_privado=1
+  for i in "${!arquivos[@]}"; do
+    a="${arquivos[$i]}"; faixa=""
+    if [[ ! -f "$a" && "$a" =~ ^(.+):([1-9][0-9]{0,8})-([1-9][0-9]{0,8})$ ]]; then
+      a="${BASH_REMATCH[1]}"; faixa=":${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
+    fi
+    if ! fonte_real="$(realpath -- "$a")" || [[ "$(realpath -s -- "$a")" != "$fonte_real" ]]; then
+      recusar "fonte inválida ou com link: $a" entrada_invalida
+    fi
+    arquivos[$i]="$fonte_real$faixa"
+  done
+fi
 if ((${#arquivos[@]})); then
   pedido+=$'\n\nFontes fornecidas:\n'
   pedido+="$(printf '%s\n' "${arquivos[@]}")"
@@ -969,8 +982,21 @@ if ((${#arquivos[@]})); then
 fi
 pedido="$pedido
 
-Se uma ferramenta ou comando for negado, não pare: responda com o que já
-achou e liste o que foi negado."
+Se uma ferramenta ou comando for negado, pare e informe qual ação foi negada."
+if ((${#urls[@]})); then
+  pedido+=$'\n\nFaça uma busca e abra a fonte pública oficial autorizada. Informe URL, data e trecho lido. Domínios autorizados:\n'
+  pedido+="$(printf '%s\n' "${urls[@]}")"
+fi
+apoio_agy=()
+if ((apoio_privado)); then
+  apoio_agy=(python3 "$JANGADA_CORE_PATH/delegacao/implementacao.py" pesquisa --papel "$papel")
+  for url in "${urls[@]}"; do apoio_agy+=(--url "$url"); done
+  for fonte in "${arquivos[@]}"; do apoio_agy+=(--fonte "$fonte"); done
+  if ! erro_entrada="$("${apoio_agy[@]}" --registro "$JANGADA_ESTADO/agentes/pesquisa-$delegacao_id" \
+      --conferir -- agy -p "$pedido" 2>&1)"; then
+    recusar "$erro_entrada" entrada_invalida
+  fi
+fi
 tempo="${JANGADA_DELEGAR_TEMPO:-300}"
 limite_agy=()
 # O limite global precisa alcançar os filhos sem outro grupo intermediário.
@@ -997,16 +1023,9 @@ for modelo in "${modelos_agy[@]}"; do
   perfil_execucao=agente
   [[ "$papel" == implementador ]] && perfil_execucao=implementacao
   executor_agy=(agy)
-  if ((${#urls[@]})) || [[ "$papel" == leitor || "$papel" == redator || ( "$papel" == arquiteto && ${#arquivos[@]} != 0 ) ]]; then
+  if ((apoio_privado)); then
     registro_ferramentas="$JANGADA_ESTADO/agentes/pesquisa-$delegacao_id-$chamadas_executor"
-    executor_agy=(python3 "$JANGADA_CORE_PATH/delegacao/implementacao.py" pesquisa --registro "$registro_ferramentas" --papel "$papel")
-    for url in "${urls[@]}"; do executor_agy+=(--url "$url"); done
-    for fonte in "${arquivos[@]}"; do executor_agy+=(--fonte "$fonte"); done
-    executor_agy+=(-- agy)
-    if ((${#urls[@]})); then
-      pedido+=$'\n\nFaça uma busca e abra a fonte pública oficial autorizada. Informe URL, data e trecho lido. Domínios autorizados:\n'
-      pedido+="$(printf '%s\n' "${urls[@]}")"
-    fi
+    executor_agy=("${apoio_agy[@]}" --registro "$registro_ferramentas" -- agy)
   fi
   chamada_agy=(timeout "${limite_agy[@]}" "$((tempo + 30))" env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 JANGADA_AGY_PAPEL="$papel"
     JANGADA_ISOLAR_PERFIL="$perfil_execucao" JANGADA_IMPLEMENTACAO_MANIFESTO="$executor_contrato" \
@@ -1026,6 +1045,10 @@ for modelo in "${modelos_agy[@]}"; do
       "${chamada_agy[@]}" </dev/null {agy_fd}<&- 2>"$saida"
     fi
   )" || codigo=$?
+  if ((apoio_privado && codigo == 65)) && grep -q '^entrada do apoio recusada:' "$saida"; then
+    chamadas_executor=$((chamadas_executor - 1))
+    recusar "$(head -c 300 "$saida")" entrada_invalida
+  fi
   if ((codigo == 124)); then recusar "tempo esgotado (${tempo}s)"; fi
   # O /usage pode dizer que há cota e o agy recusar mesmo assim: vale a recusa.
   if ((codigo)) && grep -qE 'RESOURCE_EXHAUSTED|[Qq]uota reached' "$saida"; then
@@ -1070,10 +1093,8 @@ if [[ -n "$negados" ]]; then
   recusar "o agy negou ações necessárias: ${negados:0:300}" destino_proibido
 fi
 if [[ -z "${texto//[[:space:]]/}" ]]; then
-  [[ -n "$negados" ]] && recusar "o agy negou $negados e não respondeu (libere em permissions.allow de $conf_agy)" destino_proibido
   recusar "o agy devolveu resposta vazia" saida_invalida
 fi
-[[ -n "$negados" ]] && echo "jangada-delegar: o agy negou: ${negados:0:300}" >&2
 
 palavras="$(wc -w <<<"$texto")"
 verificar_saida

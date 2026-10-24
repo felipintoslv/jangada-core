@@ -163,6 +163,42 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
             modulo.pesquisa(["--registro", str(registro), "--papel", "leitor", "--fonte", str(fonte)+":1-1",
                              "--", "agy", "-p", "Leia a fonte"])
 
+    def test_fontes_aceitam_acento_espaco_e_sufixo_literal(self):
+        for nome in ("relatório final.txt", "literal.txt:1-1"):
+            fonte = self.raiz / nome
+            fonte.write_text("primeira\nsegunda\n")
+            texto = modulo.texto_fontes([str(fonte)])
+            self.assertIn("Fonte: " + str(fonte), texto)
+            self.assertIn("2: segunda", texto)
+
+    def test_fontes_abrem_sem_seguir_links_e_rejeitam_arquivo_especial(self):
+        fonte = self.raiz / "fonte.txt"
+        abrir = os.open
+        with mock.patch.object(modulo.os, "open", wraps=abrir) as chamada:
+            modulo.texto_fontes([str(fonte)])
+            self.assertTrue(chamada.call_args.args[1] & os.O_NOFOLLOW)
+        link = self.raiz / "atalho.txt"
+        link.symlink_to(fonte)
+        with self.assertRaises(ValueError):
+            modulo.texto_fontes([str(link)])
+        link.unlink()
+        os.mkfifo(link)
+        with self.assertRaises(ValueError):
+            modulo.texto_fontes([str(link)])
+
+    def test_conferencia_recusa_faixa_antes_de_executar_modelo(self):
+        registro = self.tmp / "registro-ausente"
+        argumentos = ["--registro", str(registro), "--conferir", "--papel", "leitor",
+                      "--fonte", str(self.raiz / "fonte.txt"), "--", "agy", "-p", "Leia"]
+        with mock.patch.object(modulo.subprocess, "run") as chamada:
+            modulo.pesquisa(argumentos)
+            chamada.assert_not_called()
+            self.assertFalse(registro.exists())
+            argumentos[argumentos.index("--fonte")+1] += ":9-10"
+            with self.assertRaises(modulo.EntradaApoioInvalida):
+                modulo.pesquisa(argumentos)
+            chamada.assert_not_called()
+
     def test_apoio_fronteira_real_sem_modelo_remoto(self):
         capacidade = subprocess.run(["/usr/bin/bwrap", "--ro-bind", "/", "/", "--unshare-pid", "true"],
                                     capture_output=True)
