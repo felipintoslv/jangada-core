@@ -672,6 +672,39 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(json.loads(propria.read_text())["trustedWorkspaces"], [str(self.raiz)])
 
+    def test_confianca_com_catalogo_so_de_secundarias_nao_grava_na_principal_externa(self):
+        contas, _ = self.contas()
+        externa = self.tmp / "externa"
+        externa.mkdir()
+        (externa / "settings.json").write_text('{"trustedWorkspaces": []}')
+        principal = self.casa / ".gemini/antigravity-cli"
+        shutil.rmtree(principal)
+        principal.symlink_to(externa)
+        comando = ["bash", "-c", 'source "$JANGADA_CORE_PATH/bin/jangada-config"; '
+                   'jangada_agy_ajustar_confianca adicionar "$1"', "teste", str(self.raiz)]
+        p = subprocess.run(comando, env=dict(self.env, JANGADA_AGY_CONTA="conta1",
+                           JANGADA_AGY_SETTINGS=str(principal / "settings.json")), capture_output=True, text=True)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual((externa / "settings.json").read_text(), '{"trustedWorkspaces": []}')
+        self.assertFalse((externa / "settings.json.jangada-orig").exists())
+        # Montada outra conta, ou a variável definida por engano fora da caixa com a
+        # principal sendo link: recusa, e nada externo muda.
+        for montada in ("conta2", "conta1"):
+            p = subprocess.run(comando, env=dict(self.env, JANGADA_AGY_CONTA="conta1", JANGADA_AGY_CONTA_MONTADA=montada,
+                               JANGADA_AGY_SETTINGS=str(principal / "settings.json")), capture_output=True, text=True)
+            self.assertNotEqual(p.returncode, 0, montada)
+            self.assertEqual((externa / "settings.json").read_text(), '{"trustedWorkspaces": []}')
+            self.assertFalse((externa / "settings.json.jangada-orig").exists())
+        # Dentro da caixa a principal é uma pasta real montada para a conta escolhida.
+        principal.unlink()
+        principal.mkdir()
+        (principal / "settings.json").write_text('{"trustedWorkspaces": []}')
+        p = subprocess.run(comando, env=dict(self.env, JANGADA_AGY_CONTA="conta1", JANGADA_AGY_CONTA_MONTADA="conta1",
+                           JANGADA_AGY_SETTINGS=str(principal / "settings.json")), capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(str(self.raiz), (principal / "settings.json").read_text())
+        self.assertEqual((externa / "settings.json").read_text(), '{"trustedWorkspaces": []}')
+
     def test_migracao_recusa_sem_terminal_e_preserva_origem(self):
         origem = self.tmp / "estado/catamara/contas"
         for nome in ("conta1", "conta2"):
