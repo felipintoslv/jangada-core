@@ -98,6 +98,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
             pasta = self.casa / f"contas/conta{i}"
             pasta.mkdir(parents=True)
             (pasta / "segredo").write_text(f"conta{i}")
+            (pasta / "antigravity-oauth-token").write_text(f"conta{i}")
             (pasta / "settings.json").write_text(json.dumps({"trustedWorkspaces": [str(self.raiz)],
                 "permissions": {"deny": [f"read_url(conta{i}.example)"]}}))
             buckets = [{"id": "gemini-weekly", "remaining_fraction": saldo}]
@@ -118,8 +119,13 @@ if sys.argv[1:]==["agents"]:
 if "/usage" in sys.argv:
  with (cli/"consultas").open("a") as arq: arq.write("usage\n")
  print((cli/"usage.json").read_text()); sys.exit()
-conta=os.environ.get("JANGADA_AGY_CONTA", "privada")
-print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 conta "+conta}))
+conta=(cli/"antigravity-oauth-token").read_text()
+if not (cli/"usage.json").exists():
+ try: (cli/"antigravity-oauth-token").write_text("alterado")
+ except OSError: pass
+ else: raise AssertionError("login gravável no executor privado")
+ (cli/"identidade.json").write_text(json.dumps({"conta":conta,"settings":json.loads((cli/"settings.json").read_text())}))
+print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identidade="+conta}))
 ''')
         self.env["CONTAS_ORIGENS"] = ":".join(c["pasta"] for c in contas)
         return contas, catalogo
@@ -187,6 +193,49 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 conta "
         self.assertEqual((Path(contas[1]["pasta"]) / "gravado").read_text(), "ok")
         self.assertFalse((Path(contas[0]["pasta"]) / "gravado").exists())
 
+    def test_delegar_dentro_da_caixa_ignora_cache_de_outra_conta(self):
+        contas, _ = self.contas((0.4, 0.95))
+        cache = Path(self.env["XDG_CACHE_HOME"]) / "jangada/agy-usage-conta2.json"
+        cache.parent.mkdir(parents=True)
+        cache.write_bytes((Path(contas[1]["pasta"]) / "usage.json").read_bytes())
+        # O caminho do cache fica visível, mas não autoriza escolher a outra conta.
+        self.env["JANGADA_ISOLAR_CASA_LER"] = self.env["XDG_CACHE_HOME"]
+        self.env["JANGADA_ISOLAR_ESCRITA"] = self.env["XDG_CACHE_HOME"]
+        self.env["JANGADA_TESTE_REPO"] = str(REPO)
+        codigo = r'''import json,os,subprocess
+from pathlib import Path
+raiz=Path(os.environ["JANGADA_TESTE_REPO"])
+args=[str(raiz/"bin/jangada-delegar"),"explorador","Leia","--destino","agy","--permitir-remoto","--modelo","gemini-3.8-flash-high","--json"]
+p=subprocess.run(args,capture_output=True,text=True)
+assert p.returncode==0,p.stderr
+r=json.loads(p.stdout)
+assert r["conta"]=="conta1",r
+assert "identidade=conta1" in r["relatorio"],r
+assert all(c["conta"]=="conta1" for c in r["cotas_modelos"]),r
+p=subprocess.run(args+["--conta","conta2"],capture_output=True,text=True)
+assert p.returncode==4 and "indisponível nesta sessão" in p.stderr,p.stderr
+p=subprocess.run([str(raiz/"bin/jangada-isolar"),"--conta","conta2","--","true"],capture_output=True,text=True)
+assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
+'''
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--conta", "conta1", "--", "python3", "-c", codigo],
+                           cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=25)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse((Path(contas[1]["pasta"]) / "consultas").exists())
+
+    def test_login_privado_recusa_links_sem_ler_credencial(self):
+        origem, destino = self.tmp / "origem", self.tmp / "destino"
+        origem.mkdir()
+        token = origem / "antigravity-oauth-token"
+        alvo = self.tmp / "login-falso"
+        alvo.write_text("identidade sintética")
+        token.symlink_to(alvo)
+        with self.assertRaisesRegex(ValueError, "sem links"):
+            modulo.montar_login(origem, destino)
+        token.unlink()
+        token.hardlink_to(alvo)
+        with self.assertRaisesRegex(ValueError, "sem links"):
+            modulo.montar_login(origem, destino)
+
     def test_contas_verificacao_nao_expoe_conta_escolhida(self):
         self.contas()
         codigo = ("from pathlib import Path; import os; "
@@ -226,8 +275,9 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 conta "
         resultado = json.loads(p.stdout)
         registro = Path(resultado["registro_ferramentas"])
         self.assertEqual(resultado["conta"], "conta2")
-        self.assertEqual(json.loads((registro / "settings.json").read_text())["permissions"]["deny"],
-                         ["read_url(conta2.example)"])
+        identidade = json.loads((registro / "identidade.json").read_text())
+        self.assertEqual(identidade["conta"], "conta2")
+        self.assertEqual(identidade["settings"]["permissions"]["deny"], ["read_url(conta2.example)"])
         # O implementador usa a mesma seleção antes de gerar sua configuração privada.
         (self.casa / ".gemini/antigravity-cli/settings.json").write_text('{"trustedWorkspaces": []}')
         resultado = json.loads(self.executar("--conta", "conta2").stdout)
@@ -236,6 +286,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 conta "
         settings = list(Path(self.env["JANGADA_ESTADO"]).rglob("runtime/settings.json"))
         self.assertEqual(len(settings), 1)
         self.assertEqual(json.loads(settings[0].read_text())["permissions"]["deny"], ["read_url(conta2.example)"])
+        self.assertIn("identidade=conta2", (Path(resultado["pasta"]) / "relatorio.md").read_text())
 
     def test_sem_catalogo_delegar_preserva_argumentos_isolamento(self):
         import shutil

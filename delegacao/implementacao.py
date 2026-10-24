@@ -393,6 +393,20 @@ def pasta_agy():
     return Path(os.environ.get("JANGADA_AGY_PASTA") or Path.home() / ".gemini/antigravity-cli")
 
 
+def montar_login(origem, destino):
+    token = origem / "antigravity-oauth-token"
+    try:
+        info = token.lstat()
+    except FileNotFoundError:
+        # Instalações antigas sem catálogo preservam a autenticação anterior.
+        if os.environ.get("JANGADA_AGY_CONTA") or (Path(os.environ["JANGADA_ESTADO"]) / "contas/agy.json").exists():
+            raise ValueError("arquivo de login ausente na conta escolhida") from None
+        return []
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise ValueError("arquivo de login precisa ser regular, sem links")
+    return ["--ro-bind", str(token), str(destino / token.name)]
+
+
 def preparar_settings(runtime, raiz, permitidos):
     settings = json.loads(Path(os.environ.get("JANGADA_AGY_SETTINGS") or pasta_agy() / "settings.json").read_text())
     if str(raiz) not in settings.get("trustedWorkspaces", []):
@@ -436,6 +450,7 @@ def montagem(manifesto):
     origem_cli = pasta_agy()
     args += ["--tmpfs", str(cli),
              "--ro-bind", str(runtime / "settings.json"), str(cli / "settings.json")]
+    args += montar_login(origem_cli, cli)
     # O agy cria config/projects ao abrir conversa; sem ela, sai com código 1.
     # Só essa pasta grava, em memória; agents.json e hooks.json seguem fixos.
     args += ["--tmpfs", str(cfg)]
@@ -593,6 +608,7 @@ def pesquisa(argumentos):
                          "--tmpfs", str(raiz), "--bind", str(registro), str(cli),
                          "--ro-bind", str(runtime / "settings.json"), str(cli / "settings.json"),
                          "--tmpfs", str(cfg), "--tmpfs", str(cfg / "projects")]
+        montagem_args += montar_login(origem_cli, cli)
         for nome in ("agents.json", "hooks.json"):
             montagem_args += ["--ro-bind", str(runtime / nome), str(cfg / nome)]
         montagem_args += ["--remount-ro", str(cfg), "--ro-bind", str(runtime / "agentes"),

@@ -90,6 +90,10 @@ jangada_conta_agy || exit 1
 cli_agy="$HOME/.gemini/antigravity-cli"
 conta_configurada=0
 [[ ! -e "$JANGADA_ESTADO/contas/agy.json" ]] || conta_configurada=1
+if ja_isolado && [[ -n "${JANGADA_AGY_CONTA_MONTADA:-}" && "$CONTA_AGY_NOME" != "$JANGADA_AGY_CONTA_MONTADA" ]]; then
+  echo "jangada-isolar: conta $CONTA_AGY_NOME indisponível nesta sessão; conta montada: $JANGADA_AGY_CONTA_MONTADA" >&2
+  exit 1
+fi
 if [[ "$perfil" == agente ]] && ja_isolado \
    && { ((!conta_configurada)) || [[ "${JANGADA_AGY_CONTA_MONTADA:-}" == "$CONTA_AGY_NOME" ]]; }; then
   exec "$@"
@@ -298,8 +302,8 @@ gravavel "$pasta"
 # (servidores MCP e confiança por projeto) fica somente leitura; ele é
 # gravado por rename, que um bind só do arquivo não aceita, e perdê-lo só
 # perde contadores. Do agy, a pasta do CLI; os hooks dele, em
-# ~/.gemini/config, ficam somente leitura. O login do agy vem do keyring pelo
-# D-Bus.
+# ~/.gemini/config, ficam somente leitura. O login de cada conta está no
+# arquivo antigravity-oauth-token da própria pasta do CLI.
 # Numa instalação nova as pastas ainda não existem, e sem o bind o agente não
 # conseguiria criá-las.
 mkdir -p "$HOME/.claude" "$HOME/.cache" 2>/dev/null || true
@@ -770,6 +774,7 @@ if ((conta_configurada)); then
     [[ ! -d "$conta_pasta" ]] || args+=(--tmpfs "$conta_pasta")
   done <<<"$contas_agy"
   args+=(--tmpfs "$cli_agy")
+  args+=(--ro-bind "$JANGADA_ESTADO/contas/agy.json" "$JANGADA_ESTADO/contas/agy.json")
   if [[ "$perfil" == agente ]]; then
     args+=(--bind "$CONTA_AGY_PASTA" "$cli_agy"
            --setenv JANGADA_AGY_CONTA "$CONTA_AGY_NOME"

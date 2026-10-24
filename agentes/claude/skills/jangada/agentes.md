@@ -559,6 +559,13 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
 
 ## agy como suporte
 
+- Em 24/10/2026, o dono confirmou o login por conta no arquivo
+  `antigravity-oauth-token`, dentro de `antigravity-cli`, inclusive nas contas
+  do Catamarã. Não leia nem registre seu conteúdo. Nos executores privados,
+  monte esse arquivo da conta escolhida somente para leitura, preservando a
+  casa vazia e as configurações privadas. Trocar só `settings.json` não troca
+  a identidade. Testes usam identidades sintéticas distintas e conferem o
+  arquivo visível dentro da caixa; renovação do login fica fora do executor.
 - MOD-02, 23/10/2026: adaptador de coordenação agy com modelo explícito
   `gemini-4-argon-high`, função `coordenador` separada de `principal` e mesma
   skill. O aceite real continua bloqueado: o dono informou Argon com cota 0%,

@@ -386,7 +386,11 @@ ordem do catálogo. Cada conta tem cache de cota próprio. O registro inclui
 `jangada-isolar --conta NOME -- COMANDO` monta a conta em
 `~/.gemini/antigravity-cli` e oculta as pastas originais das contas.
 Sem opção, usa `JANGADA_AGY_CONTA` ou a primeira conta do catálogo.
-A seleção também chega à leitura e à implementação privadas da MOD-03.
+Dentro de uma sessão isolada, somente a conta montada participa da seleção;
+pedir outra conta com `--conta` recusa antes de ler seu cache ou chamar o agy.
+A seleção também chega à leitura e à implementação privadas da MOD-03:
+o arquivo `antigravity-oauth-token` da conta é montado somente para leitura.
+Renovar o login exige agir fora desses executores.
 A confiança é conferida por conta; o delegador não cria autorização.
 Ao preparar ou encerrar um worktree sem conta explícita, os ajustes de
 confiança existentes são aplicados a todas as contas cadastradas. A adição

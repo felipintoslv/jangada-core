@@ -862,6 +862,9 @@ fi
 contas_agy="$(jangada_contas_agy)" || recusar "catálogo de contas do agy inválido" entrada_invalida
 contas_configuradas=0
 [[ ! -f "$JANGADA_ESTADO/contas/agy.json" ]] || contas_configuradas=1
+if [[ -n "$conta_opt" && -n "${JANGADA_AGY_CONTA_MONTADA:-}" && "$conta_opt" != "$JANGADA_AGY_CONTA_MONTADA" ]]; then
+  recusar "conta $conta_opt indisponível nesta sessão; conta montada: $JANGADA_AGY_CONTA_MONTADA" destino_proibido
+fi
 jangada_conta_agy "$conta_opt" || recusar "conta do agy inexistente ou inválida: $conta_opt" entrada_invalida
 conta_usada="$CONTA_AGY_NOME"
 if [[ -n "${JANGADA_AGY_SETTINGS:-}" ]]; then
@@ -963,6 +966,7 @@ selecionar_conta() {
   local n _p argon melhor="" saldo="" melhor_saldo="" elegivel=0
   while IFS=$'\t' read -r n _p argon; do
     [[ -z "$conta_opt" || "$n" == "$conta_opt" ]] || continue
+    [[ -z "${JANGADA_AGY_CONTA_MONTADA:-}" || "$n" == "$JANGADA_AGY_CONTA_MONTADA" ]] || continue
     [[ "$1" != gemini-4-argon-* || "$argon" == true ]] || continue
     elegivel=1
     ativar_conta "$n"
