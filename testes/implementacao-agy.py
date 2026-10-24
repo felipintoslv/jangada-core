@@ -282,20 +282,31 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 conta "
     def test_migracao_recusa_sem_terminal_e_preserva_origem(self):
         origem = self.tmp / "estado/catamara/contas"
         for nome in ("conta1", "conta2"):
-            (origem / nome).mkdir(parents=True)
-            (origem / nome / "settings.json").write_text("segredo " + nome)
+            (origem / nome / "antigravity-cli").mkdir(parents=True)
+            (origem / nome / "antigravity-cli/settings.json").write_text("segredo " + nome)
+            (origem / nome / "antigravity-cli/antigravity-oauth-token").write_text("login falso " + nome)
         migracao = REPO / "migrations/202610241200-importar-contas-agy.sh"
         def rodar(env=None, entrada=None):
             return subprocess.run(["bash", str(migracao)], env=env or self.env, stdin=entrada or subprocess.DEVNULL,
                                   capture_output=True, text=True, timeout=10)
         p = rodar()
-        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("importação não confirmada", p.stdout)
         destino = Path(self.env["JANGADA_ESTADO"]) / "contas"
         self.assertFalse(destino.exists())
         p = rodar(dict(self.env, JANGADA_SIMULAR="1"))
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertFalse(destino.exists())
         import pty
+        mestre, escravo = pty.openpty()
+        try:
+            os.write(mestre, b"n\n")
+            recusa = rodar(entrada=escravo)
+        finally:
+            os.close(mestre)
+            os.close(escravo)
+        self.assertEqual(recusa.returncode, 0, recusa.stderr)
+        self.assertFalse(destino.exists())
         mestre, escravo = pty.openpty()
         try:
             os.write(mestre, b"s\ns\nn\n")
@@ -308,7 +319,9 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 conta "
         self.assertEqual([c["argon"] for c in contas], [True, False])
         for conta in contas:
             self.assertEqual((Path(conta["pasta"]) / "settings.json").read_text(),
-                             (origem / conta["nome"] / "settings.json").read_text())
+                             (origem / conta["nome"] / "antigravity-cli/settings.json").read_text())
+            self.assertEqual((Path(conta["pasta"]) / "antigravity-oauth-token").read_text(),
+                             "login falso " + conta["nome"])
         antes = (destino / "agy.json").read_bytes()
         self.assertEqual(rodar().returncode, 0)
         self.assertEqual((destino / "agy.json").read_bytes(), antes)

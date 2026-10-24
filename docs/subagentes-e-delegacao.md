@@ -393,8 +393,15 @@ confiança existentes são aplicados a todas as contas cadastradas. A adição
 exige que a raiz já seja confiável naquela conta.
 
 `jangada-migrar` oferece copiar `conta1` e `conta2` do estado do Catamarã.
-Exige confirmação em terminal e pergunta quais contas têm Argon. Sem
-confirmação, não grava a marca da migração; em simulação, apenas informa.
+Copia a subpasta `antigravity-cli` de cada conta. Exige confirmação em terminal
+e pergunta quais contas têm Argon. Sem terminal ou com recusa, apenas informa
+e permite as migrações seguintes; em simulação, apenas informa.
+Para importar depois, o dono executa em terminal:
+
+```sh
+bash "$JANGADA_CORE_PATH/migrations/202610241200-importar-contas-agy.sh"
+```
+
 Catálogo ou destino existente são preservados. Nada é movido ou apagado
 na origem.
 

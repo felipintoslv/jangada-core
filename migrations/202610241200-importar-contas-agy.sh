@@ -8,15 +8,15 @@ source "$JANGADA_CORE_PATH/install/lib.sh"
 
 origem="${XDG_STATE_HOME:-$HOME/.local/state}/catamara/contas"
 destino="$JANGADA_ESTADO/contas"
-[[ -d "$origem/conta1" && -d "$origem/conta2" ]] || exit 0
+[[ -d "$origem/conta1/antigravity-cli" && -d "$origem/conta2/antigravity-cli" ]] || exit 0
 [[ ! -e "$destino/agy.json" && ! -L "$destino/agy.json" ]] || exit 0
 if simulando; then
   info "ofereceria importar conta1 e conta2 de $origem, mediante confirmação e indicação de Argon"
   exit 0
 fi
 if ! confirmar "Copiar as contas do agy do Catamarã para o jangada?" n; then
-  aviso "importação não confirmada; nenhuma conta copiada. Rode jangada-migrar novamente para importar"
-  exit 1
+  info "importação não confirmada; nenhuma conta copiada. Para importar depois, execute em terminal: bash $JANGADA_CORE_PATH/migrations/202610241200-importar-contas-agy.sh"
+  exit 0
 fi
 argon1=false; argon2=false
 if confirmar "A conta1 tem Argon?" n; then argon1=true; fi
@@ -29,7 +29,7 @@ try:
     if origem.resolve() != origem or destino.resolve() != destino:
         raise ValueError("link na pasta de contas")
     for nome in ("conta1", "conta2"):
-        fonte = origem / nome
+        fonte = origem / nome / "antigravity-cli"
         if any(p.is_symlink() or not (p.is_file() or p.is_dir()) for p in [fonte, *fonte.rglob("*")]):
             raise ValueError("link ou arquivo especial na conta de origem")
         if (destino / nome).exists() or (destino / nome).is_symlink():
@@ -41,7 +41,7 @@ try:
         pasta = pathlib.Path(temporaria)
         contas = []
         for nome, argon in zip(("conta1", "conta2"), sys.argv[3:]):
-            shutil.copytree(origem / nome, pasta / nome)
+            shutil.copytree(origem / nome / "antigravity-cli", pasta / nome)
             contas.append({"nome": nome, "pasta": str(destino / nome), "argon": argon == "true"})
         modelo = pasta / "agy.json"
         modelo.write_text(json.dumps(contas, ensure_ascii=False, indent=2) + "\n")
