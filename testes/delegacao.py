@@ -121,7 +121,7 @@ if [[ "${2:-}" == /usage ]]; then
   printf '{"command":{"data":{"groups":[{"buckets":[{"id":"gemini-5h","remaining_fraction":%s}]}]}}}\n' "${COTA_FALSA:-0.9}"
   exit 0
 fi
-printf '%s\n' "$@" >>"$LOG_FALSO"
+printf '%s\n' "$@" >>"$HOME/.gemini/antigravity-cli/agy.log"
 jq -n --arg r 'Informação conferida em fonte.txt:1' '{status:"SUCCESS",response:$r}'
 """)
         for nome in ('ollama', 'curl'):
@@ -153,7 +153,12 @@ jq -n --arg r 'Informação conferida em fonte.txt:1' '{status:"SUCCESS",respons
                                    env=self.env, text=True, capture_output=True, timeout=15)
         self.assertIn(resultado.returncode, (0, 4), resultado.stderr)
         self.assertFalse((self.pasta / 'local.log').exists(), 'houve chamada local automática')
-        return json.loads(resultado.stdout)
+        dados = json.loads(resultado.stdout)
+        if dados.get('registro_ferramentas'):
+            privado = pathlib.Path(dados['registro_ferramentas']) / 'agy.log'
+            if privado.is_file():
+                shutil.copyfile(privado, self.pasta / 'agy.log')
+        return dados
 
     def test_autores_sem_perfil_incluem_leitor_e_redator(self):
         for autor in ('claude', 'codex'):

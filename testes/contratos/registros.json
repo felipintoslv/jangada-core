@@ -171,6 +171,14 @@
   "delegacoes.jsonl": {
     "secao": "9",
     "campos": {
+      "fontes_autorizadas": {"tipo": ["lista"], "obrigatorio": false},
+      "urls_autorizadas": {"tipo": ["lista"], "obrigatorio": false},
+      "cotas_modelos": {"tipo": ["lista"], "obrigatorio": false, "itens": {
+        "modelo": {"tipo": ["texto"], "obrigatorio": true},
+        "grupo": {"tipo": ["texto"], "obrigatorio": true},
+        "percentual": {"tipo": ["numero", "nulo"], "obrigatorio": true}
+      }},
+      "registro_ferramentas": {"tipo": ["texto"], "obrigatorio": false},
       "data": {"tipo": ["data"], "obrigatorio": true},
       "sessao": {"tipo": ["texto"], "obrigatorio": true},
       "projeto": {"tipo": ["texto"], "obrigatorio": true},

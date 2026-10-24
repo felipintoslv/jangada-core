@@ -694,6 +694,15 @@ subagente tem `.db` próprio.
   - `execucao`: `JANGADA_EXECUCAO` da sessão; `null` fora dela.
   - `capacidade`: capacidade documental solicitada, ou vazio na chamada antiga.
   - `decisao`: ordem por capacidade, destino explícito ou configuração anterior.
+  - `fontes_autorizadas`: fontes explícitas desta chamada; lista vazia sem fontes locais.
+  - `urls_autorizadas`: páginas HTTPS cujos domínios foram autorizados por `--url`;
+    lista vazia nas demais chamadas.
+  - `cotas_modelos`: consultas de cota aos candidatos, em ordem. Cada item tem
+    `modelo`, `grupo` e `percentual`; este é número ou `null` quando desconhecido.
+    A lista fica vazia nos destinos que não consultam o agy.
+  - `registro_ferramentas`: pasta privada do cliente para conferir conversas e
+    ferramentas, ou texto vazio quando não houve esse executor.
+    Esses quatro campos são opcionais em registros anteriores.
   - `motivo_codigo`: motivo estável da recusa; vazio no sucesso.
   - `verificacao`: `nao_exigida`, `reprovada`, `referencias_validas` ou
     `referencias_e_requisitos_validos`, com explicações e referências por requisito.
