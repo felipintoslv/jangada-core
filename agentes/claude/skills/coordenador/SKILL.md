@@ -54,6 +54,7 @@ jangada-agente --janela --coordenador VOCE --projeto PASTA --nome NOME --perfil 
 
 - `VOCE` é `claude`, `codex` ou `agy`; a Central e o painel mostram quem coordena.
 - Perfis: `claude-codex` e `codex-claude` (autor-revisor). Confira as cotas semanais. Selecione o piloto com `--autor-modelo` e `--autor-esforco`; isso não altera esta sessão coordenadora.
+- Com o Codex como autor, avise das aprovações descritas adiante antes de abrir.
 - No máximo duas tarefas de escrita simultâneas; arquivos sobrepostos vão em sequência.
 
 ## Acompanhar
