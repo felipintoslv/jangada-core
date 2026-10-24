@@ -176,38 +176,21 @@ Leitor/redator remotos recebem somente fontes ou faixas autorizadas, sem
 ferramentas ou MCP. A opção local continua disponível; falha local não autoriza
 nuvem. Arquiteto com fontes explícitas recebe a mesma cópia de texto.
 
-Em 23/10/2026, a pesquisa pública com Flash High executou `search_web`,
-`read_url_content` e `view_file`, sem ações negadas, na conversa
-`74428526-08b4-49b9-b05d-1c1b3306f41b`. A consulta de cota foi renovada antes
-da prova. A fonte foi [a documentação oficial de grounding](https://ai.google.dev/gemini-api/docs/google-search).
-Trecho conferido no corpo baixado: “Grounding with Google Search connects the
-Gemini model to real-time web content”. Data da consulta: 23/10/2026;
-a resposta não identificou data de publicação. O código, a URL, as ferramentas
-e o trecho foram conferidos separadamente da resposta do modelo.
+Para comprovar pesquisa real, renove a consulta `/usage` antes da chamada.
+Fixe o modelo e autorize somente a página pública necessária, por exemplo:
 
-Os registros reproduzíveis ficam na tarefa em `.jangada/mod-03/evidencias/`:
-`usage-pesquisa-4.json`, `pesquisa-final.json`, `ferramentas-pesquisa-final.json`,
-`versao-prova.json` e `conferir-ferramentas.py`. O corpo baixado e o SQLite
-permanecem na pasta indicada por `registro_ferramentas`. O script de conferência
-lê uma cópia do banco e identifica ferramentas, argumentos, estado e hash do corpo.
+```sh
+jangada-delegar pesquisador "Busque e abra a documentação oficial" \
+  --destino agy --permitir-remoto --modelo gemini-3.8-flash-high \
+  --url https://ai.google.dev/gemini-api/docs/google-search --json
+```
 
-As tentativas anteriores foram preservadas: montagem sem `/tmp` privado falhou
-antes do modelo; outra chamada abriu a página, mas não leu o corpo; uma terceira
-teve retorno invalidado por edição do Bash durante a execução. Nenhuma conta
-como sucesso do comando. A prova final usou código fixo, sem ampliar configurações
-pessoais, trocar modelo ou instalar componentes.
+Confira no registro privado indicado por `registro_ferramentas` a conversa,
+a busca, a abertura da URL e a leitura do corpo baixado. Registre URL, data da
+consulta, trecho sustentado, ferramentas executadas, versões e hashes das
+fontes do executor no relatório da tarefa. Confira esse material separadamente
+da resposta textual. Uma ação negada recusa o resultado, mesmo com texto parcial.
 
-O apoio arquiteto pediu casos que distinguissem cotas por grupo, usando somente
-`bin/jangada-delegar` e `delegacao/modelos.py`. A primeira chamada buscou também
-na raiz, ultrapassando o escopo, e não comprova apoio delimitado. A retomada
-usou texto isolado das duas fontes, sem ferramentas executadas, na conversa
-`9f04e361-4bd4-47dd-afc9-9551e8150da8`. Foram aproveitados os casos de grupo
-ausente, cota própria inválida e isolamento entre grupos, conferidos no código.
-`arquiteto-final.json` e `ferramentas-arquiteto-final.json` preservam resultado
-e conferência. O arquiteto não revisou nem aprovou a entrega.
-
-A versão das provas foi preservada em `fontes-da-prova/`, com os hashes de
-`versao-prova.json`. Depois delas, o nome do registro privado ganhou o número
-da tentativa, para não colidir na lista legada de modelos. Essa correção foi
-conferida por regressão sintética; com `--modelo` continua havendo um único
-candidato. Ela não altera ferramentas ou domínios autorizados.
+O apoio arquiteto exige fontes explícitas autorizadas em `--arquivos` e modelo
+fixo. Confira as fontes do pedido, o resultado recebido e os casos aproveitados
+no relatório da tarefa. Esse apoio não revisa nem aprova a entrega.
