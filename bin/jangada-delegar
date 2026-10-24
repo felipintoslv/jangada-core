@@ -911,7 +911,7 @@ mkdir -p "${cache%/*}"
 grupo_do_modelo() {
   case "$1" in
     gemini-4-argon-*) echo gemini-argon-wtu ;;
-    gemini-*-flash-*|gemini-*-pro-*) echo gemini ;;
+    gemini-*) echo gemini ;;
     claude-*|gpt-*) echo 3p ;;
   esac
 }
@@ -996,10 +996,12 @@ if ((apoio_privado)); then
   apoio_agy=(python3 "$JANGADA_CORE_PATH/delegacao/implementacao.py" pesquisa --papel "$papel")
   for url in "${urls[@]}"; do apoio_agy+=(--url "$url"); done
   for fonte in "${arquivos[@]}"; do apoio_agy+=(--fonte "$fonte"); done
-  if ! erro_entrada="$("${apoio_agy[@]}" --registro "$JANGADA_ESTADO/agentes/pesquisa-$delegacao_id" \
-      --conferir -- agy -p "$pedido" 2>&1)"; then
-    recusar "$erro_entrada" entrada_invalida
+  if ! pedido_preparado="$("${apoio_agy[@]}" --registro "$JANGADA_ESTADO/agentes/pesquisa-$delegacao_id" \
+      --preparar -- agy -p "$pedido" 2>"$saida")"; then
+    recusar "$(head -c 300 "$saida")" entrada_invalida
   fi
+  pedido="$pedido_preparado"
+  apoio_agy+=(--preparado)
 fi
 tempo="${JANGADA_DELEGAR_TEMPO:-300}"
 limite_agy=()

@@ -183,6 +183,15 @@ leitura documental. O envio ao agy exige autorização da tarefa
 (`--permitir-remoto`) e do perfil. Uma falha do Ollama não autoriza esse
 envio. Veja os limites e capacidades em `docs/subagentes-e-delegacao.md`.
 
+A leitura remota prepara o texto autorizado antes do isolamento genérico.
+O /tmp privado pode ocultar fontes temporárias fora da pasta do projeto;
+relê-las depois de isolar recusa uma entrada que já foi conferida.
+O executor recebe o pedido preparado, sem reabrir essas fontes.
+Ao conferir prazos com cliente falso, observe os marcadores do registro
+privado. Uma interrupção pode impedir a gravação de registro_ferramentas.
+Casos pulados por falta do controlador exigem conferência em terminal
+externo ao isolamento; não contam como prova do percurso real.
+
 No teste real, o qwen3:4b consumiu milhares de tokens de raciocínio para
 devolver apenas localizadores. Com capacidade, o delegador usa `think: false` e
 `num_predict: 1024`; recusa saída cortada pelo limite. O template local

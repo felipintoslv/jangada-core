@@ -230,6 +230,33 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
             modulo.pesquisa(["--registro", str(registro), "--papel", "leitor", "--fonte", str(fonte)+":1-1",
                              "--", "agy", "-p", "Leia a fonte"])
 
+    def test_leitura_preparada_nao_reabre_fonte_oculta_no_executor(self):
+        fonte = self.tmp / "fonte-temporaria.txt"
+        fonte.write_text("texto autorizado antes do isolamento\n")
+        registro = Path(self.env["JANGADA_ESTADO"]) / "agentes/leitura-preparada"
+        registro.parent.mkdir(parents=True)
+        argumentos = ["--registro", str(registro), "--papel", "leitor", "--fonte", str(fonte)]
+        saida = io.StringIO()
+        with contextlib.redirect_stdout(saida):
+            modulo.pesquisa(argumentos + ["--preparar", "--", "agy", "-p", "Leia"])
+        self.assertFalse(registro.exists())
+        fonte.unlink()
+
+        def conferir(comando, **_):
+            pedido = comando[comando.index("-p")+1]
+            self.assertEqual(pedido.count("1: texto autorizado antes do isolamento"), 1)
+            self.assertIn(str(fonte), pedido)
+            return subprocess.CompletedProcess(comando, 0)
+
+        with mock.patch.dict(os.environ, self.env, clear=True), \
+                mock.patch.object(Path, "home", return_value=self.casa), \
+                mock.patch.object(Path, "cwd", return_value=self.raiz), \
+                mock.patch.object(modulo.subprocess, "run", side_effect=conferir) as chamada, \
+                self.assertRaises(SystemExit) as fim:
+            modulo.pesquisa(argumentos + ["--preparado", "--", "agy", "-p", saida.getvalue().rstrip("\n")])
+        self.assertEqual(fim.exception.code, 0)
+        chamada.assert_called_once()
+
     def test_fontes_aceitam_acento_espaco_e_sufixo_literal(self):
         for nome in ("relatório final.txt", "literal.txt:1-1"):
             fonte = self.raiz / nome

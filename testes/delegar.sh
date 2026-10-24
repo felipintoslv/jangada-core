@@ -154,6 +154,7 @@ sed "s|@JANGADA_CORE_PATH@|$repo_jangada|g" agentes/agy/hooks.json >"$tmp/home/.
 
 delegar() {
   rm -f "$tmp/falso/agy.args" "$tmp/falso/agy.settings.json"
+  touch "$tmp/inicio-delegacao"
   (cd "$tmp/projeto${SUBPASTA:+/$SUBPASTA}" && executar "$tmp" env -u JANGADA_DELEGAR -u JANGADA_DELEGAR_MODELOS -u JANGADA_ISOLADO -u XDG_CACHE_HOME -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
     -u JANGADA_DELEGAR_ROTEAMENTO_ID -u JANGADA_DELEGAR_TENTATIVAS -u JANGADA_DELEGAR_CHAMADAS_RESTANTES \
     HOME="$tmp/home" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp/falso" \
@@ -189,6 +190,12 @@ delegar() {
   echo $? >"$tmp/codigo"
   local privado
   privado="$(tail -n 1 "$tmp/home/.local/state/jangada/delegacoes.jsonl" 2>/dev/null | jq -r '.registro_ferramentas // empty')"
+  if [[ -z "$privado" || ! -f "$privado/agy.args" ]]; then
+    local marcador_privado
+    marcador_privado="$(find "$tmp/home/.local/state/jangada/agentes" -mindepth 2 -maxdepth 2 \
+      -path '*/pesquisa-*/agy.args' -type f -newer "$tmp/inicio-delegacao" -print -quit 2>/dev/null)"
+    [[ -z "$marcador_privado" ]] || privado="${marcador_privado%/*}"
+  fi
   if [[ -n "$privado" && -f "$privado/agy.args" ]]; then
     for nome in agy.args agy.papel agy.pasta agy.settings.json temporario; do
       [[ ! -f "$privado/$nome" ]] || cp "$privado/$nome" "$tmp/falso/$nome"
@@ -277,6 +284,12 @@ for caso in flash_livre argon_livre flash_ausente argon_ausente flash_invalido a
   fi
 done
 unset MODELOS USAGE_JSON
+rm -f "$tmp/home/.cache/jangada/agy-usage.json"
+
+ISOLADO=1 MODELOS=gemini-teste delegar --permitir-remoto explorador "mapeie" --json
+conferir "cota: identificador Gemini legado preserva o grupo comum" jqok -e \
+  '.codigo_saida == 0 and .modelo == "gemini-teste" and .cota_antes == 90
+    and .cotas_modelos[0].grupo == "gemini"' "$tmp/saida"
 rm -f "$tmp/home/.cache/jangada/agy-usage.json"
 
 # O /usage diz que há cota, mas o agy responde que acabou: tenta o seguinte.
@@ -1161,6 +1174,11 @@ TEMPO_TOTAL=3 ESPERA_AGY=5 RESPOSTA='Relatório em doc1.txt:1' delegar leitor "c
   --capacidade analise_documental --permitir-remoto --json --arquivos "$tmp/projeto/doc1.txt"
 conferir "tempo total: executor começou antes do prazo" test -f "$tmp/falso/agy.args"
 conferir "tempo total: interrompe executor" jqok -e \
+  '.motivo_codigo == "limite_tempo" and .chamadas_executor == null' "$tmp/saida"
+ISOLADO=1 TEMPO_TOTAL=3 ESPERA_AGY=5 RESPOSTA='Relatório em doc1.txt:1' delegar leitor "compare" \
+  --capacidade analise_documental --permitir-remoto --json --arquivos "$tmp/projeto/doc1.txt"
+conferir "tempo total privado: marcador do modelo pertence à chamada interrompida" test -f "$tmp/falso/agy.args"
+conferir "tempo total privado: a interrupção continua explícita" jqok -e \
   '.motivo_codigo == "limite_tempo" and .chamadas_executor == null' "$tmp/saida"
 
 mkdir -p "$tmp/home/.config/jangada"
