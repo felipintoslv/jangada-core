@@ -612,10 +612,10 @@ jangada_agy_conferir_tarefa() {
   [[ -z "${JANGADA_ISOLADO:-}" ]] || return 0
   if [[ -f "$JANGADA_ESTADO/contas/agy.json" && -z "${JANGADA_AGY_CONTA:-}${JANGADA_AGY_SETTINGS:-}" ]]; then
     local contas nome _pasta _argon pendente=0 linha
-    local -a linhas=()
+    local -a contas_conferencia=()
     contas="$(jangada_contas_agy)" || return 1
-    mapfile -t linhas <<<"$contas"
-    for linha in "${linhas[@]}"; do
+    mapfile -t contas_conferencia <<<"$contas"
+    for linha in "${contas_conferencia[@]}"; do
       IFS=$'\t' read -r nome _pasta _argon <<<"$linha"
       echo "conferindo confiança do agy na conta $nome" >&2
       (export JANGADA_AGY_CONTA="$nome"; jangada_agy_conferir_tarefa "$raiz" "$worktree" "$perguntar" "$sessao") || pendente=1
