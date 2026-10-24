@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Testa o contrato K7 (docs/modularizacao-3.0/03-contratos.md): o formato dos
-registros das seções 1, 2, 4, 8 e 9 de docs/registros.md.
+registros das seções 1, 2, 4, 7, 8, 9 e 12 de docs/registros.md.
 
 Os registros são gerados pelos comandos do jangada numa pasta temporária, com
 HOME, XDG_* e PATH próprios e um tmux falso; nada vem do estado da instalação
@@ -370,6 +370,13 @@ class Gerador:
                 registros.append((provedor + '/' + modo, dados))
         return registros
 
+    def cotas(self):
+        """cotas.json, lido do cache de /usage que a delegação acabou de gravar (seção 12)."""
+        feito = self.rodar(self.comando('jangada-router'), 'cotas', pasta=self.projeto)
+        if feito.returncode:
+            raise AssertionError(feito.stderr)
+        return [('cotas', json.loads((self.estado / 'cotas.json').read_text(encoding='utf-8')))]
+
     def tudo(self):
         """Todos os registros, por nome da tabela: lista de (rótulo, registro)."""
         registros = {nome: [] for nome in ('validar.jsonl', 'validacao-SESSAO.aprovado', 'SESSAO.json',
@@ -389,6 +396,7 @@ class Gerador:
         self.codigos_delegar = self.delegar()
         registros['delegacoes.jsonl'] = list(enumerate(self.linhas('delegacoes.jsonl'), 1))
         registros['coordenadores/SESSAO.json'] = self.atuacoes()
+        registros['cotas.json'] = self.cotas()
         return registros
 
 
@@ -418,6 +426,11 @@ def main():
         achados = achados_de(tabela, registros)
 
         conferir('o jangada-agente grava o SESSAO.json', registros['SESSAO.json'][0][1] is not None)
+        agy = next((e for e in registros['cotas.json'][0][1]['provedores'] if e['provedor'] == 'agy'), {})
+        gemini = next((g for g in agy.get('grupos', []) if g['grupo'] == 'gemini'), {})
+        conferir('o jangada-router cotas traz o gemini do cache do /usage, pela menor janela',
+                 len(gemini.get('janelas', [])) == 2 and gemini.get('motivo') is None
+                 and gemini['percentual'] == min(j['percentual'] for j in gemini['janelas']), gemini)
         conferir('o SESSAO.json leva o perfil e os vínculos dados ao jangada-agente',
                  {campo: (registros['SESSAO.json'][0][1] or {}).get(campo)
                   for campo in ('perfil', 'atividade', 'tarefa_id')}

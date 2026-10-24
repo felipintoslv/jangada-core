@@ -232,6 +232,12 @@ O delegador aceita cache atual com algum grupo configurado válido; cada modelo
 continua exigindo a cota do próprio grupo. O indicador de disponibilidade segue essa regra.
 Cota desconhecida impede a chamada ao modelo daquele grupo.
 Consumo de tokens do Claude não comprova cota restante.
+`jangada-router cotas` junta a cota do agy (por conta), do Codex e do Claude em
+`$JANGADA_ESTADO/cotas.json`: sem medição o `percentual` é `null` com `motivo`,
+nunca 0 nem 50, e o Claude sai sem cota (`nao_medido_por_este_provedor`). Sem
+`--atualizar --permitir-remoto` só relê caches; o arquivo é derivado e não escolhe
+conta nem modelo. Dentro do isolamento o estado é somente leitura: o comando
+imprime o JSON, avisa que não gravou e sai com 1.
 
 Se testes de sinais passam isolados, mas falham na suíte, compare com
 `env --default-signal=INT,QUIT testes/verificar.sh`. Essa chamada reinicializa

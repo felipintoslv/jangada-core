@@ -15,7 +15,8 @@ import tempfile
 import time
 
 
-def percentual(dados, agora):
+def janelas(dados, agora):
+    """Janelas confirmadas do grupo Codex, como (nome, restante, renovação), e se o limite foi atingido."""
     if not isinstance(dados, dict):
         raise ValueError('resposta de cota inválida')
     grupos = dados.get('rateLimitsByLimitId')
@@ -27,7 +28,7 @@ def percentual(dados, agora):
         grupo = dados.get('rateLimits')
     if not isinstance(grupo, dict) or grupo.get('limitId') not in (None, 'codex'):
         raise ValueError('grupo de consumo Codex inválido')
-    restantes, renovacoes = [], []
+    confirmadas = []
     for nome in ('primary', 'secondary'):
         janela = grupo.get(nome)
         if janela is None:
@@ -38,13 +39,18 @@ def percentual(dados, agora):
         if (type(usado) not in (int, float) or not math.isfinite(usado) or not 0 <= usado <= 100
                 or type(fim) is not int or fim - agora < 1):
             raise ValueError('cota ausente, inválida ou aguardando renovação')
-        restantes.append(100 - usado)
-        renovacoes.append(fim)
-    if not restantes:
+        confirmadas.append((nome, 100 - usado, fim))
+    if not confirmadas:
         raise ValueError('nenhuma janela de cota confirmada')
-    if grupo.get('rateLimitReachedType') is not None:
+    return confirmadas, grupo.get('rateLimitReachedType') is not None
+
+
+def percentual(dados, agora):
+    confirmadas, atingido = janelas(dados, agora)
+    restantes = [restante for _, restante, _ in confirmadas]
+    if atingido:
         restantes.append(0)
-    return min(restantes), min(60, math.floor(min(renovacoes) - agora))
+    return min(restantes), min(60, math.floor(min(fim for _, _, fim in confirmadas) - agora))
 
 
 @contextlib.contextmanager

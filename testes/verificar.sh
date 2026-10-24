@@ -143,6 +143,7 @@ python3 testes/tokens-revisor.py || falha "testes/tokens-revisor.py"
 python3 testes/saude.py || falha "testes/saude.py"
 python3 testes/consultas-modulos.py || falha "testes/consultas-modulos.py"
 python3 testes/cota-codex.py || falha "testes/cota-codex.py"
+python3 testes/cotas.py || falha "testes/cotas.py"
 python3 testes/codex-economico.py || falha "testes/codex-economico.py"
 
 passo "atualização do código e migrações"

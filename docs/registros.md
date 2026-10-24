@@ -833,6 +833,70 @@ bordas para conferir assinaturas não entra nessas contagens.
   fica em `tokens_revisor`, separado de `tokens`. Consulte o
   [contrato dos indicadores](indicadores.md).
 
+## 12. cotas.json
+
+- **Caminho:** `$JANGADA_ESTADO/cotas.json`, modo 0600, desde 24/10/2026.
+- **Quem escreve:** `orquestracao/cotas.py`, pelo comando
+  `jangada-router cotas [--atualizar] [--permitir-remoto]`. O
+  `jangada-delegar` não grava nele: o arquivo é derivado e nada nele decide
+  a escolha de conta ou modelo.
+- **Formato:** um objeto JSON, sobrescrito inteiro a cada execução (arquivo
+  temporário na mesma pasta e `os.replace`, sem JSON truncado). O comando
+  também o imprime.
+- **Campos:**
+  - `versao`: sempre `1`.
+  - `gerado`: data da geração, com fuso.
+  - `provedores`: lista, nesta ordem: uma entrada do agy por conta do
+    catálogo `contas/agy.json` (sem catálogo, só `principal`), o Codex e o Claude.
+    - `provedor`: `agy`, `codex` ou `claude`.
+    - `conta`: nome da conta do agy; `null` nos outros.
+    - `motivo`: preenchido só quando `grupos` está vazia. O Claude traz
+      `nao_medido_por_este_provedor`: não há leitura de cota dele aqui. Catálogo
+      de contas inválido traz `consulta_falhou`, sem conta inventada.
+    - `grupos`: um objeto por grupo de consumo (`gemini`, `3p`, `gemini-argon-wtu`
+      no agy, `codex` no Codex). No agy entram os grupos dos modelos de
+      `JANGADA_DELEGAR_MODELOS` (o Argon só nas contas com `argon`) e os que
+      o `/usage` trouxer.
+      - `grupo`: identificador, só `a-z`, `0-9` e `-`.
+      - `percentual`: cota restante de 0 a 100, duas casas, a menor entre as
+        janelas ativas do grupo (a mesma conta do `cota_do_grupo` do
+        `jangada-delegar`). `null` quando não houve medição, nunca 0 nem 50.
+      - `janelas`: as janelas que entraram na conta; vazia quando
+        `percentual` é `null` ou vem do estado dos provedores.
+        - `id`: `gemini-5h`, `gemini-weekly`, `codex-primary` e assim por diante.
+        - `percentual`: restante da janela.
+        - `renova_em`: data de renovação em UTC, só quando o provedor a informa
+          (`reset_time` no agy, `resetsAt` no Codex); senão `null`.
+      - `origem`: de onde veio o número (`agy -p /usage`,
+        `codex app-server account/rateLimits/read` ou `estado dos provedores`).
+        Todo número tem origem.
+      - `medido_em`: data da medição, com fuso. No cache do agy é a data de
+        modificação do arquivo. Todo número tem data.
+      - `valido_ate`: fim da validade. Um número só aparece com `valido_ate`
+        futuro; dado vencido não é reaproveitado.
+      - `motivo`: por que `percentual` é `null`, ou `null` quando medido:
+        `sem_cache` (nada lido), `cache_vencido` (cache ou observação além da
+        validade, ou com data futura; `origem`, `medido_em` e `valido_ate`
+        guardam a medição antiga, sem número), `consulta_falhou` (consulta,
+        leitura ou resposta inválida, ou grupo ausente da resposta),
+        `conta_sem_confianca` (conta do agy sem a pasta de trabalho confiável:
+        nem lida, nem consultada) e `nao_medido_por_este_provedor`.
+- **Fontes:**
+  - Sem `--atualizar`, só leitura local: o cache do agy de cada conta
+    (`~/.cache/jangada/agy-usage.json` ou `agy-usage-CONTA.json` com catálogo,
+    válido por `JANGADA_DELEGAR_CACHE` minutos, 5 por padrão) e a observação
+    do Codex gravada pelo `jangada-router status --atualizar-codex`.
+    Nenhuma chamada de rede e nenhum arquivo fora do estado.
+  - Com `--atualizar --permitir-remoto`, uma consulta `agy -p /usage` por
+    conta (com catálogo, dentro do `jangada-isolar --conta`) e uma ao Codex
+    (`cota_codex.consultar`). O resultado entra só no `cotas.json`: o cache do
+    agy e o banco dos provedores não são tocados. Sem `--permitir-remoto`,
+    `--atualizar` não chama ninguém.
+- **Segurança:** só números, identificadores filtrados, nome de conta e datas
+  são gravados. Texto livre do `/usage`, e-mail, token e caminho de credencial
+  ficam de fora. Dentro do `jangada-isolar` o estado é somente leitura: o
+  comando avisa em `stderr`, imprime o JSON e sai com 1, sem alterar o arquivo.
+
 ## Indicadores e registros
 
 | Grupo | Indicador | Registros | Observação |

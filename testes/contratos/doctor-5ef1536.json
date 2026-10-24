@@ -1,0 +1,316 @@
+{
+ "codigo": 0,
+ "saida": {
+  "codigo_saida": 0,
+  "gerado_em": "<DATA>",
+  "resumo": {
+   "aviso": 14,
+   "falha": 0,
+   "nao_verificavel": 7,
+   "ok": 29
+  },
+  "verificacoes": [
+   {
+    "categoria": "programa",
+    "detalhe": "Programa obrigatório encontrado no PATH.",
+    "estado": "ok",
+    "id": "programa.bash"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa obrigatório encontrado no PATH.",
+    "estado": "ok",
+    "id": "programa.python3"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa obrigatório encontrado no PATH.",
+    "estado": "ok",
+    "id": "programa.sqlite3"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa obrigatório encontrado no PATH.",
+    "estado": "ok",
+    "id": "programa.bwrap"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa obrigatório encontrado no PATH.",
+    "estado": "ok",
+    "id": "programa.tmux"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa obrigatório encontrado no PATH.",
+    "estado": "ok",
+    "id": "programa.git"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa obrigatório encontrado no PATH.",
+    "estado": "ok",
+    "id": "programa.jq"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: sessões e revisão Claude.",
+    "estado": "ok",
+    "id": "programa.claude"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: sessões e revisão Codex.",
+    "estado": "ok",
+    "id": "programa.codex"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: delegação e revisão agy.",
+    "estado": "ok",
+    "id": "programa.agy"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: cliente local.",
+    "estado": "ok",
+    "id": "programa.ollama"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: delegação local.",
+    "estado": "ok",
+    "id": "programa.curl"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: login do agy no isolamento.",
+    "estado": "ok",
+    "id": "programa.xdg-dbus-proxy"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: keyring por item.",
+    "estado": "ok",
+    "id": "programa.gdbus"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: verificação de R com lintr.",
+    "estado": "ok",
+    "id": "programa.Rscript"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: verificação de shell.",
+    "estado": "ok",
+    "id": "programa.shellcheck"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: conferência de assinaturas SSH.",
+    "estado": "ok",
+    "id": "programa.ssh-keygen"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: notificações.",
+    "estado": "ok",
+    "id": "programa.notify-send"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: observação das sessões.",
+    "estado": "ok",
+    "id": "programa.inotifywait"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: prazos da delegação.",
+    "estado": "ok",
+    "id": "programa.timeout"
+   },
+   {
+    "categoria": "programa",
+    "detalhe": "Programa opcional presente: travas entre processos.",
+    "estado": "ok",
+    "id": "programa.flock"
+   },
+   {
+    "categoria": "registro",
+    "detalhe": "Registro inválido; o Core ignora este provedor.",
+    "estado": "aviso",
+    "id": "registro.agy"
+   },
+   {
+    "categoria": "registro",
+    "detalhe": "Registro válido, com precedência da configuração do usuário; arquivo não executado.",
+    "estado": "ok",
+    "id": "registro.claude"
+   },
+   {
+    "categoria": "registro",
+    "detalhe": "Registro válido, com precedência da configuração do usuário; arquivo não executado.",
+    "estado": "ok",
+    "id": "registro.codex"
+   },
+   {
+    "categoria": "registro",
+    "detalhe": "Registro válido, com precedência da configuração do usuário; arquivo não executado.",
+    "estado": "ok",
+    "id": "registro.ollama"
+   },
+   {
+    "categoria": "isolamento",
+    "detalhe": "Teste mínimo real de namespaces passou em até 3 segundos; não verifica as montagens dos provedores.",
+    "estado": "ok",
+    "id": "isolamento.userns"
+   },
+   {
+    "categoria": "autenticacao",
+    "detalhe": "Credencial em arquivo ausente; outros mecanismos de login não foram consultados.",
+    "estado": "aviso",
+    "id": "autenticacao.claude"
+   },
+   {
+    "categoria": "isolamento",
+    "detalhe": "Pré-requisitos básicos presentes; montagens, dados próprios da sessão e proteção das configurações não foram testados.",
+    "estado": "nao_verificavel",
+    "id": "isolamento.claude"
+   },
+   {
+    "categoria": "hooks",
+    "detalhe": "Arquivo de hooks ausente; nenhum registro foi criado.",
+    "estado": "aviso",
+    "id": "hooks.claude"
+   },
+   {
+    "categoria": "autenticacao",
+    "detalhe": "Credencial em arquivo ausente; outros mecanismos de login não foram consultados.",
+    "estado": "aviso",
+    "id": "autenticacao.codex"
+   },
+   {
+    "categoria": "isolamento",
+    "detalhe": "O Codex exige pasta de login existente e absoluta antes de abrir a sessão.",
+    "estado": "aviso",
+    "id": "isolamento.codex"
+   },
+   {
+    "categoria": "hooks",
+    "detalhe": "Sem registro local de confiança no contexto consultado. Hooks do Codex são fornecidos por argumentos e aprovados por sessão; cliente não iniciado.",
+    "estado": "nao_verificavel",
+    "id": "hooks.codex"
+   },
+   {
+    "categoria": "autenticacao",
+    "detalhe": "Login guardado no keyring; o diagnóstico não consulta segredos nem inicia o cliente.",
+    "estado": "nao_verificavel",
+    "id": "autenticacao.agy"
+   },
+   {
+    "categoria": "isolamento",
+    "detalhe": "Falta proxy, endereço D-Bus ou pasta de execução; o agy pode não alcançar o login.",
+    "estado": "aviso",
+    "id": "isolamento.agy"
+   },
+   {
+    "categoria": "hooks",
+    "detalhe": "Arquivo de hooks ausente; nenhum registro foi criado.",
+    "estado": "aviso",
+    "id": "hooks.agy"
+   },
+   {
+    "categoria": "cota",
+    "detalhe": "Não há registro local de saldo com validade documentada; nenhum cliente ou serviço remoto consultado.",
+    "estado": "nao_verificavel",
+    "id": "cota.claude"
+   },
+   {
+    "categoria": "cota",
+    "detalhe": "Saldos observados: 3p: 90.50%, gemini: 33.30%; registro local ainda no prazo, sem consulta remota.",
+    "estado": "ok",
+    "id": "cota.agy"
+   },
+   {
+    "categoria": "cota",
+    "detalhe": "Cota do Codex ausente, inválida ou vencida; não houve atualização pela rede.",
+    "estado": "nao_verificavel",
+    "id": "cota.codex"
+   },
+   {
+    "categoria": "local",
+    "detalhe": "Consulta indisponível, inválida ou sem resposta no prazo; nenhum ajuste realizado.",
+    "estado": "nao_verificavel",
+    "id": "local.modelo"
+   },
+   {
+    "categoria": "versao",
+    "detalhe": "<DEPENDE DA CÓPIA>",
+    "estado": "<DEPENDE DA CÓPIA>",
+    "id": "versao.origem"
+   },
+   {
+    "categoria": "migracoes",
+    "detalhe": "2 migrações pendentes entre 2 scripts; nenhum script executado.",
+    "estado": "aviso",
+    "id": "migracoes.pendentes"
+   },
+   {
+    "categoria": "pastas",
+    "detalhe": "Pasta existente, UID 1000, modo 0700.",
+    "estado": "ok",
+    "id": "pastas.estado"
+   },
+   {
+    "categoria": "pastas",
+    "detalhe": "Pasta existente, UID 1000, modo 0700.",
+    "estado": "ok",
+    "id": "pastas.agentes"
+   },
+   {
+    "categoria": "pastas",
+    "detalhe": "Pasta existente, UID 1000, modo 0700.",
+    "estado": "ok",
+    "id": "pastas.agentes.runtime"
+   },
+   {
+    "categoria": "pastas",
+    "detalhe": "Pasta ausente; não foi criada. Algumas pastas surgem apenas ao usar a função correspondente.",
+    "estado": "aviso",
+    "id": "pastas.revisoes"
+   },
+   {
+    "categoria": "pastas",
+    "detalhe": "Pasta ausente; não foi criada. Algumas pastas surgem apenas ao usar a função correspondente.",
+    "estado": "aviso",
+    "id": "pastas.coordenadores"
+   },
+   {
+    "categoria": "pastas",
+    "detalhe": "Pasta ausente; não foi criada. Algumas pastas surgem apenas ao usar a função correspondente.",
+    "estado": "aviso",
+    "id": "pastas.codex"
+   },
+   {
+    "categoria": "pastas",
+    "detalhe": "Pasta ausente; não foi criada. Algumas pastas surgem apenas ao usar a função correspondente.",
+    "estado": "aviso",
+    "id": "pastas.fotos"
+   },
+   {
+    "categoria": "pastas",
+    "detalhe": "Pasta ausente; não foi criada. Algumas pastas surgem apenas ao usar a função correspondente.",
+    "estado": "aviso",
+    "id": "pastas.integracoes"
+   },
+   {
+    "categoria": "pastas",
+    "detalhe": "Pasta ausente; não foi criada. Algumas pastas surgem apenas ao usar a função correspondente.",
+    "estado": "aviso",
+    "id": "pastas.migracoes"
+   }
+  ],
+  "versao": 1
+ }
+}

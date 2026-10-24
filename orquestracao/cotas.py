@@ -1,0 +1,357 @@
+"""Cota restante por provedor e conta, gravada em $JANGADA_ESTADO/cotas.json.
+
+O arquivo é derivado: nasce dos caches e das observações que já existem e não
+é lido por quem decide a delegação. Número só entra com origem e data; sem
+medição o percentual é null com o motivo.
+"""
+
+import datetime
+import json
+import math
+import os
+import pathlib
+import re
+import sqlite3
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+from cota_codex import consultar, janelas as janelas_codex, percentual as percentual_codex
+from nucleo.consultas import banco_leitura
+
+VERSAO = 1
+MOTIVOS = ('sem_cache', 'cache_vencido', 'consulta_falhou', 'conta_sem_confianca',
+           'nao_medido_por_este_provedor')
+ORIGEM_AGY = 'agy -p /usage'
+ORIGEM_CODEX = 'codex app-server account/rateLimits/read'
+ORIGEM_CODEX_ESTADO = 'estado dos provedores'
+LIMITE_LEITURA = 1024 * 1024
+GRUPO = re.compile(r'[a-z0-9-]+')
+BALDE = re.compile(r'(.+)-(5h|weekly)')
+NOME_CONTA = re.compile(r'[A-Za-z0-9_-]+')
+DATA = re.compile(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d')
+
+# Sai uma linha "nome<TAB>argon<TAB>confia" por conta, com as mesmas funções que o
+# jangada-delegar usa para listar contas e conferir a confiança da pasta.
+LISTAR_CONTAS = r'''
+source "$1" || exit 1
+contas="$(jangada_contas_agy)" || exit 3
+pasta="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --show-toplevel 2>/dev/null || pwd)"
+catalogo=0
+[[ ! -f "$JANGADA_ESTADO/contas/agy.json" ]] || catalogo=1
+while IFS=$'\t' read -r n p a; do
+  [[ -n "$n" ]] || continue
+  [[ "${JANGADA_AGY_CONTA_MONTADA:-}" != "$n" ]] || p="$HOME/.gemini/antigravity-cli"
+  confia=0
+  (
+    export JANGADA_AGY_CONTA="$n"
+    ((catalogo)) && export JANGADA_AGY_SETTINGS="$p/settings.json"
+    jangada_agy_confia "$pasta"
+  ) >/dev/null 2>&1 && confia=1
+  printf '%s\t%s\t%s\t%s\n' "$n" "$a" "$confia" "$pasta"
+done <<<"$contas"
+'''
+
+
+def agora_iso(instante):
+    return datetime.datetime.fromtimestamp(instante).astimezone().isoformat(timespec='seconds')
+
+
+def arredondar(valor):
+    """Meio para longe do zero, como o round do jq em cota_do_grupo."""
+    inteiro = math.floor(valor)
+    return inteiro + 1 if valor - inteiro >= 0.5 else inteiro
+
+
+def renovacao(texto):
+    if not isinstance(texto, str):
+        return None
+    try:
+        data = datetime.datetime.fromisoformat(texto)
+    except ValueError:
+        return None
+    if data.tzinfo is None:
+        return None
+    return data.astimezone(datetime.timezone.utc).isoformat(timespec='seconds')
+
+
+def validade_cache():
+    try:
+        minutos = int(os.environ.get('JANGADA_DELEGAR_CACHE', '5'))
+    except ValueError:
+        minutos = 5
+    return max(minutos, 0) * 60
+
+
+def grupo_do_modelo(modelo):
+    if modelo.startswith('gemini-4-argon-'):
+        return 'gemini-argon-wtu'
+    if modelo.startswith('gemini-'):
+        return 'gemini'
+    if modelo.startswith(('claude-', 'gpt-')):
+        return '3p'
+    return None
+
+
+def grupos_esperados(argon):
+    modelos = os.environ.get('JANGADA_DELEGAR_MODELOS',
+                             'gemini-3.8-flash-high claude-sonnet-5-5-high gpt-oss-120b-medium').split()
+    resultado = []
+    for modelo in modelos:
+        grupo = grupo_do_modelo(modelo)
+        if grupo and (argon or grupo != 'gemini-argon-wtu') and grupo not in resultado:
+            resultado.append(grupo)
+    return resultado
+
+
+def grupo_nulo(grupo, motivo, origem=None, medido_em=None, valido_ate=None):
+    return {'grupo': grupo, 'percentual': None, 'janelas': [], 'origem': origem,
+            'medido_em': medido_em, 'valido_ate': valido_ate, 'motivo': motivo}
+
+
+def grupo_medido(grupo, percentual, janelas, origem, medido_em, valido_ate):
+    return {'grupo': grupo, 'percentual': percentual, 'janelas': janelas, 'origem': origem,
+            'medido_em': medido_em, 'valido_ate': valido_ate, 'motivo': None}
+
+
+def baldes_agy(dados):
+    """Grupo -> (janelas ativas, válido). Só números, ids filtrados e datas entram."""
+    grupos = {}
+    try:
+        lista = dados['command']['data']['groups']
+    except (KeyError, TypeError):
+        return grupos
+    if not isinstance(lista, list):
+        return grupos
+    for item in lista:
+        baldes = item.get('buckets') if isinstance(item, dict) else None
+        for balde in baldes if isinstance(baldes, list) else []:
+            identificador = balde.get('id') if isinstance(balde, dict) else None
+            partes = BALDE.fullmatch(identificador) if isinstance(identificador, str) else None
+            if not partes or not GRUPO.fullmatch(partes[1]) or balde.get('disabled') is True:
+                continue
+            fracao = balde.get('remaining_fraction')
+            valido = (type(fracao) in (int, float) and math.isfinite(fracao) and 0 <= fracao <= 1)
+            entrada = grupos.setdefault(partes[1], {'janelas': [], 'valido': True})
+            entrada['valido'] = entrada['valido'] and valido
+            if valido:
+                entrada['janelas'].append((identificador, fracao, renovacao(balde.get('reset_time'))))
+    return grupos
+
+
+def grupos_agy(dados, esperados, origem, medido_em, valido_ate):
+    encontrados = baldes_agy(dados)
+    resultado = []
+    for grupo in esperados + sorted(set(encontrados) - set(esperados)):
+        entrada = encontrados.get(grupo)
+        if not entrada or not entrada['valido'] or not entrada['janelas']:
+            resultado.append(grupo_nulo(grupo, 'consulta_falhou'))
+            continue
+        minimo = min(fracao for _, fracao, _ in entrada['janelas'])
+        janelas = [{'id': identificador, 'percentual': arredondar(fracao * 10000) / 100, 'renova_em': fim}
+                   for identificador, fracao, fim in entrada['janelas']]
+        resultado.append(grupo_medido(grupo, arredondar(minimo * 10000) / 100, janelas,
+                                      origem, medido_em, valido_ate))
+    return resultado
+
+
+def ler_regular(caminho):
+    """(conteúdo, mtime) de um arquivo regular sem seguir link, ou None se ausente."""
+    try:
+        fd = os.open(caminho, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    with os.fdopen(fd, 'rb') as arquivo:
+        info = os.fstat(arquivo.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError('cache não é arquivo regular')
+        conteudo = arquivo.read(LIMITE_LEITURA + 1)
+    if len(conteudo) > LIMITE_LEITURA:
+        raise ValueError('cache excede o limite')
+    return conteudo, info.st_mtime
+
+
+def contas_agy(core):
+    resposta = subprocess.run(['bash', '-c', LISTAR_CONTAS, 'jangada-cotas', str(core / 'bin/jangada-config')],
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30, check=False)
+    if resposta.returncode != 0:
+        raise ValueError('catálogo de contas do agy inválido')
+    contas = []
+    for linha in resposta.stdout.splitlines():
+        partes = linha.split('\t')
+        if len(partes) != 4 or not NOME_CONTA.fullmatch(partes[0]) or partes[1] not in ('true', 'false'):
+            raise ValueError('lista de contas do agy inválida')
+        contas.append({'nome': partes[0], 'argon': partes[1] == 'true', 'confia': partes[2] == '1', 'pasta': partes[3]})
+    if not contas:
+        raise ValueError('lista de contas do agy vazia')
+    return contas
+
+
+def consultar_agy(core, conta, catalogo):
+    ambiente = {chave: valor for chave, valor in os.environ.items() if chave != 'JANGADA_SESSAO'}
+    ambiente['JANGADA_HOOK_DESLIGADO'] = '1'
+    comando = ['agy', '-p', '/usage', '--output-format', 'json', '--print-timeout', '60s']
+    if catalogo:
+        ambiente['JANGADA_ISOLAR_PERFIL'] = 'agente'
+        comando = [str(core / 'bin/jangada-isolar'), '--conta', conta['nome'], '--'] + comando
+    resposta = subprocess.run(comando, cwd=conta['pasta'], env=ambiente, stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=75, check=False)
+    if resposta.returncode != 0 or len(resposta.stdout) > LIMITE_LEITURA:
+        raise ValueError('consulta do /usage falhou')
+    return json.loads(resposta.stdout)
+
+
+def medir_agy(core, conta, catalogo, atualizar, cache, agora):
+    esperados = grupos_esperados(conta['argon'])
+    if not conta['confia']:
+        return [grupo_nulo(g, 'conta_sem_confianca') for g in esperados]
+    validade = validade_cache()
+    if atualizar:
+        try:
+            dados = consultar_agy(core, conta, catalogo)
+        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+            return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
+        return grupos_agy(dados, esperados, ORIGEM_AGY, agora_iso(agora), agora_iso(agora + validade))
+    arquivo = cache / ('agy-usage-%s.json' % conta['nome'] if catalogo else 'agy-usage.json')
+    try:
+        lido = ler_regular(arquivo)
+    except (OSError, ValueError):
+        return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
+    if lido is None or not lido[0].strip():
+        return [grupo_nulo(g, 'sem_cache') for g in esperados]
+    conteudo, mtime = lido
+    if mtime > agora or agora - mtime >= validade:
+        passado = mtime <= agora
+        return [grupo_nulo(g, 'cache_vencido', ORIGEM_AGY, agora_iso(mtime) if passado else None,
+                           agora_iso(mtime + validade) if passado else None) for g in esperados]
+    try:
+        dados = json.loads(conteudo)
+    except ValueError:
+        return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
+    return grupos_agy(dados, esperados, ORIGEM_AGY, agora_iso(mtime), agora_iso(mtime + validade))
+
+
+def entradas_agy(core, raiz_estado, atualizar, agora):
+    catalogo = (raiz_estado / 'contas/agy.json').is_file()
+    cache = pathlib.Path(os.environ.get('XDG_CACHE_HOME') or pathlib.Path.home() / '.cache') / 'jangada'
+    try:
+        contas = contas_agy(core)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return [{'provedor': 'agy', 'conta': None, 'grupos': [], 'motivo': 'consulta_falhou'}]
+    return [{'provedor': 'agy', 'conta': conta['nome'],
+             'grupos': medir_agy(core, conta, catalogo, atualizar, cache, agora), 'motivo': None}
+            for conta in contas]
+
+
+def estado_codex(raiz_estado, agora):
+    banco = raiz_estado / 'agentes/runtime/tarefas.sqlite'
+    if not banco.is_file():
+        return grupo_nulo('codex', 'sem_cache')
+    try:
+        with banco_leitura(banco) as db:
+            linha = db.execute("SELECT cota, atualizado, valido_ate FROM provedores WHERE id='codex'").fetchone()
+    except (OSError, ValueError, sqlite3.Error):
+        return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
+    if linha is None or linha['cota'] is None:
+        return grupo_nulo('codex', 'sem_cache')
+    cota, medido, valido = linha['cota'], linha['atualizado'], linha['valido_ate']
+    if any(type(x) not in (int, float) or not math.isfinite(x) for x in (cota, medido, valido)) or not 0 <= cota <= 100:
+        return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
+    if valido <= agora or medido > agora:
+        return grupo_nulo('codex', 'cache_vencido', ORIGEM_CODEX_ESTADO, agora_iso(medido), agora_iso(valido))
+    return grupo_medido('codex', round(cota, 2), [], ORIGEM_CODEX_ESTADO, agora_iso(medido), agora_iso(valido))
+
+
+def consulta_codex(raiz_estado, agora):
+    pasta = raiz_estado / 'agentes/runtime'
+    try:
+        pasta.mkdir(mode=0o700, parents=True, exist_ok=True)
+        dados = consultar(pasta)
+        cota, validade = percentual_codex(dados, agora)
+        confirmadas, _ = janelas_codex(dados, agora)
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX)
+    janelas = [{'id': 'codex-' + nome, 'percentual': round(restante, 2), 'renova_em': agora_iso(fim)}
+               for nome, restante, fim in confirmadas]
+    return grupo_medido('codex', round(cota, 2), janelas, ORIGEM_CODEX, agora_iso(agora),
+                        agora_iso(agora + validade))
+
+
+def entrada_codex(raiz_estado, atualizar, permitir_remoto, agora):
+    grupo = consulta_codex(raiz_estado, agora) if atualizar and permitir_remoto else estado_codex(raiz_estado, agora)
+    return {'provedor': 'codex', 'conta': None, 'grupos': [grupo], 'motivo': None}
+
+
+def montar(raiz_estado, core, atualizar=False, permitir_remoto=False, agora=None):
+    agora = time.time() if agora is None else agora
+    # Sem --permitir-remoto nada sai da máquina, nem a consulta ao agy.
+    consultar_rede = atualizar and permitir_remoto
+    documento = {'versao': VERSAO, 'gerado': agora_iso(agora),
+                 'provedores': entradas_agy(core, raiz_estado, consultar_rede, agora)
+                 + [entrada_codex(raiz_estado, atualizar, permitir_remoto, agora),
+                    {'provedor': 'claude', 'conta': None, 'grupos': [], 'motivo': 'nao_medido_por_este_provedor'}]}
+    validar(documento, agora)
+    return documento
+
+
+def validar(documento, agora):
+    """Recusa número sem origem e data, e número com validade vencida."""
+    if not isinstance(documento, dict) or documento.get('versao') != VERSAO or not DATA.fullmatch(str(documento.get('gerado'))):
+        raise ValueError('cabeçalho de cotas inválido')
+    if not isinstance(documento.get('provedores'), list):
+        raise ValueError('lista de provedores inválida')
+    for provedor in documento['provedores']:
+        if provedor.get('motivo') is not None and provedor['motivo'] not in MOTIVOS:
+            raise ValueError('motivo inválido')
+        for grupo in provedor.get('grupos', []):
+            if not GRUPO.fullmatch(str(grupo.get('grupo'))):
+                raise ValueError('id de grupo inválido')
+            percentual = grupo.get('percentual')
+            if percentual is None:
+                if grupo.get('motivo') not in MOTIVOS:
+                    raise ValueError('percentual nulo exige motivo')
+                continue
+            if type(percentual) not in (int, float) or not math.isfinite(percentual) or not 0 <= percentual <= 100:
+                raise ValueError('percentual fora de 0 a 100')
+            if not isinstance(grupo.get('origem'), str) or not grupo['origem']:
+                raise ValueError('percentual sem origem')
+            if not DATA.fullmatch(str(grupo.get('medido_em'))) or not DATA.fullmatch(str(grupo.get('valido_ate'))):
+                raise ValueError('percentual sem data de medição e validade')
+            if datetime.datetime.fromisoformat(grupo['valido_ate']).timestamp() <= agora:
+                raise ValueError('percentual com validade vencida')
+
+
+def gravar(destino, documento):
+    """Troca o arquivo inteiro de uma vez; nunca deixa JSON truncado em destino."""
+    destino = pathlib.Path(destino)
+    destino.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd, temporario = tempfile.mkstemp(dir=destino.parent, prefix='.cotas-', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as arquivo:
+            os.fchmod(arquivo.fileno(), 0o600)
+            arquivo.write(json.dumps(documento, ensure_ascii=False, indent=2) + '\n')
+            arquivo.flush()
+            os.fsync(arquivo.fileno())
+        os.replace(temporario, destino)
+    except BaseException:
+        try:
+            os.unlink(temporario)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def executar(raiz_estado, atualizar=False, permitir_remoto=False, core=None):
+    """Imprime o JSON e o grava no estado; devolve 0, ou 1 se a gravação falhou."""
+    raiz_estado = pathlib.Path(raiz_estado)
+    core = pathlib.Path(core or pathlib.Path(__file__).resolve().parent.parent)
+    documento = montar(raiz_estado, core, atualizar, permitir_remoto)
+    print(json.dumps(documento, ensure_ascii=False))
+    try:
+        gravar(raiz_estado / 'cotas.json', documento)
+    except OSError as erro:
+        print('jangada-router: cotas.json não gravado (%s)' % erro.strerror, file=sys.stderr)
+        return 1
+    return 0

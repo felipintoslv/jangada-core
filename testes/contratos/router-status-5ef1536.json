@@ -1,0 +1,64 @@
+{
+ "atualizado": {
+  "codigo": 0,
+  "saida": {
+   "provedores": [
+    {
+     "atualizado": 0,
+     "cota": 90.5,
+     "espera_segundos": 0,
+     "falhas": 0,
+     "id": "agy",
+     "modelo": null,
+     "motivo": "cota consultada",
+     "pausado": 0,
+     "status": "AVAILABLE",
+     "valido_ate": 0
+    },
+    {
+     "atualizado": 0,
+     "cota": null,
+     "espera_segundos": 0,
+     "falhas": 1,
+     "id": "local",
+     "modelo": null,
+     "motivo": "serviço local não respondeu",
+     "pausado": 0,
+     "status": "NETWORK_ERROR",
+     "valido_ate": 0
+    }
+   ]
+  }
+ },
+ "novo": {
+  "codigo": 0,
+  "saida": {
+   "provedores": [
+    {
+     "atualizado": 0,
+     "cota": null,
+     "espera_segundos": 0,
+     "falhas": 0,
+     "id": "agy",
+     "modelo": null,
+     "motivo": "observação ausente ou expirada",
+     "pausado": 0,
+     "status": "UNKNOWN",
+     "valido_ate": 0
+    },
+    {
+     "atualizado": 0,
+     "cota": null,
+     "espera_segundos": 0,
+     "falhas": 0,
+     "id": "local",
+     "modelo": null,
+     "motivo": "observação ausente ou expirada",
+     "pausado": 0,
+     "status": "UNKNOWN",
+     "valido_ate": 0
+    }
+   ]
+  }
+ }
+}

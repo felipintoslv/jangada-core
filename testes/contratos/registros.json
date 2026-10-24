@@ -263,5 +263,30 @@
       "atuacao_id": {"tipo": ["texto"], "obrigatorio": true},
       "ciclo": {"tipo": ["texto"], "obrigatorio": true}
     }
+  },
+  "cotas.json": {
+    "secao": "12",
+    "campos": {
+      "versao": {"tipo": ["inteiro"], "obrigatorio": true},
+      "gerado": {"tipo": ["data"], "obrigatorio": true},
+      "provedores": {"tipo": ["lista"], "obrigatorio": true, "itens": {
+        "provedor": {"tipo": ["texto"], "obrigatorio": true},
+        "conta": {"tipo": ["texto", "nulo"], "obrigatorio": true},
+        "motivo": {"tipo": ["texto", "nulo"], "obrigatorio": true},
+        "grupos": {"tipo": ["lista"], "obrigatorio": true, "itens": {
+          "grupo": {"tipo": ["texto"], "obrigatorio": true},
+          "percentual": {"tipo": ["numero", "nulo"], "obrigatorio": true},
+          "origem": {"tipo": ["texto", "nulo"], "obrigatorio": true},
+          "medido_em": {"tipo": ["data", "nulo"], "obrigatorio": true},
+          "valido_ate": {"tipo": ["data", "nulo"], "obrigatorio": true},
+          "motivo": {"tipo": ["texto", "nulo"], "obrigatorio": true},
+          "janelas": {"tipo": ["lista"], "obrigatorio": true, "itens": {
+            "id": {"tipo": ["texto"], "obrigatorio": true},
+            "percentual": {"tipo": ["numero"], "obrigatorio": true},
+            "renova_em": {"tipo": ["data", "nulo"], "obrigatorio": true}
+          }}
+        }}
+      }}
+    }
   }
 }

@@ -132,7 +132,7 @@ def main():
     retomada.add_argument('--executar', action='store_true')
     retomada.add_argument('--limite', type=int, default=1)
     router = comandos.add_parser('router', help='consulta provedores de todos os projetos')
-    router.add_argument('acao', choices=['status'])
+    router.add_argument('acao', choices=['status', 'cotas'])
     router.add_argument('--atualizar', action='store_true')
     router.add_argument('--atualizar-codex', action='store_true')
     router.add_argument('--permitir-remoto', action='store_true')
@@ -198,6 +198,11 @@ def main():
             parser.error('--paralelo aceita de 2 a 4 processos, exige --permitir-remoto, perfil com nuvem '
                          'e --limite igual ou maior, e não combina com --acompanhar')
     raiz_estado = pathlib.Path(os.environ['JANGADA_ESTADO'])
+    if args.comando == 'router' and args.acao == 'cotas':
+        if args.atualizar_codex:
+            parser.error('cotas usa --atualizar com --permitir-remoto para o Codex')
+        from cotas import executar as executar_cotas
+        sys.exit(executar_cotas(raiz_estado, args.atualizar, args.permitir_remoto))
     if args.comando in {'router', 'provedor'}:
         global_estado = Estado(raiz_estado / 'agentes/runtime', raiz=raiz_estado)
         try:

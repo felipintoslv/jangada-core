@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Consulta provedores. Uso: jangada-router status [--atualizar] [--atualizar-codex] [--permitir-remoto]
+#   jangada-router cotas [--atualizar] [--permitir-remoto]
+#     Grava $JANGADA_ESTADO/cotas.json (cota por provedor e conta) e o imprime.
+#     Sem --atualizar relê só os caches locais; --atualizar --permitir-remoto
+#     consulta cada conta do agy e o Codex. Detalhes em docs/registros.md.
 set -euo pipefail
 # shellcheck source=bin/jangada-config
 source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
