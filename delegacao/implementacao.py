@@ -284,6 +284,8 @@ def executar(args, raiz):
         gravar(agentes, "implementador/agent.md", (PAPEL_PRIVADO + partes[2]).encode(), novo=True)
         gravar(configuracao, "agents.json", codificar({"entries": [{"path": "/tmp/jangada-implementador-agentes"}]}), novo=True)
         gravar(configuracao, "hooks.json", b"{}", novo=True)
+        if not conta_de_catalogo():
+            preparar_settings(runtime, raiz, permitidos)
         gravar(execucao, "contrato.json", codificar(contrato), novo=True)
         estado(execucao, atual)
         pedido = ("Atividade delimitada em cópia da base " + args.base + ". Sem Git, commit ou exclusão. "
@@ -389,26 +391,34 @@ def decidir(args, raiz):
         os.close(fd)
 
 
+def conta_de_catalogo():
+    return bool(os.environ.get("JANGADA_AGY_CONTA_MONTADA")) or (Path(os.environ["JANGADA_ESTADO"]) / "contas/agy.json").is_file()
+
+
 def pasta_agy():
-    return Path(os.environ.get("JANGADA_AGY_PASTA") or Path.home() / ".gemini/antigravity-cli")
+    padrao = Path.home() / ".gemini/antigravity-cli"
+    return Path(os.environ.get("JANGADA_AGY_PASTA") or padrao) if conta_de_catalogo() else padrao
 
 
 def montar_login(origem, destino):
+    # Sem catálogo, os argumentos e a autenticação da MOD-03 permanecem os da base.
+    if not conta_de_catalogo():
+        return []
     token = origem / "antigravity-oauth-token"
     try:
         info = token.lstat()
     except FileNotFoundError:
-        # Instalações antigas sem catálogo preservam a autenticação anterior.
-        if os.environ.get("JANGADA_AGY_CONTA") or (Path(os.environ["JANGADA_ESTADO"]) / "contas/agy.json").exists():
-            raise ValueError("arquivo de login ausente na conta escolhida") from None
-        return []
+        raise ValueError("arquivo de login ausente na conta escolhida") from None
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         raise ValueError("arquivo de login precisa ser regular, sem links")
     return ["--ro-bind", str(token), str(destino / token.name)]
 
 
 def preparar_settings(runtime, raiz, permitidos):
-    settings = json.loads(Path(os.environ.get("JANGADA_AGY_SETTINGS") or pasta_agy() / "settings.json").read_text())
+    settings_path = pasta_agy() / "settings.json"
+    if conta_de_catalogo():
+        settings_path = Path(os.environ.get("JANGADA_AGY_SETTINGS") or settings_path)
+    settings = json.loads(settings_path.read_text())
     if str(raiz) not in settings.get("trustedWorkspaces", []):
         raise ValueError("pasta sem confiança existente no agy; não criar autorização")
     # Só a confiança já autorizada e as permissões existentes; sem tokens, MCP ou hooks.
@@ -446,7 +456,8 @@ def montagem(manifesto):
     cfg = casa / ".gemini/config"
     # O CLI pode gravar logs e binários apenas em memória.
     runtime = arquivo.parent / "runtime"
-    preparar_settings(runtime, raiz, contrato["permitidos"])
+    if conta_de_catalogo():
+        preparar_settings(runtime, raiz, contrato["permitidos"])
     origem_cli = pasta_agy()
     args += ["--tmpfs", str(cli),
              "--ro-bind", str(runtime / "settings.json"), str(cli / "settings.json")]

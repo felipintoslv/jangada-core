@@ -377,7 +377,8 @@ O arquivo é lido como dados. O dono o configura fora da sessão isolada.
 
 `jangada-delegar PAPEL "pedido" --conta NOME` fixa uma conta. Sem a opção,
 o comando preserva a prioridade dos modelos e escolhe, para cada família,
-a conta habilitada com maior saldo real. Argon exige `argon: true`.
+a conta habilitada que confia na pasta e tem maior saldo real. A confiança
+é conferida antes de consultar cota. Argon exige `argon: true`.
 Medida ausente fica atrás de qualquer saldo conhecido, inclusive zero;
 continua desconhecida e não autoriza chamar o modelo. Empates preservam a
 ordem do catálogo. Cada conta tem cache de cota próprio. O registro inclui
@@ -389,7 +390,8 @@ Sem opção, usa `JANGADA_AGY_CONTA` ou a primeira conta do catálogo.
 Dentro de uma sessão isolada, somente a conta montada participa da seleção;
 pedir outra conta com `--conta` recusa antes de ler seu cache ou chamar o agy.
 A seleção também chega à leitura e à implementação privadas da MOD-03:
-o arquivo `antigravity-oauth-token` da conta é montado somente para leitura.
+com catálogo, o arquivo `antigravity-oauth-token` da conta é montado somente para leitura.
+Sem catálogo, os argumentos e a autenticação desses executores ficam iguais aos da base.
 Renovar o login exige agir fora desses executores.
 A confiança é conferida por conta; o delegador não cria autorização.
 Na abertura ou retomada, todas as contas são conferidas. Quando o dono aceita

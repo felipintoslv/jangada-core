@@ -154,6 +154,37 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
         self.assertEqual(json.loads(bloqueada.stdout)["chamadas_executor"], 0)
         self.assertIn("nenhuma conta habilitada", bloqueada.stderr)
 
+    def test_escolha_exclui_conta_sem_confianca_antes_da_cota(self):
+        contas, _ = self.contas((0.4, 0.95))
+        pasta = Path(contas[1]["pasta"])
+        (pasta / "settings.json").write_text('{"trustedWorkspaces": []}')
+        cache = Path(self.env["XDG_CACHE_HOME"]) / "jangada/agy-usage-conta2.json"
+        cache.parent.mkdir(parents=True)
+        cache.write_bytes((pasta / "usage.json").read_bytes())
+        resultado = json.loads(self.delegar_conta().stdout)
+        self.assertEqual(resultado["conta"], "conta1")
+        self.assertEqual(resultado["cota_antes"], 40)
+        self.assertTrue(all(c["conta"] == "conta1" for c in resultado["cotas_modelos"]))
+        self.assertFalse((pasta / "consultas").exists())
+        for c in contas:
+            (Path(c["pasta"]) / "settings.json").write_text('{"trustedWorkspaces": []}')
+        erro = self.delegar_conta(sucesso=False)
+        self.assertIn("nenhuma conta elegível confia", erro.stderr)
+        self.assertEqual(json.loads(erro.stdout)["chamadas_executor"], 0)
+
+    def test_capacidade_conta_chega_ao_agy_depois_do_local(self):
+        self.contas()
+        config = Path(self.env["XDG_CONFIG_HOME"]) / "jangada"
+        config.mkdir(parents=True)
+        (config / "delegacao.json").write_text('{"leitura_documental":["local","agy"]}')
+        self.env["JANGADA_OLLAMA_URL"] = "http://127.0.0.1:1"
+        resultado = json.loads(self.chamar("leitor", "Leia", "--capacidade", "leitura_documental", "--conta", "conta2",
+            "--permitir-remoto", "--arquivos", "fonte.txt", "--json").stdout)
+        self.assertEqual(resultado["conta"], "conta2")
+        self.assertEqual([t["destino"] for t in resultado["tentativas"]], ["local", "agy"])
+        self.assertNotEqual(resultado["tentativas"][0]["motivo_codigo"], "entrada_invalida")
+        self.assertEqual(resultado["codigo_saida"], 0)
+
     def test_contas_sem_dado_zero_e_inexistente(self):
         self.contas((None, 0))
         resultado = json.loads(self.delegar_conta(sucesso=False).stdout)
@@ -229,11 +260,11 @@ assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
         alvo = self.tmp / "login-falso"
         alvo.write_text("identidade sintética")
         token.symlink_to(alvo)
-        with self.assertRaisesRegex(ValueError, "sem links"):
+        with mock.patch.dict(os.environ, JANGADA_AGY_CONTA_MONTADA="conta1"), self.assertRaisesRegex(ValueError, "sem links"):
             modulo.montar_login(origem, destino)
         token.unlink()
         token.hardlink_to(alvo)
-        with self.assertRaisesRegex(ValueError, "sem links"):
+        with mock.patch.dict(os.environ, JANGADA_AGY_CONTA_MONTADA="conta1"), self.assertRaisesRegex(ValueError, "sem links"):
             modulo.montar_login(origem, destino)
 
     def test_contas_verificacao_nao_expoe_conta_escolhida(self):
@@ -358,6 +389,41 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
     def test_sem_catalogo_bwrap_igual_a_base_0f82006(self):
         esperado = (REPO / "testes/contratos/isolar-sem-contas-0f82006.txt").read_text()
         self.assertEqual(self.argumentos_sem_catalogo(), esperado)
+
+    def argumentos_privados_sem_catalogo(self, codigo_base=None):
+        import re
+        import types
+        executor = modulo
+        if codigo_base:
+            executor = types.ModuleType("base_implementacao")
+            exec(compile(codigo_base, "implementacao-base.py", "exec"), executor.__dict__)
+        (self.casa / ".gemini/antigravity-cli/antigravity-oauth-token").write_text("login principal sintético")
+        resultado = json.loads(self.executar().stdout)
+        execucao = Path(resultado["pasta"])
+        agentes = Path(self.env["JANGADA_ESTADO"]) / "agentes"
+        resolver = Path.resolve
+        def resolver_fixo(p, *args, **kwargs):
+            return p if str(p) == "/etc/resolv.conf" else resolver(p, *args, **kwargs)
+        argumentos = {}
+        with mock.patch.dict(os.environ, self.env, clear=True), mock.patch.object(Path, "home", return_value=self.casa), \
+                mock.patch.object(Path, "cwd", return_value=self.raiz), mock.patch.object(Path, "resolve", resolver_fixo):
+            argumentos["implementador"] = executor.montagem(str(execucao / "contrato.json"))
+            for papel in ("pesquisador", "leitor"):
+                entrada = ["--papel", papel, "--registro", str(agentes / ("comparacao-" + papel))]
+                entrada += ["--url", "https://ai.google.dev/docs"] if papel == "pesquisador" else ["--fonte", str(self.raiz / "fonte.txt")]
+                with mock.patch.object(executor.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as chamada, \
+                        self.assertRaises(SystemExit) as fim:
+                    executor.pesquisa([*entrada, "--", "agy", "-p", "Leia"])
+                self.assertEqual(fim.exception.code, 0)
+                argumentos[papel] = chamada.call_args.args[0]
+        for papel, comando in argumentos.items():
+            argumentos[papel] = [re.sub(re.escape(str(agentes)) + r"/apoio-runtime-[^/]+", "${RUNTIME}", a)
+                                .replace(str(execucao), "${EXECUCAO}").replace(str(self.tmp), "${TMP}") for a in comando]
+        return argumentos
+
+    def test_sem_catalogo_executores_privados_iguais_a_base_com_login_existente(self):
+        esperado = json.loads((REPO / "testes/contratos/privados-sem-contas-0f82006.json").read_text())
+        self.assertEqual(self.argumentos_privados_sem_catalogo(), esperado)
 
     def test_sem_catalogo_delegar_preserva_argumentos_isolamento(self):
         import shutil

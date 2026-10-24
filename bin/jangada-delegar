@@ -303,7 +303,7 @@ if [[ "$perfil_delegar" == nativo || "$destino" == nativo ]]; then
   recusar "delegação nativa não usa jangada-delegar; nesta sessão do agy, use invoke_subagent com o papel $papel" destino_proibido
 fi
 
-if [[ -n "$conta_opt" && "$destino" != agy ]]; then
+if [[ -n "$conta_opt" && "$destino" != agy && ( -z "$capacidade" || -n "${JANGADA_DELEGAR_ROTEAMENTO_ID:-}" ) ]]; then
   recusar "--conta exige destino agy" entrada_invalida
 fi
 
@@ -362,7 +362,7 @@ if [[ -n "$capacidade" ]]; then
       fi
       args=("$papel" "$pedido" --destino "$candidato" --capacidade "$capacidade" --json)
       [[ -z "$modelo_opt" ]] || args+=(--modelo "$modelo_opt")
-      [[ -z "$conta_opt" ]] || args+=(--conta "$conta_opt")
+      [[ -z "$conta_opt" || "$candidato" != agy ]] || args+=(--conta "$conta_opt")
       ((permitir_remoto)) && args+=(--permitir-remoto)
       ((permitir_codex)) && args+=(--permitir-codex)
       [[ -n "$arquivo" ]] && args+=(--arquivo "$arquivo")
@@ -950,6 +950,7 @@ ler_cota() {
 
 # Cada conta tem cache próprio; uma falha de leitura não recupera dado expirado.
 declare -A consultas_contas=() cotas_atuais=()
+contas_sem_confianca=""; alguma_conta_confiavel=0
 ativar_conta() {
   jangada_conta_agy "$1" || recusar "conta do agy inválida: $1" entrada_invalida
   conta_usada="$CONTA_AGY_NOME"
@@ -963,13 +964,17 @@ ativar_conta() {
   cota_atual="${cotas_atuais[$conta_usada]:-0}"
 }
 selecionar_conta() {
-  local n _p argon melhor="" saldo="" melhor_saldo="" elegivel=0
+  local n _p argon melhor="" saldo="" melhor_saldo=""
   while IFS=$'\t' read -r n _p argon; do
     [[ -z "$conta_opt" || "$n" == "$conta_opt" ]] || continue
     [[ -z "${JANGADA_AGY_CONTA_MONTADA:-}" || "$n" == "$JANGADA_AGY_CONTA_MONTADA" ]] || continue
     [[ "$1" != gemini-4-argon-* || "$argon" == true ]] || continue
-    elegivel=1
     ativar_conta "$n"
+    if ! jangada_agy_confia "$pasta"; then
+      [[ " $contas_sem_confianca " == *" $n "* ]] || contas_sem_confianca+="${contas_sem_confianca:+ }$n"
+      continue
+    fi
+    alguma_conta_confiavel=1
     ler_cota "$1"
     consultas_contas[$n]="$cota_consultada"; cotas_atuais[$n]="$cota_atual"
     saldo="$cota_lida"
@@ -980,7 +985,7 @@ selecionar_conta() {
       melhor="$n"; melhor_saldo="$saldo"
     fi
   done <<<"$contas_agy"
-  ((elegivel)) || return 1
+  [[ -n "$melhor" ]] || return 1
   ativar_conta "$melhor"
 }
 conferir_conta() {
@@ -1148,6 +1153,9 @@ for modelo in "${modelos_agy[@]}"; do
   break
 done
 if ((!atendido)); then
+  if ((contas_configuradas && !alguma_conta_confiavel)) && [[ -n "$contas_sem_confianca" ]]; then
+    recusar "nenhuma conta elegível confia em $pasta (contas: $contas_sem_confianca)" destino_proibido
+  fi
   modelo="${modelos_agy[0]}"; cota="$cota_primeira"
   recusar "${sem_cota:-nenhuma conta habilitada para a família do modelo}" "${sem_cota_codigo:-capacidade_incompativel}"
 fi

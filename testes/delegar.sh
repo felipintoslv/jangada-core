@@ -1119,6 +1119,14 @@ conferir "capacidade: seleciona local e valida referência" jqok -e \
   '.destino == "local" and .capacidade == "resumo_curto" and .verificacao == "referencias_validas"
     and .decisao == "ordem_configurada_por_capacidade" and .chamadas_executor == 1' "$tmp/saida"
 conferir "capacidade: mantém medidas por chamada local" jqok -e '.chamadas_local | length == 1' "$tmp/saida"
+OLLAMA_URL="http://127.0.0.1:$porta_ollama" delegar leitor "resuma" \
+  --capacidade leitura_documental --conta principal --permitir-remoto --json --arquivos "$tmp/projeto/doc1.txt"
+conferir "conta por capacidade: candidato local antes do agy pode concluir" jqok -e \
+  '.destino == "local" and .codigo_saida == 0 and .tentativas[0].destino == "local"' "$tmp/saida"
+DELEGAR=local OLLAMA_URL="http://127.0.0.1:$porta_ollama" delegar leitor "resuma" \
+  --capacidade leitura_documental --conta principal --permitir-remoto --json --arquivos "$tmp/projeto/doc1.txt"
+conferir "conta por capacidade: destino padrão local não rejeita a conta do candidato agy" jqok -e \
+  '.destino == "local" and .codigo_saida == 0' "$tmp/saida"
 RESPOSTA='Relatório em doc1.txt:1' delegar leitor "compare" --capacidade analise_documental \
   --permitir-remoto --json --arquivos "$tmp/projeto/doc1.txt"
 conferir "capacidade: agy normal" jqok -e '.destino == "agy" and .verificacao == "referencias_validas"' "$tmp/saida"
@@ -1126,7 +1134,7 @@ conferir "capacidade: agy recebe fonte explícita" grep -qx "$tmp/projeto/doc1.t
 
 rm -f "$cache_cota"
 COTA=0.1 OLLAMA_URL="http://127.0.0.1:$porta_ollama" delegar leitor "compare" \
-  --capacidade analise_documental --permitir-remoto --json --arquivos "$tmp/projeto/doc1.txt"
+  --capacidade analise_documental --conta principal --permitir-remoto --json --arquivos "$tmp/projeto/doc1.txt"
 conferir "capacidade: cota baixa troca agy por local" jqok -e \
   '.destino == "local" and (.tentativas | length) == 2
     and .tentativas[0].motivo_codigo == "cota_insuficiente"' "$tmp/saida"
