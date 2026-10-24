@@ -866,7 +866,8 @@ if [[ -n "$conta_opt" && -n "${JANGADA_AGY_CONTA_MONTADA:-}" && "$conta_opt" != 
   recusar "conta $conta_opt indisponível nesta sessão; conta montada: $JANGADA_AGY_CONTA_MONTADA" destino_proibido
 fi
 jangada_conta_agy "$conta_opt" || recusar "conta do agy inexistente ou inválida: $conta_opt" entrada_invalida
-conta_usada="$CONTA_AGY_NOME"
+# Com catálogo, a conta só entra no registro depois de escolhida e ativada.
+((contas_configuradas)) || conta_usada="$CONTA_AGY_NOME"
 if [[ -n "${JANGADA_AGY_SETTINGS:-}" ]]; then
   JANGADA_AGY_SETTINGS="$(realpath -- "$JANGADA_AGY_SETTINGS")" \
     || recusar "caminho da configuração do agy inválido" entrada_invalida
@@ -964,7 +965,7 @@ ativar_conta() {
   cota_atual="${cotas_atuais[$conta_usada]:-0}"
 }
 selecionar_conta() {
-  local n _p argon melhor="" saldo="" melhor_saldo=""
+  local n _p argon melhor="" saldo="" melhor_saldo="" anterior="$conta_usada"
   while IFS=$'\t' read -r n _p argon; do
     [[ -z "$conta_opt" || "$n" == "$conta_opt" ]] || continue
     [[ -z "${JANGADA_AGY_CONTA_MONTADA:-}" || "$n" == "$JANGADA_AGY_CONTA_MONTADA" ]] || continue
@@ -985,7 +986,8 @@ selecionar_conta() {
       melhor="$n"; melhor_saldo="$saldo"
     fi
   done <<<"$contas_agy"
-  [[ -n "$melhor" ]] || return 1
+  # Candidata examinada não é conta usada: devolve o que valia antes.
+  [[ -n "$melhor" ]] || { conta_usada="$anterior"; return 1; }
   ativar_conta "$melhor"
 }
 conferir_conta() {

@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import signal
 import tempfile
@@ -87,15 +88,23 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
         p.chmod(0o755)
 
 
-    def contas(self, saldos=(0.4, 0.8)):
+    def contas(self, saldos=(0.4, 0.8), fora_da_casa=False):
         capacidade = subprocess.run(["/usr/bin/bwrap", "--ro-bind", "/", "/", "--unshare-pid", "true"],
                                     capture_output=True)
         if capacidade.returncode:
             self.skipTest("Bubblewrap indisponível")
         (self.bin / "bwrap").unlink(missing_ok=True)
         contas = []
+        base = self.casa / "contas"
+        if fora_da_casa:
+            # /var/tmp não é coberto pelos tmpfs de /tmp, da casa nem da pasta do projeto.
+            try:
+                base = Path(tempfile.mkdtemp(dir="/var/tmp", prefix="jangada-contas-"))
+            except OSError:
+                self.skipTest("/var/tmp sem escrita")
+            self.addCleanup(shutil.rmtree, base, ignore_errors=True)
         for i, saldo in enumerate(saldos, 1):
-            pasta = self.casa / f"contas/conta{i}"
+            pasta = base / f"conta{i}"
             pasta.mkdir(parents=True)
             (pasta / "segredo").write_text(f"conta{i}")
             (pasta / "antigravity-oauth-token").write_text(f"conta{i}")
@@ -112,8 +121,11 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
         self.script("agy", r'''import json,os,sys
 from pathlib import Path
 cli=Path.home()/".gemini/antigravity-cli"
+token=cli/"antigravity-oauth-token"
+atual=token.read_text() if token.exists() else None
 for origem in filter(None, os.environ.get("CONTAS_ORIGENS", "").split(":")):
- assert not (Path(origem)/"segredo").exists(), "outra conta visível: "+origem
+ segredo=Path(origem)/"segredo"
+ assert not segredo.exists() or segredo.read_text()==atual, "outra conta visível: "+origem
 if sys.argv[1:]==["agents"]:
  print("explorador\nimplementador\nleitor\npesquisador"); sys.exit()
 if "/usage" in sys.argv:
@@ -318,6 +330,71 @@ assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
         self.assertEqual(len(settings), 1)
         self.assertEqual(json.loads(settings[0].read_text())["permissions"]["deny"], ["read_url(conta2.example)"])
         self.assertIn("identidade=conta2", (Path(resultado["pasta"]) / "relatorio.md").read_text())
+
+    def test_executores_privados_ocultam_conta_fora_da_casa(self):
+        contas, _ = self.contas(fora_da_casa=True)
+        # O agy falso falha se a pasta da outra conta continuar visível.
+        resultado = json.loads(self.executar("--conta", "conta2").stdout)
+        self.assertIn("identidade=conta2", (Path(resultado["pasta"]) / "relatorio.md").read_text())
+        p = self.chamar("leitor", "Leia", "--destino", "agy", "--permitir-remoto", "--conta", "conta1",
+                        "--modelo", "gemini-3.8-flash-high", "--arquivos", "fonte.txt", "--json")
+        self.assertEqual(json.loads(p.stdout)["conta"], "conta1")
+
+    def test_ocultar_outras_contas_so_as_de_fora_da_casa(self):
+        fora = [self.tmp / "fora" / f"conta{i}" for i in (1, 2, 3)]
+        dentro = self.casa / "contas/conta4"
+        for pasta in (*fora, dentro):
+            pasta.mkdir(parents=True)
+        catalogo = Path(self.env["JANGADA_ESTADO"]) / "contas/agy.json"
+        catalogo.parent.mkdir(parents=True)
+        catalogo.write_text(json.dumps([{"nome": f"conta{i}", "pasta": str(p), "argon": False}
+                                        for i, p in enumerate((*fora, dentro), 1)]))
+        escolhida = {"JANGADA_AGY_PASTA": str(fora[1]), "JANGADA_AGY_CONTA_MONTADA": "conta2"}
+        with mock.patch.dict(os.environ, self.env, clear=True), mock.patch.dict(os.environ, escolhida):
+            self.assertEqual(modulo.ocultar_outras_contas(self.casa),
+                             ["--tmpfs", str(fora[0]), "--tmpfs", str(fora[2])])
+            catalogo.write_text(json.dumps([{"nome": "x", "pasta": "relativa", "argon": False}]))
+            with self.assertRaises(ValueError):
+                modulo.ocultar_outras_contas(self.casa)
+        catalogo.unlink()
+        with mock.patch.dict(os.environ, self.env, clear=True):
+            self.assertEqual(modulo.ocultar_outras_contas(self.casa), [])
+
+    def test_recusa_anterior_a_selecao_nao_registra_conta(self):
+        self.contas()
+        estado = Path(self.env["JANGADA_ESTADO"]) / "agentes"
+        estado.mkdir(parents=True)
+        with (estado / ".agy-execucao.lock").open("w") as arq:
+            fcntl.flock(arq, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            resultado = json.loads(self.delegar_conta(sucesso=False).stdout)
+        self.assertEqual(resultado["motivo_codigo"], "execucao_ocupada")
+        self.assertIsNone(resultado["conta"])
+        self.assertIsNone(json.loads((Path(self.env["JANGADA_ESTADO"]) / "delegacoes.jsonl").read_text().splitlines()[-1])["conta"])
+
+    def test_recusa_depois_de_candidatas_sem_confianca_nao_registra_conta(self):
+        contas, _ = self.contas()
+        for c in contas:
+            (Path(c["pasta"]) / "settings.json").write_text('{"trustedWorkspaces": []}')
+        resultado = json.loads(self.delegar_conta(sucesso=False).stdout)
+        self.assertIn("nenhuma conta elegível confia", resultado["motivo"])
+        self.assertIsNone(resultado["conta"])
+
+    def test_confianca_pendente_nomeia_so_a_conta_sem_confianca(self):
+        contas, _ = self.contas()
+        (Path(contas[1]["pasta"]) / "settings.json").write_text('{"trustedWorkspaces": []}')
+        comando = ["bash", "-c", 'source "$JANGADA_CORE_PATH/bin/jangada-config"; jangada_agy_conferir_tarefa "$1" "" 0 teste',
+                   "teste", str(self.raiz)]
+        p = subprocess.run(comando, env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("pendente na conta conta2", p.stderr)
+        self.assertNotIn("conta1.", p.stderr)
+        self.assertNotIn("indisponíveis", p.stderr)
+        (Path(contas[0]["pasta"]) / "settings.json").write_text('{"trustedWorkspaces": []}')
+        p = subprocess.run(comando, env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("pendente na conta conta1", p.stderr)
+        self.assertIn("pendente na conta conta2", p.stderr)
+        self.assertEqual(p.stderr.count("indisponíveis nesta tarefa"), 1)
 
     def test_confianca_da_tarefa_confere_todas_as_contas(self):
         contas, _ = self.contas()

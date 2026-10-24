@@ -391,10 +391,13 @@ Dentro de uma sessão isolada, somente a conta montada participa da seleção;
 pedir outra conta com `--conta` recusa antes de ler seu cache ou chamar o agy.
 A seleção também chega à leitura e à implementação privadas da MOD-03:
 com catálogo, o arquivo `antigravity-oauth-token` da conta é montado somente para leitura.
+Esses executores escondem a casa; a pasta de outra conta que fica fora dela recebe um `tmpfs`.
 Sem catálogo, os argumentos e a autenticação desses executores ficam iguais aos da base.
 Renovar o login exige agir fora desses executores.
 A confiança é conferida por conta; o delegador não cria autorização.
-Na abertura ou retomada, todas as contas são conferidas. Quando o dono aceita
+Na abertura ou retomada, todas as contas são conferidas; o aviso de confiança
+pendente nomeia a conta, e a frase de que delegação e revisão pelo agy ficam
+indisponíveis só sai quando nenhuma conta confia. Quando o dono aceita
 abrir o agy para responder à pergunta de confiança, ele abre pela conta
 correspondente, com `jangada-isolar --conta NOME -- agy`.
 Ao preparar ou encerrar um worktree sem conta explícita, os ajustes de

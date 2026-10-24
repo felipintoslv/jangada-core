@@ -400,6 +400,25 @@ def pasta_agy():
     return Path(os.environ.get("JANGADA_AGY_PASTA") or padrao) if conta_de_catalogo() else padrao
 
 
+def ocultar_outras_contas(casa):
+    # Pasta de conta fora da casa seguiria visível pelo --ro-bind /; as de dentro somem com a casa.
+    if not conta_de_catalogo():
+        return []
+    try:
+        contas = json.loads((Path(os.environ["JANGADA_ESTADO"]) / "contas/agy.json").read_text())
+    except FileNotFoundError:
+        return []
+    escolhida = str(pasta_agy())
+    args = []
+    for conta in contas:
+        pasta = Path(conta["pasta"])
+        if not pasta.is_absolute():
+            raise ValueError("catálogo de contas do agy inválido")
+        if str(pasta) != escolhida and not pasta.is_relative_to(casa) and pasta.is_dir():
+            args += ["--tmpfs", str(pasta)]
+    return args
+
+
 def montar_login(origem, destino):
     # Sem catálogo, os argumentos e a autenticação da MOD-03 permanecem os da base.
     if not conta_de_catalogo():
@@ -447,7 +466,7 @@ def montagem(manifesto):
     # A casa vazia oculta credenciais, outras tarefas, configurações e estado.
     args = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
             "--tmpfs", "/run", "--tmpfs", str(casa), "--tmpfs", str(raiz.parent),
-            "--unshare-pid", "--die-with-parent",
+            *ocultar_outras_contas(casa), "--unshare-pid", "--die-with-parent",
             "--new-session", "--cap-drop", "ALL"]
     dns = Path("/etc/resolv.conf").resolve(strict=True)
     if dns.is_relative_to("/run"):
@@ -616,7 +635,7 @@ def pesquisa(argumentos):
         # A autorização dura só esta chamada. A configuração pessoal e as fontes
         # locais ficam ocultas; o pesquisador tem apenas ferramentas de internet.
         montagem_args = ["bwrap", "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", str(casa),
-                         "--tmpfs", str(raiz), "--bind", str(registro), str(cli),
+                         "--tmpfs", str(raiz), *ocultar_outras_contas(casa), "--bind", str(registro), str(cli),
                          "--ro-bind", str(runtime / "settings.json"), str(cli / "settings.json"),
                          "--tmpfs", str(cfg), "--tmpfs", str(cfg / "projects")]
         montagem_args += montar_login(origem_cli, cli)
