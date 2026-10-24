@@ -785,8 +785,9 @@ if ((conta_configurada)); then
       # Conta principal: o mkdir da base, exceção já vigente da regra 1.
       mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true
       temporario "$CONTA_AGY_PASTA/bin" ro "$cli_agy/bin"
-    else
-      # Nas demais, nada é criado na pasta da conta: o bin vive em memória.
+    elif [[ -d "$CONTA_AGY_PASTA/bin" ]]; then
+      # Nas demais, o bin vive em memória. Sem a pasta na conta, não há ponto de
+      # montagem: o bwrap o criaria dentro da origem gravável, então nada se monta.
       args+=(--tmpfs "$cli_agy/bin")
     fi
   fi

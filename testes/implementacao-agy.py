@@ -232,6 +232,25 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual((Path(contas[1]["pasta"]) / "gravado").read_text(), "ok")
         self.assertFalse((Path(contas[0]["pasta"]) / "gravado").exists())
+        # Nem o isolamento nem o bwrap criam o bin dentro da origem da conta.
+        self.assertFalse((Path(contas[1]["pasta"]) / "bin").exists())
+
+    def test_isolar_real_conta_secundaria_nao_grava_bin_na_origem(self):
+        contas, _ = self.contas()
+        origem = Path(contas[1]["pasta"])
+        codigo = ("from pathlib import Path; cli=Path.home()/'.gemini/antigravity-cli'; "
+                  "(cli/'bin').mkdir(exist_ok=True); (cli/'bin'/'agentapi').write_text('x')")
+        comando = [str(REPO / "bin/jangada-isolar"), "--conta", "conta2", "--", "python3", "-c", codigo]
+        # Sem bin na conta, nada é montado e nada surge na origem.
+        p = subprocess.run(comando, cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertTrue((origem / "bin/agentapi").exists())  # gravação do próprio agy na pasta da conta
+        shutil.rmtree(origem / "bin")
+        # Com bin na conta, o bin da caixa é em memória e a origem fica intacta.
+        (origem / "bin").mkdir()
+        p = subprocess.run(comando, cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(list((origem / "bin").iterdir()), [])
 
     def test_delegar_dentro_da_caixa_ignora_cache_de_outra_conta(self):
         contas, _ = self.contas((0.4, 0.95))
@@ -357,16 +376,18 @@ assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
         with mock.patch.dict(os.environ, self.env, clear=True):
             self.assertEqual(modulo.ocultar_contas(self.casa), [])
 
-    def test_isolar_conta_secundaria_nao_cria_bin_na_pasta_da_conta(self):
+    def test_isolar_conta_secundaria_so_monta_bin_que_ja_existe(self):
         contas, _ = self.contas()
         ambiente = dict(self.env, JANGADA_ISOLAR_PERFIL="agente")
-        comando = [str(REPO / "bin/jangada-isolar"), "--mostrar"]
-        for conta, pasta in (("conta2", contas[1]["pasta"]), ("conta1", contas[0]["pasta"])):
-            p = subprocess.run([*comando, "--conta", conta, "--", "agy"], cwd=self.raiz, env=ambiente,
-                               capture_output=True, text=True)
-            self.assertEqual(p.returncode, 0, p.stderr)
-            self.assertIn("--tmpfs\n" + str(self.casa / ".gemini/antigravity-cli/bin"), p.stdout)
-            self.assertFalse((Path(pasta) / "bin").exists())
+        comando = [str(REPO / "bin/jangada-isolar"), "--mostrar", "--conta", "conta2", "--", "agy"]
+        alvo = "--tmpfs\n" + str(self.casa / ".gemini/antigravity-cli/bin")
+        p = subprocess.run(comando, cwd=self.raiz, env=ambiente, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn(alvo, p.stdout)
+        self.assertFalse((Path(contas[1]["pasta"]) / "bin").exists())
+        (Path(contas[1]["pasta"]) / "bin").mkdir()
+        p = subprocess.run(comando, cwd=self.raiz, env=ambiente, capture_output=True, text=True)
+        self.assertIn(alvo, p.stdout)
 
     def test_recusa_anterior_a_selecao_nao_registra_conta(self):
         self.contas()
