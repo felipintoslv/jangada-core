@@ -1,4 +1,4 @@
-8. Delegação no Codex (leitor e redator no Ollama, demais papéis no agy):
+8. Delegação no Codex (destino explícito por tarefa):
    - Rode `jangada-delegar` pedindo execução fora da proteção do Codex
      (`sandbox_permissions: "require_escalated"`, com justificativa curta); dentro
      dela ele não grava o que precisa e o dono aprova na janela.
@@ -9,6 +9,10 @@
      Para trecho de arquivo grande, use a faixa `ARQUIVO:INI-FIM`. O modelo
      local roda no Ollama, sem terminal, Git nem escrita, e não envia dados
      para fora.
+   - Com escolha remota explícita e fontes autorizadas nesta tarefa, leitor
+     e redator podem usar `--destino agy --permitir-remoto --modelo
+     gemini-3.8-flash-high --arquivos FONTES`. Recebem somente o texto extraído,
+     sem ferramentas ou MCP. Falha local nunca autoriza essa escolha.
    - Os demais papéis (explorador, pesquisador, verificador, auditor,
      arquiteto, designer, otimizador, supervisor):
      `jangada-delegar PAPEL "pedido" --destino agy --permitir-remoto`, com

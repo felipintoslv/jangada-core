@@ -35,8 +35,9 @@ O mapa das pastas está na seção Estrutura do [README](../README.md).
 | redator | clareza e regras de texto do `AGENTS.md` | haiku |
 | supervisor | fidelidade de relatório intermediário às fontes | haiku |
 
-No agy, o `jangada-delegar` roda todo papel no primeiro modelo de
-`JANGADA_DELEGAR_MODELOS` com cota (padrão `gemini-3.8-flash-high`).
+No agy, `--modelo gemini-3.8-flash-high` fixa o executor econômico por tarefa,
+sem alternativa automática. Sem essa opção, permanece a lista de compatibilidade
+`JANGADA_DELEGAR_MODELOS`. Catálogo e cota não comprovam execução.
 
 O agy tem mais um agente, fora da delegação: o `revisor`, usado só pelo
 `jangada-validar`, com ferramentas de leitura.
@@ -56,8 +57,9 @@ papel, ou, quando o leitor é subagente de uma sessão, pelo
 `leitor`. Para o leitor, o comando fora da lista recebe `deny`; o resto
 recebe `ask`, que segue as permissões do agy. Sem terminal, o agy só roda o
 que está em `permissions.allow`, e essa lista vale para todos os agentes
-(pode ter `cp` ou `curl`); por isso o `jangada-delegar` recusa o leitor
-quando o hook não está instalado. O verificador roda os testes do projeto e fica com o terminal livre.
+(pode ter `cp` ou `curl`). O hook continua obrigatório no uso nativo desse papel.
+Na leitura remota pelo delegador, o papel privado recebe texto extraído sem
+ferramentas ou MCP. O verificador roda os testes do projeto com terminal.
 
 ## Instalação
 
@@ -89,7 +91,10 @@ flowchart TD
 
 `JANGADA_DELEGAR=agy` é o padrão dos dois perfis. O protocolo, na abertura e
 na retomada, manda `--destino` explícito: leitor e redator vão ao Ollama; os
-demais papéis vão ao agy com fontes autorizadas. O comando não escolhe o
+demais papéis vão ao agy com fontes autorizadas. Por escolha explícita da tarefa,
+leitor e redator também podem ir ao agy, com `--permitir-remoto`, modelo fixo
+e `--arquivos`. Isso preserva a opção local e não autoriza envio após falha.
+O comando não escolhe o
 destino por papel: `jangada_delegacao` em `bin/jangada-config` e o padrão do
 comando continuam agy. O perfil prevalece sobre a configuração global. Falha
 local nunca vira envio remoto, e recusa do agy nunca vira chamada local ou ao
@@ -242,11 +247,45 @@ flowchart LR
     D -- não --> R[Recusa, código 4]
     D -- local --> L[Leitor ou redator<br>--arquivos obrigatório]
     L --> O[Ollama, sem ferramentas]
-    D -- agy --> G[Papéis instalados no agy<br>confiança, hook do leitor e cota]
+    D -- agy --> G[Papéis instalados no agy<br>confiança, fontes e cota]
     G --> F[agy, com ferramentas do papel]
     O --> J[Relatório e delegacoes.jsonl]
     F --> J
 ```
+
+### Fontes e pesquisa delimitadas
+
+```sh
+jangada-delegar leitor "Extraia o prazo" --destino agy --permitir-remoto \
+  --modelo gemini-3.8-flash-high --arquivos contrato.txt:10-25
+jangada-delegar pesquisador "Busque e abra a documentação oficial" \
+  --destino agy --permitir-remoto --modelo gemini-3.8-flash-high \
+  --url https://ai.google.dev/gemini-api/docs/google-search
+```
+
+Leitor e redator remotos exigem fontes explícitas. O controlador extrai somente
+o texto autorizado, numerado por linha ou página, e entrega ao papel privado
+sem ferramentas ou MCP. O arquiteto com fontes explícitas usa a mesma cópia de
+texto, evitando buscas fora dos arquivos autorizados. A faixa de linhas vale para texto; PDF exige o arquivo
+inteiro e `pdftotext`. Fontes com links, conteúdo inválido ou acima de 2 MiB são
+recusadas. Pedido e texto extraído juntos têm limite de 96 KiB; delimite uma
+faixa menor quando necessário. A pasta do projeto e a configuração pessoal ficam ocultas no executor.
+Isso não altera os subagentes nativos nem a opção local.
+
+A pesquisa com `--url` aceita somente domínios HTTPS autorizados por tarefa,
+sem fontes locais. Cria configuração privada por chamada, preserva as recusas
+pessoais e permite abertura apenas dos domínios indicados. Não acrescenta regras
+à configuração pessoal. O pesquisador busca, abre e lê o corpo baixado. Um hook privado recusa
+`view_file` fora de `brain/CONVERSA/.system_generated/steps/N/content.md`
+da própria conversa. Esse artefato vem da página pública autorizada.
+Sem login, confiança, cota ou abertura, registre o bloqueio; não troque modelo.
+
+`fontes_autorizadas`, `urls_autorizadas` e `cotas_modelos` registram escopo,
+modelo, grupo e percentual consultado. `registro_ferramentas` aponta o estado
+privado do cliente, incluindo conversas e registros para conferir ferramentas.
+Nenhum texto do modelo comprova busca ou abertura: confira esses registros,
+a URL, a data e o trecho lido. Ação negada sempre resulta em recusa.
+Resultado do Flash e aceite por hash não significam testes ou revisão aprovados.
 
 ### Destino agy
 
@@ -291,9 +330,10 @@ flowchart TD
   rode o mesmo comando. O `jangada-delegar` só diagnostica; ele não grava a
   confiança.
 - A cota vem de `agy -p "/usage"`, guardada por `JANGADA_DELEGAR_CACHE`
-  minutos (5), com no máximo uma consulta por execução. O agy separa dois
-  grupos: `gemini-*` (Flash e Pro dividem a mesma cota) e `3p-*` (Claude e
-  GPT). Cada grupo tem um limite semanal e um de 5 horas, e vale a menor
+  minutos (5), com no máximo uma consulta por execução. O agy separa os
+  grupos Flash/Pro (`gemini-weekly` e `gemini-5h`), Argon
+  (`gemini-argon-wtu-weekly`) e Claude/GPT (`3p-weekly` e `3p-5h`).
+  A seleção usa o grupo real do modelo e vale a menor
   fração entre os que não vêm com `disabled`. Se a atualização falhar, não
   usa o valor expirado.
   Uma resposta atual com cota válida de algum grupo configurado pode ser usada.
@@ -311,8 +351,8 @@ flowchart TD
   (20%) é pulado. Se o agy responder que a cota acabou, o comando tenta o
   seguinte. Sem nenhum modelo atendido, recusa com o motivo do primeiro.
 - O tempo limite é `JANGADA_DELEGAR_TEMPO` segundos (300).
-- Comando de terminal que o agy nega aparece listado; libera-se em
-  `permissions.allow` do `settings.json` do agy.
+- Ação negada recusa o resultado, inclusive quando há resposta textual.
+  Não se altera configuração pessoal para contornar o bloqueio.
 - O relatório conta as frases sem fonte (`caminho:linha`, URL, página ou
   célula), que entram no registro.
 - Na recusa, o comando pede registro e aviso do bloqueio. No Codex, a

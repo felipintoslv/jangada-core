@@ -158,3 +158,56 @@ da tarefa pelo fluxo normal. Prepare um projeto com somente `dados.txt`
 inspecione a cópia, aceite pelo hash e teste `valor=2` antes da revisão.
 Se faltar papel, confiança, cota, acesso ao item de login ou escrita em arquivo
 montado, registre o bloqueio e pare, sem configurar permissões pessoais.
+
+## Verificação da MOD-03
+
+A opção `--modelo gemini-3.8-flash-high` fixa o executor sem alternativa.
+Flash/Pro usam seu próprio grupo de cota; Argon esgotado ou ausente não bloqueia
+Flash. Grupo desconhecido não recebe cota emprestada. A implementação delimitada
+continua exigindo base exata, inspeção e aceite pelo hash, antes dos testes e da
+revisão Claude Opus ou Codex Sol de outro provedor. Argon no agy não revisa Flash
+com independência de provedor.
+
+`testes/implementacao-agy.py` entrega uma mudança sintética, inspeciona a cópia,
+aceita pelo hash e testa o valor aplicado. Recusa escrita fora do contrato,
+links, base divergente e entrega alterada. Usa clientes falsos e inclui a
+fronteira do Bubblewrap real; isso não comprova implementação pelo Flash real.
+Leitor/redator remotos recebem somente fontes ou faixas autorizadas, sem
+ferramentas ou MCP. A opção local continua disponível; falha local não autoriza
+nuvem. Arquiteto com fontes explícitas recebe a mesma cópia de texto.
+
+Em 23/10/2026, a pesquisa pública com Flash High executou `search_web`,
+`read_url_content` e `view_file`, sem ações negadas, na conversa
+`74428526-08b4-49b9-b05d-1c1b3306f41b`. A consulta de cota foi renovada antes
+da prova. A fonte foi [a documentação oficial de grounding](https://ai.google.dev/gemini-api/docs/google-search).
+Trecho conferido no corpo baixado: “Grounding with Google Search connects the
+Gemini model to real-time web content”. Data da consulta: 23/10/2026;
+a resposta não identificou data de publicação. O código, a URL, as ferramentas
+e o trecho foram conferidos separadamente da resposta do modelo.
+
+Os registros reproduzíveis ficam na tarefa em `.jangada/mod-03/evidencias/`:
+`usage-pesquisa-4.json`, `pesquisa-final.json`, `ferramentas-pesquisa-final.json`,
+`versao-prova.json` e `conferir-ferramentas.py`. O corpo baixado e o SQLite
+permanecem na pasta indicada por `registro_ferramentas`. O script de conferência
+lê uma cópia do banco e identifica ferramentas, argumentos, estado e hash do corpo.
+
+As tentativas anteriores foram preservadas: montagem sem `/tmp` privado falhou
+antes do modelo; outra chamada abriu a página, mas não leu o corpo; uma terceira
+teve retorno invalidado por edição do Bash durante a execução. Nenhuma conta
+como sucesso do comando. A prova final usou código fixo, sem ampliar configurações
+pessoais, trocar modelo ou instalar componentes.
+
+O apoio arquiteto pediu casos que distinguissem cotas por grupo, usando somente
+`bin/jangada-delegar` e `delegacao/modelos.py`. A primeira chamada buscou também
+na raiz, ultrapassando o escopo, e não comprova apoio delimitado. A retomada
+usou texto isolado das duas fontes, sem ferramentas executadas, na conversa
+`9f04e361-4bd4-47dd-afc9-9551e8150da8`. Foram aproveitados os casos de grupo
+ausente, cota própria inválida e isolamento entre grupos, conferidos no código.
+`arquiteto-final.json` e `ferramentas-arquiteto-final.json` preservam resultado
+e conferência. O arquiteto não revisou nem aprovou a entrega.
+
+A versão das provas foi preservada em `fontes-da-prova/`, com os hashes de
+`versao-prova.json`. Depois delas, o nome do registro privado ganhou o número
+da tentativa, para não colidir na lista legada de modelos. Essa correção foi
+conferida por regressão sintética; com `--modelo` continua havendo um único
+candidato. Ela não altera ferramentas ou domínios autorizados.

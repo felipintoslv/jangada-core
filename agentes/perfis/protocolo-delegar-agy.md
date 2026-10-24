@@ -1,4 +1,4 @@
-8. Subagentes (leitor e redator no Ollama, demais papéis no agy):
+8. Subagentes (destino explícito por tarefa):
    - Todos os papéis de apoio, inclusive leitor e redator, têm destino
      explícito. Passe sempre `--destino`; o padrão do comando não decide.
    - `leitor` e `redator`, sobre texto ou PDF que caiba nas fatias:
@@ -6,6 +6,10 @@
      Para trecho de arquivo grande, use a faixa `ARQUIVO:INI-FIM`. O modelo
      local roda no Ollama, sem terminal, Git nem escrita, e não envia dados
      para fora.
+   - Com escolha remota explícita e fontes autorizadas nesta tarefa, leitor
+     e redator podem usar `--destino agy --permitir-remoto --modelo
+     gemini-3.8-flash-high --arquivos FONTES`. Recebem somente o texto extraído,
+     sem ferramentas ou MCP. Falha local nunca autoriza essa escolha.
    - Os demais papéis (explorador, pesquisador, verificador, auditor,
      arquiteto, designer, otimizador, supervisor):
      `jangada-delegar PAPEL "pedido" --destino agy --permitir-remoto`, com
