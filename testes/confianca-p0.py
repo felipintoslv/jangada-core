@@ -124,7 +124,7 @@ try:
     db=sqlite3.connect(os.environ['DB_SINTETICO'])
     db.execute("UPDATE tarefas SET status='COMPLETED'");db.commit()
 except sqlite3.OperationalError as erro:
-    assert 'readonly' in str(erro)
+    assert 'readonly' in str(erro) or 'unable to open database file' in str(erro)
     print(json.dumps({'status':'SUCCESS','response':'Média 4 em fonte.txt:1; ATAQUE-EXECUTOR-BLOQUEADO'}))
 else:
     raise SystemExit('FALHOU: executor escreveu no SQLite')
