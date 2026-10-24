@@ -214,12 +214,12 @@ class Cotas(unittest.TestCase):
     def test_validador_recusa_numero_sem_origem_ou_data_e_validade_vencida(self):
         agora = time.time()
         bom = {'grupo': 'gemini', 'percentual': 50.0, 'janelas': [], 'origem': 'agy -p /usage',
-               'medido_em': cotas.agora_iso(agora - 60), 'valido_ate': cotas.agora_iso(agora + 60), 'motivo': None}
-        documento = lambda grupo: {'versao': 1, 'gerado': cotas.agora_iso(agora),
+               'medido_em': cotas.iso(agora - 60), 'valido_ate': cotas.iso(agora + 60), 'motivo': None}
+        documento = lambda grupo: {'versao': 1, 'gerado': cotas.iso(agora),
                                    'provedores': [{'provedor': 'agy', 'conta': 'principal', 'grupos': [grupo], 'motivo': None}]}
         cotas.validar(documento(bom), agora)
         for campo, valor in (('origem', None), ('origem', ''), ('medido_em', None), ('valido_ate', None),
-                             ('valido_ate', cotas.agora_iso(agora - 1)), ('percentual', 101),
+                             ('valido_ate', cotas.iso(agora - 1)), ('percentual', 101),
                              ('percentual', float('nan')), ('percentual', True), ('grupo', 'Gemini 1')):
             with self.subTest(campo=campo, valor=valor), self.assertRaises(ValueError):
                 cotas.validar(documento(dict(bom, **{campo: valor})), agora)
@@ -296,21 +296,8 @@ class Cotas(unittest.TestCase):
         self.assertEqual(codex['origem'], cotas.ORIGEM_CODEX)
         cotas.validar(lido(casa), time.time())
 
-    def test_codex_com_data_de_renovacao_fora_do_intervalo_vira_nulo(self):
-        casa = self.casa()
-        autenticacao_falsa(casa)
-        resposta = {'id': 2, 'result': {'rateLimits': {'limitId': 'codex',
-                                                       'primary': {'usedPercent': 20, 'resetsAt': 10 ** 20}}}}
-        executavel(casa.bin, 'codex', "read l; echo '{\"id\":1,\"result\":{}}'; read l; read l\n"
-                   "echo '%s'; sleep 1" % json.dumps(resposta))
-        saida = casa.router('cotas', '--atualizar', '--permitir-remoto')
-        self.assertEqual(saida.returncode, 0, saida.stderr)
-        codex = grupos(lido(casa), 'codex', None)['codex']
-        self.assertEqual((codex['percentual'], codex['motivo']), (None, 'consulta_falhou'))
-        self.assertEqual(lido(casa)['provedores'][-1]['provedor'], 'claude')
-
     def test_numero_que_venceu_durante_as_consultas_vira_nulo(self):
-        medido = cotas.grupo_medido('gemini', 50.0, [], cotas.ORIGEM_AGY, cotas.agora_iso(1000), cotas.agora_iso(1060))
+        medido = cotas.grupo_medido('gemini', 50.0, [], cotas.ORIGEM_AGY, cotas.iso(1000), cotas.iso(1060))
         entrada = {'provedor': 'agy', 'conta': 'principal', 'grupos': [medido], 'motivo': None}
         with tempfile.TemporaryDirectory() as pasta, \
                 patch.object(cotas, 'entradas_agy', return_value=[entrada]), \
@@ -318,11 +305,11 @@ class Cotas(unittest.TestCase):
             documento = cotas.montar(pathlib.Path(pasta), RAIZ)
         grupo = documento['provedores'][0]['grupos'][0]
         self.assertEqual((grupo['percentual'], grupo['motivo']), (None, 'cache_vencido'))
-        self.assertEqual(grupo['valido_ate'], cotas.agora_iso(1060))
+        self.assertEqual(grupo['valido_ate'], cotas.iso(1060))
 
     def test_validade_no_ultimo_segundo_nao_derruba_o_comando(self):
-        medido = cotas.grupo_medido('gemini', 50.0, [], cotas.ORIGEM_AGY, cotas.agora_iso(940), cotas.agora_iso(1000.9))
-        documento = {'versao': 1, 'gerado': cotas.agora_iso(1000.5),
+        medido = cotas.grupo_medido('gemini', 50.0, [], cotas.ORIGEM_AGY, cotas.iso(940), cotas.iso(1000.9))
+        documento = {'versao': 1, 'gerado': cotas.iso(1000.5),
                      'provedores': [{'provedor': 'agy', 'conta': None, 'grupos': [medido], 'motivo': None}]}
         cotas.vencer(documento, 1000.5)
         cotas.validar(documento, 1000.5)
@@ -354,32 +341,66 @@ class Cotas(unittest.TestCase):
         self.assertEqual((codex['percentual'], codex['motivo']), (None, 'cache_vencido'))
         db.close()
 
-    def test_codex_do_estado_com_data_fora_do_intervalo_vira_nulo(self):
-        casa = self.casa()
-        banco = casa.estado / 'agentes/runtime/tarefas.sqlite'
-        banco.parent.mkdir(parents=True)
-        db = sqlite3.connect(banco)
-        db.execute('CREATE TABLE provedores(id TEXT PRIMARY KEY, status TEXT, motivo TEXT, atualizado REAL, '
-                   'valido_ate REAL, cota REAL, modelo TEXT, falhas INTEGER, pausado INTEGER)')
-        db.execute("INSERT INTO provedores VALUES('codex','AVAILABLE','x',1e20,1e21,41.5,NULL,0,0)")
-        db.commit()
-        db.close()
-        saida = casa.router('cotas')
-        self.assertEqual(saida.returncode, 0, saida.stderr)
-        codex = grupos(lido(casa), 'codex', None)['codex']
-        self.assertEqual((codex['percentual'], codex['motivo']), (None, 'consulta_falhou'))
+    def test_instantes_extremos_nao_derrubam_o_comando(self):
+        ruins = ['0001-01-01T00:00:00+01:00', '9999-12-31T23:59:59-12:00', '2026-10-25T00:51:24', '1e20', '']
+        gigantes = [10 ** 20, -10 ** 20, 10 ** 400, 253402300800, float('inf'), float('nan')]
+        for valor in gigantes + [1e20, -1e20, 1e308]:
+            self.assertIsNone(cotas.iso(valor), valor)
+            self.assertIsNone(cotas.iso(valor, utc=True), valor)
+        for texto in ruins + gigantes:
+            self.assertIsNone(cotas.renovacao(texto), texto)
+        self.assertEqual(cotas.renovacao('9999-12-31T23:59:59+00:00'), '9999-12-31T23:59:59+00:00')
+        for valor in ruins[:4] + [1e20, -1e20, 10 ** 20, 10 ** 400]:
+            with self.subTest(entrada='reset_time', valor=valor):
+                uso = json.loads(json.dumps(AGY_USO))
+                uso['command']['data']['groups'][0]['buckets'][0]['reset_time'] = valor
+                casa = self.casa()
+                casa.cache_agy(uso)
+                self.assertNulo(casa, 'gemini', 'consulta_falhou', 'cotas')
+        for valor in [10 ** 20, -10 ** 20, 10 ** 400, 253402300800, 1e20, -1e20]:
+            with self.subTest(entrada='resetsAt', valor=valor):
+                casa = self.casa()
+                autenticacao_falsa(casa)
+                resposta = {'id': 2, 'result': {'rateLimits': {'limitId': 'codex',
+                                                               'primary': {'usedPercent': 20, 'resetsAt': valor}}}}
+                executavel(casa.bin, 'codex', "read l; echo '{\"id\":1,\"result\":{}}'; read l; read l\n"
+                           "echo '%s'; sleep 1" % json.dumps(resposta))
+                self.assertNulo(casa, 'codex', 'consulta_falhou', 'cotas', '--atualizar', '--permitir-remoto')
+        for valor in [1e20, -1e20, 1e308, 253402300800.0, -124271193600.0]:
+            with self.subTest(entrada='sqlite', valor=valor):
+                casa = self.casa()
+                banco = casa.estado / 'agentes/runtime/tarefas.sqlite'
+                banco.parent.mkdir(parents=True)
+                db = sqlite3.connect(banco)
+                db.execute('CREATE TABLE provedores(id TEXT PRIMARY KEY, status TEXT, motivo TEXT, atualizado REAL, '
+                           'valido_ate REAL, cota REAL, modelo TEXT, falhas INTEGER, pausado INTEGER)')
+                db.execute("INSERT INTO provedores VALUES('codex','AVAILABLE','x',?,?,41.5,NULL,0,0)", (valor, valor))
+                db.commit()
+                db.close()
+                self.assertNulo(casa, 'codex', 'consulta_falhou', 'cotas')
+        for mtime in (253402300800, 4102444800, -62135596800, 1):
+            with self.subTest(entrada='mtime', valor=mtime):
+                casa = self.casa()
+                arquivo = casa.cache_agy()
+                try:
+                    os.utime(arquivo, (mtime, mtime))
+                except (OverflowError, OSError, ValueError):
+                    continue
+                self.assertNulo(casa, 'gemini', 'cache_vencido', 'cotas')
 
-    def test_reset_time_fora_do_intervalo_do_utc_vira_sem_renovacao(self):
-        self.assertIsNone(cotas.renovacao('0001-01-01T00:00:00+01:00'))
-        uso = json.loads(json.dumps(AGY_USO))
-        uso['command']['data']['groups'][0]['buckets'][0]['reset_time'] = '0001-01-01T00:00:00+01:00'
-        casa = self.casa()
-        casa.cache_agy(uso)
-        saida = casa.router('cotas')
+    def assertNulo(self, casa, grupo, motivo, *args):
+        saida = casa.router(*args)
         self.assertEqual(saida.returncode, 0, saida.stderr)
-        gemini = grupos(lido(casa))['gemini']
-        self.assertEqual(gemini['percentual'], 87.5)
-        self.assertIn(None, [j['renova_em'] for j in gemini['janelas']])
+        documento = lido(casa)
+        cotas.validar(documento, time.time())
+        self.assertEqual(json.loads(saida.stdout), documento)
+        provedor = 'codex' if grupo == 'codex' else 'agy'
+        alvo = grupos(documento, provedor, None if provedor == 'codex' else 'principal')[grupo]
+        self.assertIsNone(alvo['percentual'])
+        if motivo:
+            self.assertEqual(alvo['motivo'], motivo)
+        self.assertEqual(documento['provedores'][-1]['provedor'], 'claude')
+        return alvo
 
     def test_conta_sem_confianca_nao_le_nem_consulta(self):
         casa = self.casa(confia=False)

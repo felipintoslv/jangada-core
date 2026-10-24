@@ -55,8 +55,30 @@ done <<<"$contas"
 '''
 
 
-def agora_iso(instante):
-    return datetime.datetime.fromtimestamp(instante).astimezone().isoformat(timespec='seconds')
+# Todo instante que vem de fora (reset_time, resetsAt, SQLite, mtime) passa só por
+# estas três funções: valor fora do alcance de datetime vira None, nunca exceção.
+FALHAS_DE_DATA = (ValueError, OverflowError, OSError, TypeError)
+
+
+def iso(segundos, utc=False):
+    """Segundos desde a época como ISO-8601 com fuso, ou None se não representável."""
+    try:
+        if utc:
+            data = datetime.datetime.fromtimestamp(float(segundos), datetime.timezone.utc)
+        else:
+            data = datetime.datetime.fromtimestamp(float(segundos)).astimezone()
+        return data.isoformat(timespec='seconds')
+    except FALHAS_DE_DATA:
+        return None
+
+
+def instante(texto):
+    """ISO-8601 com fuso como segundos desde a época, ou None."""
+    try:
+        data = datetime.datetime.fromisoformat(texto)
+        return None if data.tzinfo is None else data.timestamp()
+    except FALHAS_DE_DATA:
+        return None
 
 
 def arredondar(valor):
@@ -66,18 +88,9 @@ def arredondar(valor):
 
 
 def renovacao(texto):
-    if not isinstance(texto, str):
-        return None
-    try:
-        data = datetime.datetime.fromisoformat(texto)
-    except ValueError:
-        return None
-    if data.tzinfo is None:
-        return None
-    try:
-        return data.astimezone(datetime.timezone.utc).isoformat(timespec='seconds')
-    except OverflowError:
-        return None
+    """ISO-8601 em UTC, ou None se o texto não for uma data com fuso representável."""
+    segundos = instante(texto)
+    return None if segundos is None else iso(segundos, utc=True)
 
 
 def validade_cache():
@@ -138,9 +151,12 @@ def baldes_agy(dados):
             fracao = balde.get('remaining_fraction')
             valido = (type(fracao) in (int, float) and math.isfinite(fracao) and 0 <= fracao <= 1)
             entrada = grupos.setdefault(partes[1], {'janelas': [], 'valido': True})
+            reset = balde.get('reset_time')
+            fim = renovacao(reset)
+            valido = valido and (reset is None or fim is not None)
             entrada['valido'] = entrada['valido'] and valido
             if valido:
-                entrada['janelas'].append((identificador, fracao, renovacao(balde.get('reset_time'))))
+                entrada['janelas'].append((identificador, fracao, fim))
     return grupos
 
 
@@ -158,6 +174,13 @@ def grupos_agy(dados, esperados, origem, medido_em, valido_ate):
         resultado.append(grupo_medido(grupo, arredondar(minimo * 10000) / 100, janelas,
                                       origem, medido_em, valido_ate))
     return resultado
+
+
+def grupos_agy_em(dados, esperados, medido, valido):
+    medido_em, valido_ate = iso(medido), iso(valido)
+    if medido_em is None or valido_ate is None:
+        return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
+    return grupos_agy(dados, esperados, ORIGEM_AGY, medido_em, valido_ate)
 
 
 def ler_regular(caminho):
@@ -217,7 +240,7 @@ def medir_agy(core, conta, catalogo, atualizar, cache, agora):
         except (OSError, ValueError, TypeError, subprocess.SubprocessError):
             return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
         medido = time.time()
-        return grupos_agy(dados, esperados, ORIGEM_AGY, agora_iso(medido), agora_iso(medido + validade))
+        return grupos_agy_em(dados, esperados, medido, medido + validade)
     arquivo = cache / ('agy-usage-%s.json' % conta['nome'] if catalogo else 'agy-usage.json')
     try:
         lido = ler_regular(arquivo)
@@ -228,13 +251,13 @@ def medir_agy(core, conta, catalogo, atualizar, cache, agora):
     conteudo, mtime = lido
     if mtime > agora or agora - mtime >= validade:
         passado = mtime <= agora
-        return [grupo_nulo(g, 'cache_vencido', ORIGEM_AGY, agora_iso(mtime) if passado else None,
-                           agora_iso(mtime + validade) if passado else None) for g in esperados]
+        return [grupo_nulo(g, 'cache_vencido', ORIGEM_AGY, iso(mtime) if passado else None,
+                           iso(mtime + validade) if passado else None) for g in esperados]
     try:
         dados = json.loads(conteudo)
     except ValueError:
         return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
-    return grupos_agy(dados, esperados, ORIGEM_AGY, agora_iso(mtime), agora_iso(mtime + validade))
+    return grupos_agy_em(dados, esperados, mtime, mtime + validade)
 
 
 def entradas_agy(core, raiz_estado, atualizar, agora):
@@ -263,12 +286,12 @@ def estado_codex(raiz_estado, agora):
     cota, medido, valido = linha['cota'], linha['atualizado'], linha['valido_ate']
     if any(type(x) not in (int, float) or not math.isfinite(x) for x in (cota, medido, valido)) or not 0 <= cota <= 100:
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
-    try:
-        if valido <= agora or medido > agora:
-            return grupo_nulo('codex', 'cache_vencido', ORIGEM_CODEX_ESTADO, agora_iso(medido), agora_iso(valido))
-        return grupo_medido('codex', round(cota, 2), [], ORIGEM_CODEX_ESTADO, agora_iso(medido), agora_iso(valido))
-    except (OverflowError, OSError, ValueError):
+    medido_em, valido_ate = iso(medido), iso(valido)
+    if medido_em is None or valido_ate is None:
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
+    if valido <= agora or medido > agora:
+        return grupo_nulo('codex', 'cache_vencido', ORIGEM_CODEX_ESTADO, medido_em, valido_ate)
+    return grupo_medido('codex', round(cota, 2), [], ORIGEM_CODEX_ESTADO, medido_em, valido_ate)
 
 
 def consulta_codex(raiz_estado, agora):
@@ -279,10 +302,12 @@ def consulta_codex(raiz_estado, agora):
         medido = time.time()
         cota, validade = percentual_codex(dados, medido)
         confirmadas, _ = janelas_codex(dados, medido)
-        janelas = [{'id': 'codex-' + nome, 'percentual': round(restante, 2), 'renova_em': agora_iso(fim)}
+        janelas = [{'id': 'codex-' + nome, 'percentual': round(restante, 2), 'renova_em': iso(fim)}
                    for nome, restante, fim in confirmadas]
-        return grupo_medido('codex', round(cota, 2), janelas, ORIGEM_CODEX, agora_iso(medido),
-                            agora_iso(medido + validade))
+        medido_em, valido_ate = iso(medido), iso(medido + validade)
+        if medido_em is None or valido_ate is None or any(j['renova_em'] is None for j in janelas):
+            return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX)
+        return grupo_medido('codex', round(cota, 2), janelas, ORIGEM_CODEX, medido_em, valido_ate)
     except (OSError, OverflowError, ValueError, TypeError, subprocess.SubprocessError):
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX)
 
@@ -296,7 +321,12 @@ def vencer(documento, agora):
     """Troca por null o número cuja validade acabou durante as consultas."""
     for provedor in documento['provedores']:
         for indice, grupo in enumerate(provedor['grupos']):
-            if grupo['percentual'] is not None and datetime.datetime.fromisoformat(grupo['valido_ate']).timestamp() <= agora:
+            if grupo['percentual'] is None:
+                continue
+            limite = instante(grupo['valido_ate'])
+            if limite is None:
+                provedor['grupos'][indice] = grupo_nulo(grupo['grupo'], 'consulta_falhou', grupo['origem'])
+            elif limite <= agora:
                 provedor['grupos'][indice] = grupo_nulo(grupo['grupo'], 'cache_vencido', grupo['origem'],
                                                         grupo['medido_em'], grupo['valido_ate'])
 
@@ -305,14 +335,14 @@ def montar(raiz_estado, core, atualizar=False, permitir_remoto=False, agora=None
     agora = time.time() if agora is None else agora
     # Sem --permitir-remoto nada sai da máquina, nem a consulta ao agy.
     consultar_rede = atualizar and permitir_remoto
-    documento = {'versao': VERSAO, 'gerado': agora_iso(agora),
+    documento = {'versao': VERSAO, 'gerado': iso(agora),
                  'provedores': entradas_agy(core, raiz_estado, consultar_rede, agora)
                  + [entrada_codex(raiz_estado, atualizar, permitir_remoto, agora),
                     {'provedor': 'claude', 'conta': None, 'grupos': [], 'motivo': 'nao_medido_por_este_provedor'}]}
     # A validade é conferida no instante da entrega, não no da partida.
     agora = max(agora, time.time())
     vencer(documento, agora)
-    documento['gerado'] = agora_iso(agora)
+    documento['gerado'] = iso(agora)
     validar(documento, agora)
     return documento
 
@@ -340,7 +370,8 @@ def validar(documento, agora):
                 raise ValueError('percentual sem origem')
             if not DATA.fullmatch(str(grupo.get('medido_em'))) or not DATA.fullmatch(str(grupo.get('valido_ate'))):
                 raise ValueError('percentual sem data de medição e validade')
-            if datetime.datetime.fromisoformat(grupo['valido_ate']).timestamp() <= agora:
+            limite = instante(grupo['valido_ate'])
+            if limite is None or limite <= agora:
                 raise ValueError('percentual com validade vencida')
 
 
