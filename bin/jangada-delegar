@@ -869,7 +869,6 @@ flock -n "$agy_fd" || recusar "execução agy já em andamento" execucao_ocupada
 # de fora mandariam no subagente. Vale o worktree da sessão, que o
 # jangada-worktree-preparar confia quando o usuário já confiou no repositório
 # principal, ou a pasta que o usuário já confiou.
-conf_agy="${JANGADA_AGY_SETTINGS:-$HOME/.gemini/antigravity-cli/settings.json}"
 if ! jangada_agy_confia "$pasta"; then
   # Só diagnóstico: quem sincroniza a confiança é a abertura ou a retomada da
   # tarefa, fora do isolamento.
