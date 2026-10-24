@@ -684,6 +684,8 @@ subagente tem `.db` próprio.
     ou `codex-economico` (modelo explicitamente configurado).
     `nativo` identifica recusa numa sessão antiga do agy restaurada.
     Vazio quando a seleção por capacidade termina sem executor.
+  - `conta`: nome da conta do agy selecionada; `null` nos outros destinos
+    ou antes da seleção. Opcional em registros anteriores.
   - `modelo`: Flash com o esforço do papel (no agy) ou modelo local (ex.: `qwen3:4b`).
   - `codigo_saida`: 0 atendida, 4 recusada.
   - `versao_registro`: 3 nos registros com seleção por capacidade e recusas
@@ -698,7 +700,8 @@ subagente tem `.db` próprio.
   - `urls_autorizadas`: páginas HTTPS cujos domínios foram autorizados por `--url`;
     lista vazia nas demais chamadas.
   - `cotas_modelos`: consultas de cota aos candidatos, em ordem. Cada item tem
-    `modelo`, `grupo` e `percentual`; este é número ou `null` quando desconhecido.
+    `modelo`, `conta`, `grupo` e `percentual`; este é número ou `null` quando desconhecido.
+    `conta` identifica a conta consultada e é opcional em registros anteriores.
     A lista fica vazia nos destinos que não consultam o agy.
   - `registro_ferramentas`: pasta privada do cliente para conferir conversas e
     ferramentas, ou texto vazio quando não houve esse executor.

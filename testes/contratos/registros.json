@@ -175,6 +175,7 @@
       "urls_autorizadas": {"tipo": ["lista"], "obrigatorio": false},
       "cotas_modelos": {"tipo": ["lista"], "obrigatorio": false, "itens": {
         "modelo": {"tipo": ["texto"], "obrigatorio": true},
+        "conta": {"tipo": ["texto"], "obrigatorio": false},
         "grupo": {"tipo": ["texto"], "obrigatorio": true},
         "percentual": {"tipo": ["numero", "nulo"], "obrigatorio": true}
       }},
@@ -185,6 +186,7 @@
       "pasta": {"tipo": ["texto"], "obrigatorio": true},
       "papel": {"tipo": ["texto"], "obrigatorio": true},
       "destino": {"tipo": ["texto"], "obrigatorio": true},
+      "conta": {"tipo": ["texto", "nulo"], "obrigatorio": false},
       "modelo": {"tipo": ["texto"], "obrigatorio": true},
       "segundos": {"tipo": ["inteiro"], "obrigatorio": true},
       "codigo_saida": {"tipo": ["inteiro"], "obrigatorio": true},

@@ -82,6 +82,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
 
     def script(self, nome, codigo):
         p = self.bin / nome
+        compile(codigo, str(p), "exec")
         p.write_text("#!/usr/bin/python3\n" + codigo)
         p.chmod(0o755)
 
@@ -107,7 +108,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
         catalogo = Path(self.env["JANGADA_ESTADO"]) / "contas/agy.json"
         catalogo.parent.mkdir(parents=True)
         catalogo.write_text(json.dumps(contas))
-        self.script("agy", '''import json,os,sys
+        self.script("agy", r'''import json,os,sys
 from pathlib import Path
 cli=Path.home()/".gemini/antigravity-cli"
 for origem in filter(None, os.environ.get("CONTAS_ORIGENS", "").split(":")):
