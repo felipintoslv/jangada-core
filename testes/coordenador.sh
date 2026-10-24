@@ -231,7 +231,7 @@ EOF
 chmod +x "$tmp/bin/"*
 
 rodar() {
-  env -u JANGADA_SESSAO -u JANGADA_COORDENADOR -u JANGADA_ATUACAO_ID -u TMUX -u WAYLAND_DISPLAY \
+  env -u JANGADA_SESSAO -u JANGADA_COORDENADOR -u JANGADA_ATUACAO_ID -u JANGADA_COORDENADOR_PROVEDOR -u TMUX -u WAYLAND_DISPLAY \
     -u HYPRLAND_INSTANCE_SIGNATURE -u DISPLAY \
     PATH="$path_chamador" HOME="$tmp/home" SHELL=/bin/sh TMUX_TMPDIR="$sock" FALSO_DIR="$tmp" \
     TMUX_REAL="$tmux_real" CODEX_HOME="$tmp/codex" JANGADA_CORE_PATH="$repo_jangada" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" "$@"
