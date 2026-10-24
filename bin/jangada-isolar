@@ -781,9 +781,14 @@ if ((conta_configurada)); then
            --setenv JANGADA_AGY_CONTA_MONTADA "$CONTA_AGY_NOME"
            --setenv JANGADA_AGY_PASTA "$cli_agy"
            --setenv JANGADA_AGY_SETTINGS "$cli_agy/settings.json")
-    mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true
-    # A origem pertence à conta, mas o destino é sempre a pasta esperada pelo CLI.
-    temporario "$CONTA_AGY_PASTA/bin" ro "$cli_agy/bin"
+    if [[ "$CONTA_AGY_PASTA" == "$cli_agy" ]]; then
+      # Conta principal: o mkdir da base, exceção já vigente da regra 1.
+      mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true
+      temporario "$CONTA_AGY_PASTA/bin" ro "$cli_agy/bin"
+    else
+      # Nas demais, nada é criado na pasta da conta: o bin vive em memória.
+      args+=(--tmpfs "$cli_agy/bin")
+    fi
   fi
 fi
 args+=(--unsetenv TMUX --unsetenv TMUX_PANE --unsetenv SSH_AUTH_SOCK

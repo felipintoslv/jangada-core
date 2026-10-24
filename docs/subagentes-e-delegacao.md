@@ -391,7 +391,8 @@ Dentro de uma sessão isolada, somente a conta montada participa da seleção;
 pedir outra conta com `--conta` recusa antes de ler seu cache ou chamar o agy.
 A seleção também chega à leitura e à implementação privadas da MOD-03:
 com catálogo, o arquivo `antigravity-oauth-token` da conta é montado somente para leitura.
-Esses executores escondem a casa; a pasta de outra conta que fica fora dela recebe um `tmpfs`.
+Esses executores escondem a casa; a pasta de cada conta que fica fora dela recebe um `tmpfs`,
+e só o login e a pasta `builtin` da conta escolhida voltam, por montagens explícitas.
 Sem catálogo, os argumentos e a autenticação desses executores ficam iguais aos da base.
 Renovar o login exige agir fora desses executores.
 A confiança é conferida por conta; o delegador não cria autorização.

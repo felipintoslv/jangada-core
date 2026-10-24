@@ -655,14 +655,16 @@ jangada_agy_conferir_tarefa() {
     fi
   fi
   ((r == 0)) && return 0
-  if [[ -f "$JANGADA_ESTADO/contas/agy.json" && -n "${JANGADA_AGY_CONTA:-}" ]]; then
-    echo "confiança do agy pendente na conta $JANGADA_AGY_CONTA." >&2
+  if [[ -f "$JANGADA_ESTADO/contas/agy.json" ]]; then
+    local onde="configuração em JANGADA_AGY_SETTINGS"
+    [[ -z "${JANGADA_AGY_CONTA:-}" ]] || onde="conta $JANGADA_AGY_CONTA"
+    echo "confiança do agy pendente na $onde." >&2
   else
     echo "confiança do agy pendente: delegação e revisão pelo agy ficam indisponíveis nesta tarefa." >&2
   fi
   if ((r == 2)); then
     if [[ -f "$JANGADA_ESTADO/contas/agy.json" ]]; then
-      echo "Na raiz $raiz, execute jangada-isolar --conta $JANGADA_AGY_CONTA -- agy, responda à pergunta de confiança e rode: jangada-agentes --confianca $sessao" >&2
+      echo "Na raiz $raiz, execute jangada-isolar --conta ${JANGADA_AGY_CONTA:-NOME} -- agy, responda à pergunta de confiança e rode: jangada-agentes --confianca $sessao" >&2
     else
       echo "Para retomar, abra o agy em $raiz, responda à pergunta de confiança e rode: jangada-agentes --confianca $sessao" >&2
     fi
