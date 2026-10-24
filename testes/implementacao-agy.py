@@ -288,6 +288,77 @@ assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
         self.assertEqual(json.loads(settings[0].read_text())["permissions"]["deny"], ["read_url(conta2.example)"])
         self.assertIn("identidade=conta2", (Path(resultado["pasta"]) / "relatorio.md").read_text())
 
+    def test_confianca_da_tarefa_confere_todas_as_contas(self):
+        contas, _ = self.contas()
+        outro = Path(contas[1]["pasta"]) / "settings.json"
+        outro.write_text('{"trustedWorkspaces": []}')
+        comando = ["bash", "-c", 'source "$JANGADA_CORE_PATH/bin/jangada-config"; jangada_agy_conferir_tarefa "$1" "" 0 teste',
+                   "teste", str(self.raiz)]
+        p = subprocess.run(comando, env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("conta2", p.stderr)
+        outro.write_text(json.dumps({"trustedWorkspaces": [str(self.raiz)]}))
+        p = subprocess.run(comando, env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_pergunta_de_confianca_abre_a_conta_pendente(self):
+        import pty
+        import shutil
+        contas, _ = self.contas()
+        outro = Path(contas[1]["pasta"]) / "settings.json"
+        outro.write_text('{"trustedWorkspaces": []}')
+        arvore = self.tmp / "pergunta"
+        (arvore / "bin").mkdir(parents=True)
+        shutil.copyfile(REPO / "bin/jangada-config", arvore / "bin/jangada-config")
+        isolador = arvore / "bin/jangada-isolar"
+        isolador.write_text('''#!/usr/bin/python3
+import json,os,sys
+from pathlib import Path
+assert sys.argv[1:]==["--conta","conta2","--","agy"],sys.argv
+contas=json.loads((Path(os.environ["JANGADA_ESTADO"])/"contas/agy.json").read_text())
+pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
+(pasta/"settings.json").write_text(json.dumps({"trustedWorkspaces":[os.environ["RAIZ_TESTE"]]}))
+''')
+        isolador.chmod(0o755)
+        ambiente = dict(self.env, JANGADA_CORE_PATH=str(arvore), RAIZ_TESTE=str(self.raiz))
+        mestre, escravo = pty.openpty()
+        try:
+            os.write(mestre, b"s\n")
+            p = subprocess.run(["bash", "-c", 'source "$JANGADA_CORE_PATH/bin/jangada-config"; jangada_agy_conferir_tarefa "$1" "" 1 teste',
+                                "teste", str(self.raiz)], env=ambiente, stdin=escravo, stderr=escravo,
+                               stdout=subprocess.PIPE, text=True, timeout=10)
+            os.set_blocking(mestre, False)
+            diagnostico = os.read(mestre, 65536).decode()
+        finally:
+            os.close(mestre)
+            os.close(escravo)
+        self.assertEqual(p.returncode, 0, p.stdout + diagnostico)
+        self.assertEqual(json.loads(outro.read_text())["trustedWorkspaces"], [str(self.raiz)])
+        padrao = self.casa / ".gemini/antigravity-cli/settings.json"
+        self.assertNotIn("conta2", padrao.read_text())
+
+    def argumentos_sem_catalogo(self, fontes=None):
+        arvore = self.tmp / "montagem"
+        (arvore / "bin").mkdir(parents=True)
+        (arvore / "orquestracao").mkdir()
+        for nome in ("jangada-isolar", "jangada-config"):
+            texto = fontes[nome] if fontes else (REPO / "bin" / nome).read_text()
+            (arvore / "bin" / nome).write_text(texto)
+        # Só construção de argumentos: o controlador e qualquer carga são falsos.
+        (arvore / "orquestracao/confianca.py").write_text(
+            'import sys; assert sys.argv[1]=="preparar-isolamento"; sys.exit(0)\n')
+        self.script("bwrap", "import sys; sys.exit(1)")
+        ambiente = {k: self.env[k] for k in ("HOME", "PATH", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME")}
+        ambiente.update(JANGADA_CORE_PATH=str(arvore), LANG="C.UTF-8", JANGADA_SESSAO="sintetica")
+        p = subprocess.run(["bash", str(arvore / "bin/jangada-isolar"), "--mostrar", "--", "agy"],
+                           cwd=self.raiz, env=ambiente, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stdout.replace(str(self.tmp), "${TMP}")
+
+    def test_sem_catalogo_bwrap_igual_a_base_0f82006(self):
+        esperado = (REPO / "testes/contratos/isolar-sem-contas-0f82006.txt").read_text()
+        self.assertEqual(self.argumentos_sem_catalogo(), esperado)
+
     def test_sem_catalogo_delegar_preserva_argumentos_isolamento(self):
         import shutil
         arvore = self.tmp / "arvore"

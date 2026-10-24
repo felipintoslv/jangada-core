@@ -392,6 +392,9 @@ A seleção também chega à leitura e à implementação privadas da MOD-03:
 o arquivo `antigravity-oauth-token` da conta é montado somente para leitura.
 Renovar o login exige agir fora desses executores.
 A confiança é conferida por conta; o delegador não cria autorização.
+Na abertura ou retomada, todas as contas são conferidas. Quando o dono aceita
+abrir o agy para responder à pergunta de confiança, ele abre pela conta
+correspondente, com `jangada-isolar --conta NOME -- agy`.
 Ao preparar ou encerrar um worktree sem conta explícita, os ajustes de
 confiança existentes são aplicados a todas as contas cadastradas. A adição
 exige que a raiz já seja confiável naquela conta.

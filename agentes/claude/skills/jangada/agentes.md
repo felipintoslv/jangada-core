@@ -559,8 +559,9 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
 
 ## agy como suporte
 
-- Em 24/10/2026, o dono confirmou o login por conta no arquivo
-  `antigravity-oauth-token`, dentro de `antigravity-cli`, inclusive nas contas
+- Em 24/10/2026, o coordenador conferiu pelos nomes de arquivo:
+  o login de cada conta fica em `antigravity-oauth-token`, dentro de
+  `antigravity-cli`, inclusive nas contas
   do Catamarã. Não leia nem registre seu conteúdo. Nos executores privados,
   monte esse arquivo da conta escolhida somente para leitura, preservando a
   casa vazia e as configurações privadas. Trocar só `settings.json` não troca

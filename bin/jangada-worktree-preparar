@@ -61,6 +61,15 @@ avisar() { printf 'preparar: %s\n' "$*" >&2; }
 sincronizar_confianca() {
   local r=0
   if ((simular)); then
+    if [[ -f "$JANGADA_ESTADO/contas/agy.json" && -z "${JANGADA_AGY_CONTA:-}${JANGADA_AGY_SETTINGS:-}" ]]; then
+      local contas nome _pasta _argon
+      contas="$(jangada_contas_agy)" || return 1
+      while IFS=$'\t' read -r nome _pasta _argon; do
+        echo "conta do agy: $nome"
+        (export JANGADA_AGY_CONTA="$nome"; sincronizar_confianca) || return 1
+      done <<<"$contas"
+      return 0
+    fi
     if jangada_agy_confia "$raiz"; then
       echo "adicionaria $worktree a trustedWorkspaces"
     else

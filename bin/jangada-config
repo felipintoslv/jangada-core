@@ -610,6 +610,18 @@ jangada_agy_tarefa_usa() {
 jangada_agy_conferir_tarefa() {
   local raiz="$1" worktree="$2" perguntar="$3" sessao="$4" r=0 resposta=""
   [[ -z "${JANGADA_ISOLADO:-}" ]] || return 0
+  if [[ -f "$JANGADA_ESTADO/contas/agy.json" && -z "${JANGADA_AGY_CONTA:-}${JANGADA_AGY_SETTINGS:-}" ]]; then
+    local contas nome _pasta _argon pendente=0 linha
+    local -a linhas=()
+    contas="$(jangada_contas_agy)" || return 1
+    mapfile -t linhas <<<"$contas"
+    for linha in "${linhas[@]}"; do
+      IFS=$'\t' read -r nome _pasta _argon <<<"$linha"
+      echo "conferindo confiança do agy na conta $nome" >&2
+      (export JANGADA_AGY_CONTA="$nome"; jangada_agy_conferir_tarefa "$raiz" "$worktree" "$perguntar" "$sessao") || pendente=1
+    done
+    return "$pendente"
+  fi
   _jangada_agy_conferir() {
     if [[ -n "$worktree" ]]; then
       "$JANGADA_CORE_PATH/bin/jangada-worktree-preparar" --so-confianca "$raiz" "$worktree" >/dev/null
@@ -628,7 +640,13 @@ jangada_agy_conferir_tarefa() {
       read -r -p "abrir o agy em $raiz para você responder à pergunta de confiança? [s/N] " resposta || resposta=""
       if [[ "$resposta" =~ ^[sS]$ ]]; then
         echo "responda à pergunta do agy e saia dele para continuar" >&2
-        (cd "$raiz" && env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 agy) || true
+        if [[ -f "$JANGADA_ESTADO/contas/agy.json" ]]; then
+          jangada_conta_agy || return 1
+          (cd "$raiz" && env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 \
+            "$JANGADA_CORE_PATH/bin/jangada-isolar" --conta "$CONTA_AGY_NOME" -- agy) || true
+        else
+          (cd "$raiz" && env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 agy) || true
+        fi
         r=0
         _jangada_agy_conferir || r=$?
       fi
@@ -637,7 +655,11 @@ jangada_agy_conferir_tarefa() {
   ((r == 0)) && return 0
   echo "confiança do agy pendente: delegação e revisão pelo agy ficam indisponíveis nesta tarefa." >&2
   if ((r == 2)); then
-    echo "Para retomar, abra o agy em $raiz, responda à pergunta de confiança e rode: jangada-agentes --confianca $sessao" >&2
+    if [[ -f "$JANGADA_ESTADO/contas/agy.json" ]]; then
+      echo "Na raiz $raiz, execute jangada-isolar --conta $JANGADA_AGY_CONTA -- agy, responda à pergunta de confiança e rode: jangada-agentes --confianca $sessao" >&2
+    else
+      echo "Para retomar, abra o agy em $raiz, responda à pergunta de confiança e rode: jangada-agentes --confianca $sessao" >&2
+    fi
   else
     echo "Para repetir a conferência, rode fora da sessão isolada: jangada-agentes --confianca $sessao" >&2
   fi
