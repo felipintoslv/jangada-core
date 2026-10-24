@@ -781,15 +781,12 @@ if ((conta_configurada)); then
            --setenv JANGADA_AGY_CONTA_MONTADA "$CONTA_AGY_NOME"
            --setenv JANGADA_AGY_PASTA "$cli_agy"
            --setenv JANGADA_AGY_SETTINGS "$cli_agy/settings.json")
-    if [[ "$CONTA_AGY_PASTA" == "$cli_agy" ]]; then
-      # Conta principal: o mkdir da base, exceção já vigente da regra 1.
-      mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true
-      temporario "$CONTA_AGY_PASTA/bin" ro "$cli_agy/bin"
-    elif [[ -d "$CONTA_AGY_PASTA/bin" ]]; then
-      # Nas demais, o bin vive em memória. Sem a pasta na conta, não há ponto de
-      # montagem: o bwrap o criaria dentro da origem gravável, então nada se monta.
-      args+=(--tmpfs "$cli_agy/bin")
-    fi
+    # O catálogo só aceita a principal ou pastas do estado do jangada, onde o
+    # mkdir é permitido. Sem bin montado em memória, o agente deixaria ali um
+    # executável que o agy roda depois, fora do isolamento.
+    [[ ! -L "$CONTA_AGY_PASTA/bin" ]] || { echo "jangada-isolar: bin da conta $CONTA_AGY_NOME é link" >&2; exit 1; }
+    mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true
+    temporario "$CONTA_AGY_PASTA/bin" ro "$cli_agy/bin"
   fi
 fi
 args+=(--unsetenv TMUX --unsetenv TMUX_PANE --unsetenv SSH_AUTH_SOCK

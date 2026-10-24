@@ -95,14 +95,16 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
             self.skipTest("Bubblewrap indisponível")
         (self.bin / "bwrap").unlink(missing_ok=True)
         contas = []
-        base = self.casa / "contas"
         if fora_da_casa:
-            # /var/tmp não é coberto pelos tmpfs de /tmp, da casa nem da pasta do projeto.
+            # O estado do jangada, e com ele as contas, fora da casa. /var/tmp não é
+            # coberto pelos tmpfs de /tmp, da casa nem da pasta do projeto.
             try:
-                base = Path(tempfile.mkdtemp(dir="/var/tmp", prefix="jangada-contas-"))
+                estado = Path(tempfile.mkdtemp(dir="/var/tmp", prefix="jangada-estado-"))
             except OSError:
                 self.skipTest("/var/tmp sem escrita")
-            self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+            self.addCleanup(shutil.rmtree, estado, ignore_errors=True)
+            self.env.update(JANGADA_ESTADO=str(estado), XDG_STATE_HOME=str(estado))
+        base = Path(self.env["JANGADA_ESTADO"]) / "contas"
         for i, saldo in enumerate(saldos, 1):
             pasta = base / f"conta{i}"
             pasta.mkdir(parents=True)
@@ -115,8 +117,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
                 buckets.append({"id": "gemini-argon-wtu-weekly", "remaining_fraction": 0.6})
             (pasta / "usage.json").write_text(json.dumps({"command": {"data": {"groups": [{"buckets": buckets}]}}}))
             contas.append({"nome": f"conta{i}", "pasta": str(pasta), "argon": i == 1})
-        catalogo = Path(self.env["JANGADA_ESTADO"]) / "contas/agy.json"
-        catalogo.parent.mkdir(parents=True)
+        catalogo = base / "agy.json"
         catalogo.write_text(json.dumps(contas))
         self.script("agy", r'''import json,os,sys
 from pathlib import Path
@@ -232,25 +233,38 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual((Path(contas[1]["pasta"]) / "gravado").read_text(), "ok")
         self.assertFalse((Path(contas[0]["pasta"]) / "gravado").exists())
-        # Nem o isolamento nem o bwrap criam o bin dentro da origem da conta.
-        self.assertFalse((Path(contas[1]["pasta"]) / "bin").exists())
+        # O isolamento cria o bin vazio na conta, que fica no estado do jangada.
+        self.assertEqual(list((Path(contas[1]["pasta"]) / "bin").iterdir()), [])
 
     def test_isolar_real_conta_secundaria_nao_grava_bin_na_origem(self):
         contas, _ = self.contas()
         origem = Path(contas[1]["pasta"])
-        codigo = ("from pathlib import Path; cli=Path.home()/'.gemini/antigravity-cli'; "
-                  "(cli/'bin').mkdir(exist_ok=True); (cli/'bin'/'agentapi').write_text('x')")
+        # O agente grava um executável em bin: pode falhar (somente leitura) ou
+        # ficar em memória, mas não pode sobrar na pasta da conta.
+        codigo = ("from pathlib import Path; cli=Path.home()/'.gemini/antigravity-cli'\n"
+                  "print((cli/'bin'/'antigo').read_text() if (cli/'bin'/'antigo').exists() else 'sem-antigo')\n"
+                  "try: (cli/'bin'/'agentapi').write_text('x')\n"
+                  "except OSError: pass\n"
+                  "(cli/'gravado').write_text('ok')")
         comando = [str(REPO / "bin/jangada-isolar"), "--conta", "conta2", "--", "python3", "-c", codigo]
-        # Sem bin na conta, nada é montado e nada surge na origem.
+        # Sem bin na conta: a pasta é criada vazia pelo isolamento e nada sobra nela.
         p = subprocess.run(comando, cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertTrue((origem / "bin/agentapi").exists())  # gravação do próprio agy na pasta da conta
-        shutil.rmtree(origem / "bin")
-        # Com bin na conta, o bin da caixa é em memória e a origem fica intacta.
-        (origem / "bin").mkdir()
-        p = subprocess.run(comando, cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
-        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.strip(), "sem-antigo")
         self.assertEqual(list((origem / "bin").iterdir()), [])
+        self.assertEqual((origem / "gravado").read_text(), "ok")
+        # Com bin na conta: o conteúdo aparece na caixa e a origem fica intacta.
+        (origem / "bin/antigo").write_text("velho")
+        p = subprocess.run(comando, cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.strip(), "velho")
+        self.assertEqual([a.name for a in (origem / "bin").iterdir()], ["antigo"])
+        # bin que é link a agente deixou na conta: recusa, sem seguir o link.
+        shutil.rmtree(origem / "bin")
+        (origem / "bin").symlink_to(self.tmp)
+        p = subprocess.run(comando, cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("bin da conta conta2 é link", p.stderr)
 
     def test_delegar_dentro_da_caixa_ignora_cache_de_outra_conta(self):
         contas, _ = self.contas((0.4, 0.95))
@@ -376,18 +390,22 @@ assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
         with mock.patch.dict(os.environ, self.env, clear=True):
             self.assertEqual(modulo.ocultar_contas(self.casa), [])
 
-    def test_isolar_conta_secundaria_so_monta_bin_que_ja_existe(self):
+    def test_isolar_conta_secundaria_sempre_monta_bin_em_memoria_ou_leitura(self):
         contas, _ = self.contas()
         ambiente = dict(self.env, JANGADA_ISOLAR_PERFIL="agente")
         comando = [str(REPO / "bin/jangada-isolar"), "--mostrar", "--conta", "conta2", "--", "agy"]
-        alvo = "--tmpfs\n" + str(self.casa / ".gemini/antigravity-cli/bin")
-        p = subprocess.run(comando, cwd=self.raiz, env=ambiente, capture_output=True, text=True)
-        self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertNotIn(alvo, p.stdout)
-        self.assertFalse((Path(contas[1]["pasta"]) / "bin").exists())
-        (Path(contas[1]["pasta"]) / "bin").mkdir()
-        p = subprocess.run(comando, cwd=self.raiz, env=ambiente, capture_output=True, text=True)
-        self.assertIn(alvo, p.stdout)
+        destino = str(self.casa / ".gemini/antigravity-cli/bin")
+        origem_bin = Path(contas[1]["pasta"]) / "bin"
+        for _ in range(2):
+            p = subprocess.run(comando, cwd=self.raiz, env=ambiente, capture_output=True, text=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            linhas = p.stdout.splitlines()
+            self.assertTrue(any((linhas[k] == "--tmp-overlay" and linhas[k + 1] == destino)
+                                or (linhas[k] == "--ro-bind" and linhas[k + 2] == destino)
+                                for k in range(len(linhas) - 2)), p.stdout)
+            self.assertTrue(origem_bin.is_dir())
+            shutil.rmtree(origem_bin)
+            origem_bin.mkdir()
 
     def test_recusa_anterior_a_selecao_nao_registra_conta(self):
         self.contas()
@@ -580,6 +598,38 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
             catalogo.write_text(json.dumps(valor))
             erro = self.delegar_conta(sucesso=False)
             self.assertIn("catálogo de contas do agy inválido", erro.stderr)
+
+    def test_catalogo_so_aceita_principal_ou_area_de_contas_do_estado(self):
+        contas, catalogo = self.contas()
+        area = catalogo.parent
+        principal = self.casa / ".gemini/antigravity-cli"
+        recusadas = [self.casa / "contas/fora", self.tmp / "fora", self.casa / ".gemini", area, area.parent / "outra",
+                     self.casa / ".gemini/antigravity-cli/filha"]
+        for pasta in recusadas:
+            pasta.mkdir(parents=True, exist_ok=True)
+            valor = json.loads(json.dumps(contas))
+            valor[1]["pasta"] = str(pasta)
+            catalogo.write_text(json.dumps(valor))
+            # Qualquer escrita de confiança numa conta fora da área é recusada antes de tocar o arquivo.
+            settings = pasta / "settings.json"
+            settings.write_text('{"trustedWorkspaces": []}')
+            erro = self.delegar_conta(sucesso=False)
+            self.assertIn("catálogo de contas do agy inválido", erro.stderr, pasta)
+            self.assertIn("ou ficar dentro de", erro.stderr, pasta)
+            p = subprocess.run(["bash", "-c", 'source "$JANGADA_CORE_PATH/bin/jangada-config"; '
+                                'jangada_agy_ajustar_confianca adicionar "$1"', "teste", str(self.raiz)],
+                               env=self.env, capture_output=True, text=True)
+            self.assertNotEqual(p.returncode, 0, pasta)
+            self.assertEqual(settings.read_text(), '{"trustedWorkspaces": []}', pasta)
+            self.assertFalse((pasta / "settings.json.jangada-orig").exists(), pasta)
+        valor = json.loads(json.dumps(contas))
+        valor[1] = {"nome": "principal", "pasta": str(principal), "argon": False}
+        principal.mkdir(parents=True, exist_ok=True)
+        catalogo.write_text(json.dumps(valor))
+        p = subprocess.run(["bash", "-c", 'source "$JANGADA_CORE_PATH/bin/jangada-config"; jangada_contas_agy'],
+                           env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"principal\t{principal}\tfalse", p.stdout)
 
     def test_migracao_recusa_sem_terminal_e_preserva_origem(self):
         origem = self.tmp / "estado/catamara/contas"

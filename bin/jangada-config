@@ -254,6 +254,8 @@ try:
     if not isinstance(contas, list) or not contas:
         raise ValueError("esperada lista não vazia")
     nomes, pastas = set(), []
+    principal = casa / ".gemini/antigravity-cli"
+    area = arquivo.parent.resolve()
     for conta in contas:
         nome, pasta, argon = conta["nome"], conta["pasta"], conta["argon"]
         if not isinstance(nome, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", nome) or nome in nomes:
@@ -263,6 +265,10 @@ try:
         p = pathlib.Path(pasta)
         if not p.is_absolute() or str(p.resolve()) != pasta or ":" in pasta:
             raise ValueError("pasta precisa ser absoluta, sem links ou dois-pontos")
+        # O jangada grava na pasta da conta (confiança, bin): só a principal e a
+        # área de contas do próprio estado entram, sem exceção nova na regra 1.
+        if p != principal and not (p != area and p.is_relative_to(area)):
+            raise ValueError("a pasta de cada conta precisa ser " + str(principal) + " ou ficar dentro de " + str(area))
         # Uma conta não pode encobrir a casa nem a pasta de estado inteira.
         protegidos = [casa, arquivo.parent, pathlib.Path.cwd(), pathlib.Path(os.environ["JANGADA_CORE_PATH"])]
         if any(q == p or q.is_relative_to(p) for q in protegidos):

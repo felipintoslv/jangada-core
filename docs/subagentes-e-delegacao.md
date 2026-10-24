@@ -373,6 +373,10 @@ O catálogo opcional `$JANGADA_ESTADO/contas/agy.json` contém uma lista:
 Sem esse arquivo, permanece a conta implícita `principal`, em
 `~/.gemini/antigravity-cli`, com os mesmos argumentos de isolamento.
 Nomes são únicos; pastas precisam ser absolutas, sem links ou sobreposição.
+Cada pasta é `~/.gemini/antigravity-cli` (a principal) ou fica dentro de
+`$JANGADA_ESTADO/contas/`, onde a importação cria as contas. Outro lugar
+recusa o catálogo: o jangada grava na pasta da conta (confiança, `bin`), e só
+essas duas áreas já estão na regra 1.
 O arquivo é lido como dados. O dono o configura fora da sessão isolada.
 
 `jangada-delegar PAPEL "pedido" --conta NOME` fixa uma conta. Sem a opção,
@@ -386,6 +390,9 @@ ordem do catálogo. Cada conta tem cache de cota próprio. O registro inclui
 
 `jangada-isolar --conta NOME -- COMANDO` monta a conta em
 `~/.gemini/antigravity-cli` e oculta as pastas originais das contas.
+O `bin` da conta é criado vazio quando falta, como na principal, e montado em
+camada temporária (somente leitura, sem suporte do kernel): o que o agente
+gravar ali não persiste. Um `bin` que seja link recusa a abertura.
 Sem opção, usa `JANGADA_AGY_CONTA` ou a primeira conta do catálogo.
 Dentro de uma sessão isolada, somente a conta montada participa da seleção;
 pedir outra conta com `--conta` recusa antes de ler seu cache ou chamar o agy.
