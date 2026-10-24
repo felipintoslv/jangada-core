@@ -128,6 +128,7 @@ def saida_doctor(raiz, casa):
                               env=casa.env(JANGADA_CORE_PATH=str(raiz)), capture_output=True, text=True, timeout=120)
     texto = numeros_zerados(resposta.stdout).replace(str(raiz), '<RAIZ>')
     texto = re.sub(r'("gerado_em": )"[^"]*"', r'\g<1>"<DATA>"', texto)
+    texto = re.sub(r'UID \d+', 'UID <UID>', texto)
     saida = json.loads(texto)
     # Depende de a cópia ser um repositório git ou um arquivo extraído, e do commit.
     for verificacao in saida.get('verificacoes', []):
@@ -352,6 +353,33 @@ class Cotas(unittest.TestCase):
         codex = grupos(lido_apos(casa), 'codex', None)['codex']
         self.assertEqual((codex['percentual'], codex['motivo']), (None, 'cache_vencido'))
         db.close()
+
+    def test_codex_do_estado_com_data_fora_do_intervalo_vira_nulo(self):
+        casa = self.casa()
+        banco = casa.estado / 'agentes/runtime/tarefas.sqlite'
+        banco.parent.mkdir(parents=True)
+        db = sqlite3.connect(banco)
+        db.execute('CREATE TABLE provedores(id TEXT PRIMARY KEY, status TEXT, motivo TEXT, atualizado REAL, '
+                   'valido_ate REAL, cota REAL, modelo TEXT, falhas INTEGER, pausado INTEGER)')
+        db.execute("INSERT INTO provedores VALUES('codex','AVAILABLE','x',1e20,1e21,41.5,NULL,0,0)")
+        db.commit()
+        db.close()
+        saida = casa.router('cotas')
+        self.assertEqual(saida.returncode, 0, saida.stderr)
+        codex = grupos(lido(casa), 'codex', None)['codex']
+        self.assertEqual((codex['percentual'], codex['motivo']), (None, 'consulta_falhou'))
+
+    def test_reset_time_fora_do_intervalo_do_utc_vira_sem_renovacao(self):
+        self.assertIsNone(cotas.renovacao('0001-01-01T00:00:00+01:00'))
+        uso = json.loads(json.dumps(AGY_USO))
+        uso['command']['data']['groups'][0]['buckets'][0]['reset_time'] = '0001-01-01T00:00:00+01:00'
+        casa = self.casa()
+        casa.cache_agy(uso)
+        saida = casa.router('cotas')
+        self.assertEqual(saida.returncode, 0, saida.stderr)
+        gemini = grupos(lido(casa))['gemini']
+        self.assertEqual(gemini['percentual'], 87.5)
+        self.assertIn(None, [j['renova_em'] for j in gemini['janelas']])
 
     def test_conta_sem_confianca_nao_le_nem_consulta(self):
         casa = self.casa(confia=False)

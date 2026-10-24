@@ -74,7 +74,10 @@ def renovacao(texto):
         return None
     if data.tzinfo is None:
         return None
-    return data.astimezone(datetime.timezone.utc).isoformat(timespec='seconds')
+    try:
+        return data.astimezone(datetime.timezone.utc).isoformat(timespec='seconds')
+    except OverflowError:
+        return None
 
 
 def validade_cache():
@@ -260,9 +263,12 @@ def estado_codex(raiz_estado, agora):
     cota, medido, valido = linha['cota'], linha['atualizado'], linha['valido_ate']
     if any(type(x) not in (int, float) or not math.isfinite(x) for x in (cota, medido, valido)) or not 0 <= cota <= 100:
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
-    if valido <= agora or medido > agora:
-        return grupo_nulo('codex', 'cache_vencido', ORIGEM_CODEX_ESTADO, agora_iso(medido), agora_iso(valido))
-    return grupo_medido('codex', round(cota, 2), [], ORIGEM_CODEX_ESTADO, agora_iso(medido), agora_iso(valido))
+    try:
+        if valido <= agora or medido > agora:
+            return grupo_nulo('codex', 'cache_vencido', ORIGEM_CODEX_ESTADO, agora_iso(medido), agora_iso(valido))
+        return grupo_medido('codex', round(cota, 2), [], ORIGEM_CODEX_ESTADO, agora_iso(medido), agora_iso(valido))
+    except (OverflowError, OSError, ValueError):
+        return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
 
 
 def consulta_codex(raiz_estado, agora):

@@ -258,19 +258,19 @@
    },
    {
     "categoria": "pastas",
-    "detalhe": "Pasta existente, UID 1000, modo 0700.",
+    "detalhe": "Pasta existente, UID <UID>, modo 0700.",
     "estado": "ok",
     "id": "pastas.estado"
    },
    {
     "categoria": "pastas",
-    "detalhe": "Pasta existente, UID 1000, modo 0700.",
+    "detalhe": "Pasta existente, UID <UID>, modo 0700.",
     "estado": "ok",
     "id": "pastas.agentes"
    },
    {
     "categoria": "pastas",
-    "detalhe": "Pasta existente, UID 1000, modo 0700.",
+    "detalhe": "Pasta existente, UID <UID>, modo 0700.",
     "estado": "ok",
     "id": "pastas.agentes.runtime"
    },
