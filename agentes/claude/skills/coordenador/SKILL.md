@@ -65,9 +65,7 @@ jangada-agente --janela --coordenador VOCE --projeto PASTA --nome NOME --perfil 
 - Cobre apoio protegido pelo `jangada-delegar`: leitor e redator com
   `--destino local --arquivos FONTES`; demais papéis com `--destino agy
   --permitir-remoto --arquivos FONTES`. Fontes e envio remoto exigem autorização
-  da tarefa. Leitor/redator também podem ir ao agy por escolha explícita,
-  com `--modelo gemini-3.8-flash-high` e somente fontes autorizadas;
-  recebem texto extraído, sem ferramentas ou MCP. Falha local não autoriza envio remoto. Confira referências nas fontes;
+  da tarefa; falha local não autoriza envio remoto. Leitor/redator podem ir ao agy com escolha explícita, fontes autorizadas e `--modelo gemini-3.8-flash-high`, sem ferramentas ou MCP. Confira referências nas fontes;
   registre pedido, resultado e aproveitamento, ou bloqueio. Perfil não prova participação; não use
   Ollama como alternativa automática ao agy. Não substitua por `invoke_subagent` nativo. Apoio não substitui revisão independente. Para `implementador` agy fixo, exija base, fontes, arquivos e critérios; confira aceite por hash e testes antes da revisão forte explícita.
 - Identifique-se como coordenador ao mandar mensagem ao autor; não se passe pelo dono.
