@@ -893,6 +893,18 @@ bordas para conferir assinaturas não entra nessas contagens.
         leitura ou resposta inválida, ou grupo ausente da resposta),
         `conta_sem_confianca` (conta do agy sem a pasta de trabalho confiável:
         nem lida, nem consultada) e `nao_medido_por_este_provedor`.
+      - `ultimo` (opcional): `{"percentual": N, "medido_em": "ISO UTC"}`, a
+        última medida conhecida do mesmo provedor, conta e grupo. Só aparece
+        quando `percentual` é `null` e há medida anterior válida; em grupo
+        medido e em `conta_sem_confianca` o campo não existe. É a medida mais
+        recente entre o cache local (arquivo do agy ou banco do Codex, mesmo
+        vencido) e o `cotas.json` anterior (grupo com `percentual` ou com
+        `ultimo`). Número fora de 0 a 100, data fora do formato ou no futuro,
+        arquivo anterior que não seja regular, passe de 1 MiB ou não seja JSON
+        são ignorados. Serve só para exibição: a escolha da conta, a liberação
+        do Argon e o `jangada-delegar` não o leem, e a validade de 5 minutos
+        não muda. Obtê-lo não faz consulta nova: sem
+        `--atualizar --permitir-remoto` nada sai da máquina.
 - **Fontes:**
   - Sem `--atualizar`, só leitura local: o cache do agy de cada conta
     (`~/.cache/jangada/agy-usage.json` ou `agy-usage-CONTA.json` com catálogo,

@@ -717,6 +717,169 @@ class Cotas(unittest.TestCase):
         self.assertIn('cotas.json não gravado', resposta.stderr)
         self.assertEqual(json.loads(resposta.stdout)['versao'], 1)
 
+    def anterior(self, casa, grupos_agy=(), grupos_codex=(), texto=None):
+        """Grava um cotas.json anterior; cada grupo é um dict de grupo_medido ou grupo_nulo."""
+        casa.estado.mkdir(parents=True, exist_ok=True)
+        documento = {'versao': 1, 'gerado': cotas.iso(time.time()), 'provedores': [
+            {'provedor': 'agy', 'conta': 'principal', 'grupos': list(grupos_agy), 'motivo': None},
+            {'provedor': 'codex', 'conta': None, 'grupos': list(grupos_codex), 'motivo': None}]}
+        (casa.estado / 'cotas.json').write_text(texto if texto is not None else json.dumps(documento))
+
+    def medida(self, grupo, percentual, idade, validade=60):
+        medido = time.time() - idade
+        return cotas.grupo_medido(grupo, percentual, [], cotas.ORIGEM_AGY, cotas.iso(medido), cotas.iso(medido + validade))
+
+    def banco_codex(self, casa, atualizado, valido_ate, cota=41.5):
+        banco = casa.estado / 'agentes/runtime/tarefas.sqlite'
+        banco.parent.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(banco)
+        db.execute('CREATE TABLE provedores(id TEXT PRIMARY KEY, status TEXT, motivo TEXT, atualizado REAL, '
+                   'valido_ate REAL, cota REAL, modelo TEXT, falhas INTEGER, pausado INTEGER)')
+        db.execute("INSERT INTO provedores VALUES('codex','AVAILABLE','x',?,?,?,NULL,0,0)", (atualizado, valido_ate, cota))
+        db.commit()
+        db.close()
+
+    def test_cache_vencido_do_agy_traz_o_ultimo_com_numero_e_data_do_cache(self):
+        casa = self.casa()
+        arquivo = casa.cache_agy(idade=3600)
+        documento = lido_apos(casa)
+        for nome, esperado in (('gemini', 87.5), ('3p', 90.5)):
+            grupo = grupos(documento)[nome]
+            self.assertEqual((grupo['percentual'], grupo['motivo']), (None, 'cache_vencido'))
+            self.assertEqual(grupo['ultimo'], {'percentual': esperado, 'medido_em': cotas.iso(arquivo.stat().st_mtime)})
+        cotas.validar(documento, time.time())
+
+    def test_cotas_json_anterior_mais_novo_que_o_cache_vence(self):
+        casa = self.casa()
+        casa.cache_agy(idade=3600)
+        self.anterior(casa, [self.medida('gemini', 12.5, 600)])
+        gemini = grupos(lido_apos(casa))['gemini']
+        self.assertEqual(gemini['ultimo']['percentual'], 12.5)
+        self.assertEqual(gemini['ultimo']['medido_em'], cotas.iso(time.time() - 600))
+        self.assertEqual(grupos(lido(casa))['3p']['ultimo']['percentual'], 90.5)
+
+    def test_cache_mais_novo_que_o_cotas_json_anterior_vence(self):
+        casa = self.casa()
+        casa.cache_agy(idade=3600)
+        self.anterior(casa, [self.medida('gemini', 12.5, 7200)])
+        self.assertEqual(grupos(lido_apos(casa))['gemini']['ultimo']['percentual'], 87.5)
+
+    def test_ultimo_do_cotas_json_anterior_sobrevive_a_leituras_seguintes(self):
+        casa = self.casa()
+        anterior = cotas.grupo_nulo('gemini', 'cache_vencido', cotas.ORIGEM_AGY)
+        anterior['ultimo'] = {'percentual': 95.12, 'medido_em': cotas.iso(time.time() - 900)}
+        self.anterior(casa, [anterior])
+        for _ in range(2):
+            gemini = grupos(lido_apos(casa))['gemini']
+            self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'sem_cache'))
+            self.assertEqual(gemini['ultimo'], anterior['ultimo'])
+
+    def test_medida_da_atualizacao_vira_ultimo_na_leitura_simples_seguinte(self):
+        casa = self.casa()
+        executavel(casa.bin, 'agy', "cat <<'FIM'\n%s\nFIM" % json.dumps(AGY_USO))
+        self.assertEqual(casa.router('cotas', '--atualizar', '--permitir-remoto').returncode, 0)
+        medido = grupos(lido(casa))['gemini']
+        self.assertNotIn('ultimo', medido)
+        executavel(casa.bin, 'agy', 'exit 1')
+        gemini = grupos(lido_apos(casa))['gemini']
+        self.assertIsNone(gemini['percentual'])
+        self.assertEqual(gemini['ultimo'], {'percentual': 87.5, 'medido_em': medido['medido_em']})
+        falha = casa.router('cotas', '--atualizar', '--permitir-remoto')
+        self.assertEqual(falha.returncode, 0, falha.stderr)
+        gemini = grupos(lido(casa))['gemini']
+        self.assertEqual((gemini['motivo'], gemini['ultimo']['percentual']), ('consulta_falhou', 87.5))
+
+    def test_codex_vencido_traz_o_ultimo(self):
+        casa = self.casa()
+        agora = time.time()
+        self.banco_codex(casa, agora - 600, agora - 300)
+        codex = grupos(lido_apos(casa), 'codex', None)['codex']
+        self.assertEqual((codex['percentual'], codex['motivo']), (None, 'cache_vencido'))
+        self.assertEqual(codex['ultimo'], {'percentual': 41.5, 'medido_em': cotas.iso(agora - 600)})
+
+    def test_medida_valida_nao_traz_ultimo(self):
+        casa = self.casa()
+        casa.cache_agy()
+        agora = time.time()
+        self.banco_codex(casa, agora - 10, agora + 50)
+        self.anterior(casa, [self.medida('gemini', 12.5, 600)])
+        documento = lido_apos(casa)
+        self.assertEqual(grupos(documento)['gemini']['percentual'], 87.5)
+        self.assertEqual(grupos(documento, 'codex', None)['codex']['percentual'], 41.5)
+        for provedor in documento['provedores']:
+            for grupo in provedor['grupos']:
+                self.assertNotIn('ultimo', grupo)
+
+    def test_conta_sem_confianca_continua_sem_numero_nenhum(self):
+        casa = self.casa(confia=False)
+        casa.cache_agy(idade=3600)
+        self.anterior(casa, [self.medida('gemini', 12.5, 600), self.medida('3p', 50, 600)])
+        for grupo in grupos(lido_apos(casa)).values():
+            self.assertEqual((grupo['percentual'], grupo['motivo']), (None, 'conta_sem_confianca'))
+            self.assertNotIn('ultimo', grupo)
+
+    def test_cotas_json_anterior_invalido_e_ignorado(self):
+        casa = self.casa()
+        valido = lambda **extra: dict(self.medida('gemini', 40, 600), **extra)
+        gigante = json.dumps({'versao': 1, 'provedores': [], 'folga': 'x' * cotas.LIMITE_LEITURA})
+        textos = {'corrompido': '{ruim', 'vazio': '', 'gigante': gigante, 'lista': '[1, 2]',
+                  'sem_lista': json.dumps({'provedores': {'agy': 1}}), 'NaN': '{"provedores": [{"provedor": "agy", "conta": "principal", '
+                  '"grupos": [{"grupo": "gemini", "percentual": NaN, "medido_em": "%s"}]}]}' % cotas.iso(time.time() - 60)}
+        for rotulo, grupo in (('acima_de_100', valido(percentual=100.5)), ('abaixo_de_0', valido(percentual=-1)),
+                              ('booleano', valido(percentual=True)), ('texto', valido(percentual='40')),
+                              ('data_sem_fuso', valido(medido_em='2026-10-25T00:51:24')),
+                              ('data_ruim', valido(medido_em='ontem')), ('grupo_ruim', valido(grupo='Gemini 1')),
+                              ('ultimo_fora_de_0_a_100', dict(cotas.grupo_nulo('gemini', 'sem_cache'),
+                                                              ultimo={'percentual': 101, 'medido_em': cotas.iso(time.time() - 60)}))):
+            textos[rotulo] = None
+            self.anterior(casa, [grupo])
+            textos[rotulo] = (casa.estado / 'cotas.json').read_text()
+        for rotulo, texto in textos.items():
+            with self.subTest(rotulo=rotulo):
+                self.anterior(casa, texto=texto)
+                documento = lido_apos(casa)
+                for grupo in grupos(documento).values():
+                    self.assertNotIn('ultimo', grupo)
+                cotas.validar(documento, time.time())
+        with self.subTest(rotulo='link'):
+            self.anterior(casa, [self.medida('gemini', 40, 600)])
+            real = casa.estado / 'real.json'
+            (casa.estado / 'cotas.json').rename(real)
+            (casa.estado / 'cotas.json').symlink_to(real)
+            self.assertEqual(casa.router('cotas').returncode, 0)
+            for grupo in grupos(lido(casa)).values():
+                self.assertNotIn('ultimo', grupo)
+
+    def test_data_futura_e_ignorada(self):
+        casa = self.casa()
+        casa.cache_agy(idade=-3600)
+        self.anterior(casa, [self.medida('gemini', 40, -3600)], [self.medida('codex', 30, -3600)])
+        documento = lido_apos(casa)
+        for grupo in list(grupos(documento).values()) + list(grupos(documento, 'codex', None).values()):
+            self.assertNotIn('ultimo', grupo)
+        casa.cache_agy(idade=3600)
+        self.assertEqual(grupos(lido_apos(casa))['gemini']['ultimo']['percentual'], 87.5)
+        agora = time.time()
+        self.banco_codex(casa, agora + 3600, agora + 7200)
+        self.assertNotIn('ultimo', grupos(lido_apos(casa), 'codex', None)['codex'])
+
+    def test_validador_recusa_ultimo_mal_formado(self):
+        agora = time.time()
+        ultimo = {'percentual': 50.0, 'medido_em': cotas.iso(agora - 60)}
+        nulo = cotas.grupo_nulo('gemini', 'cache_vencido', cotas.ORIGEM_AGY)
+        documento = lambda grupo: {'versao': 1, 'gerado': cotas.iso(agora),
+                                   'provedores': [{'provedor': 'agy', 'conta': 'principal', 'grupos': [grupo], 'motivo': None}]}
+        cotas.validar(documento(dict(nulo, ultimo=ultimo)), agora)
+        medido = self.medida('gemini', 50.0, 60)
+        sem_confianca = cotas.grupo_nulo('gemini', 'conta_sem_confianca')
+        for rotulo, grupo in (('com_numero', dict(medido, ultimo=ultimo)), ('sem_confianca', dict(sem_confianca, ultimo=ultimo)),
+                              ('percentual_101', dict(nulo, ultimo=dict(ultimo, percentual=101))),
+                              ('sem_data', dict(nulo, ultimo={'percentual': 50.0})),
+                              ('data_ruim', dict(nulo, ultimo=dict(ultimo, medido_em='ontem'))),
+                              ('nao_objeto', dict(nulo, ultimo=50)), ('campo_extra', dict(nulo, ultimo=dict(ultimo, origem='x')))):
+            with self.subTest(rotulo), self.assertRaises(ValueError):
+                cotas.validar(documento(grupo), agora)
+
 def lido_apos(casa):
     resposta = casa.router('cotas')
     assert resposta.returncode == 0, resposta.stderr

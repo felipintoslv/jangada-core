@@ -2,7 +2,8 @@
 
 O arquivo é derivado: nasce dos caches e das observações que já existem e não
 é lido por quem decide a delegação. Número só entra com origem e data; sem
-medição o percentual é null com o motivo.
+medição o percentual é null com o motivo. Nesse caso o grupo pode trazer
+`ultimo`, a última medida conhecida, só para exibição.
 """
 
 import datetime
@@ -150,6 +151,72 @@ def grupo_medido(grupo, percentual, janelas, origem, medido_em, valido_ate):
             'medido_em': medido_em, 'valido_ate': valido_ate, 'motivo': None}
 
 
+def lembrar(ultimas, chave, percentual, medido, agora):
+    """Guarda a medida mais recente de (provedor, conta, grupo); data futura não entra."""
+    percentual, medido = numero(percentual, 0, 100), numero(medido)
+    if percentual is None or medido is None or medido > agora:
+        return
+    if chave not in ultimas or medido > ultimas[chave][1]:
+        ultimas[chave] = (percentual, medido)
+
+
+def lembrar_cache_agy(ultimas, conta, lido, agora):
+    """Medida do cache do agy, mesmo vencido: só a data de modificação importa."""
+    if lido is None:
+        return
+    conteudo, mtime = lido
+    try:
+        dados = json.loads(conteudo)
+    except (ValueError, RecursionError):
+        return
+    for grupo in grupos_agy(dados, [], ORIGEM_AGY, None, None):
+        lembrar(ultimas, ('agy', conta, grupo['grupo']), grupo['percentual'], mtime, agora)
+
+
+def lembrar_anterior(ultimas, arquivo, agora):
+    """Medidas do cotas.json anterior: grupo com percentual numérico ou com `ultimo`."""
+    try:
+        lido = ler_regular(arquivo)
+        documento = json.loads(lido[0]) if lido else None
+    except (OSError, ValueError, RecursionError):
+        return
+    provedores = documento.get('provedores') if isinstance(documento, dict) else None
+    for provedor in provedores if isinstance(provedores, list) else []:
+        if not isinstance(provedor, dict):
+            continue
+        nome, conta = provedor.get('provedor'), provedor.get('conta')
+        if nome not in ('agy', 'codex') or not (conta is None or (isinstance(conta, str) and NOME_CONTA.fullmatch(conta))):
+            continue
+        lista = provedor.get('grupos')
+        for grupo in lista if isinstance(lista, list) else []:
+            if not isinstance(grupo, dict) or not isinstance(grupo.get('grupo'), str) or not GRUPO.fullmatch(grupo['grupo']):
+                continue
+            medida = grupo if grupo.get('percentual') is not None else grupo.get('ultimo')
+            data = medida.get('medido_em') if isinstance(medida, dict) else None
+            if isinstance(data, str) and DATA.fullmatch(data):
+                lembrar(ultimas, (nome, conta, grupo['grupo']), medida.get('percentual'), instante(data), agora)
+
+
+def lembrar_medidos(ultimas, documento, agora):
+    for provedor in documento['provedores']:
+        for grupo in provedor['grupos']:
+            if grupo['percentual'] is not None:
+                lembrar(ultimas, (provedor['provedor'], provedor['conta'], grupo['grupo']),
+                        grupo['percentual'], instante(grupo['medido_em']), agora)
+
+
+def acrescentar_ultimo(documento, ultimas):
+    """Põe `ultimo` no grupo sem número, menos quando a conta não tem confiança."""
+    for provedor in documento['provedores']:
+        for grupo in provedor['grupos']:
+            if grupo['percentual'] is not None or grupo['motivo'] == 'conta_sem_confianca':
+                continue
+            medida = ultimas.get((provedor['provedor'], provedor['conta'], grupo['grupo']))
+            medido_em = iso(medida[1]) if medida else None
+            if medido_em is not None:
+                grupo['ultimo'] = {'percentual': medida[0], 'medido_em': medido_em}
+
+
 def baldes_agy(dados):
     """Grupo -> (janelas ativas, válido). Só números, ids filtrados e datas entram."""
     grupos = {}
@@ -247,11 +314,17 @@ def consultar_agy(core, conta, catalogo):
     return json.loads(resposta.stdout)
 
 
-def medir_agy(core, conta, catalogo, atualizar, cache, agora):
+def medir_agy(core, conta, catalogo, atualizar, cache, agora, ultimas):
     esperados = grupos_esperados(conta['argon'])
     if not conta['confia']:
         return [grupo_nulo(g, 'conta_sem_confianca') for g in esperados]
     validade = validade_cache()
+    arquivo = cache / ('agy-usage-%s.json' % conta['nome'] if catalogo else 'agy-usage.json')
+    try:
+        lido, ilegivel = ler_regular(arquivo), False
+    except (OSError, ValueError):
+        lido, ilegivel = None, True
+    lembrar_cache_agy(ultimas, conta['nome'], lido, agora)
     if atualizar:
         try:
             dados = consultar_agy(core, conta, catalogo)
@@ -259,10 +332,7 @@ def medir_agy(core, conta, catalogo, atualizar, cache, agora):
             return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
         medido = time.time()
         return grupos_agy_em(dados, esperados, medido, medido + validade)
-    arquivo = cache / ('agy-usage-%s.json' % conta['nome'] if catalogo else 'agy-usage.json')
-    try:
-        lido = ler_regular(arquivo)
-    except (OSError, ValueError):
+    if ilegivel:
         return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
     if lido is None or not lido[0].strip():
         return [grupo_nulo(g, 'sem_cache') for g in esperados]
@@ -278,7 +348,7 @@ def medir_agy(core, conta, catalogo, atualizar, cache, agora):
     return grupos_agy_em(dados, esperados, mtime, mtime + validade)
 
 
-def entradas_agy(core, raiz_estado, atualizar, agora):
+def entradas_agy(core, raiz_estado, atualizar, agora, ultimas):
     catalogo = (raiz_estado / 'contas/agy.json').is_file()
     cache = pathlib.Path(os.environ.get('XDG_CACHE_HOME') or pathlib.Path.home() / '.cache') / 'jangada'
     try:
@@ -286,11 +356,11 @@ def entradas_agy(core, raiz_estado, atualizar, agora):
     except (OSError, ValueError, subprocess.SubprocessError):
         return [{'provedor': 'agy', 'conta': None, 'grupos': [], 'motivo': 'consulta_falhou'}]
     return [{'provedor': 'agy', 'conta': conta['nome'],
-             'grupos': medir_agy(core, conta, catalogo, atualizar, cache, agora), 'motivo': None}
+             'grupos': medir_agy(core, conta, catalogo, atualizar, cache, agora, ultimas), 'motivo': None}
             for conta in contas]
 
 
-def estado_codex(raiz_estado, agora):
+def estado_codex(raiz_estado, agora, ultimas):
     banco = raiz_estado / 'agentes/runtime/tarefas.sqlite'
     if not banco.is_file():
         return grupo_nulo('codex', 'sem_cache')
@@ -304,6 +374,7 @@ def estado_codex(raiz_estado, agora):
     cota, medido, valido = numero(linha['cota'], 0, 100), numero(linha['atualizado']), numero(linha['valido_ate'])
     if cota is None or medido is None or valido is None:
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
+    lembrar(ultimas, ('codex', None, 'codex'), round(cota, 2), medido, agora)
     medido_em, valido_ate = iso(medido), iso(valido)
     if medido_em is None or valido_ate is None:
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
@@ -330,8 +401,10 @@ def consulta_codex(raiz_estado, agora):
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX)
 
 
-def entrada_codex(raiz_estado, atualizar, permitir_remoto, agora):
-    grupo = consulta_codex(raiz_estado, agora) if atualizar and permitir_remoto else estado_codex(raiz_estado, agora)
+def entrada_codex(raiz_estado, atualizar, permitir_remoto, agora, ultimas):
+    grupo = estado_codex(raiz_estado, agora, ultimas)
+    if atualizar and permitir_remoto:
+        grupo = consulta_codex(raiz_estado, agora)
     return {'provedor': 'codex', 'conta': None, 'grupos': [grupo], 'motivo': None}
 
 
@@ -353,16 +426,30 @@ def montar(raiz_estado, core, atualizar=False, permitir_remoto=False, agora=None
     agora = time.time() if agora is None else agora
     # Sem --permitir-remoto nada sai da máquina, nem a consulta ao agy.
     consultar_rede = atualizar and permitir_remoto
+    ultimas = {}
+    lembrar_anterior(ultimas, raiz_estado / 'cotas.json', agora)
     documento = {'versao': VERSAO, 'gerado': iso(agora),
-                 'provedores': entradas_agy(core, raiz_estado, consultar_rede, agora)
-                 + [entrada_codex(raiz_estado, atualizar, permitir_remoto, agora),
+                 'provedores': entradas_agy(core, raiz_estado, consultar_rede, agora, ultimas)
+                 + [entrada_codex(raiz_estado, atualizar, permitir_remoto, agora, ultimas),
                     {'provedor': 'claude', 'conta': None, 'grupos': [], 'motivo': 'nao_medido_por_este_provedor'}]}
     # A validade é conferida no instante da entrega, não no da partida.
     agora = max(agora, time.time())
+    lembrar_medidos(ultimas, documento, agora)
     vencer(documento, agora)
+    acrescentar_ultimo(documento, ultimas)
     documento['gerado'] = iso(agora)
     validar(documento, agora)
     return documento
+
+
+def validar_ultimo(grupo):
+    ultimo = grupo['ultimo']
+    if grupo.get('percentual') is not None or grupo.get('motivo') == 'conta_sem_confianca':
+        raise ValueError('ultimo só cabe em grupo sem número e com conta confiável')
+    if not isinstance(ultimo, dict) or set(ultimo) != {'percentual', 'medido_em'}:
+        raise ValueError('ultimo inválido')
+    if numero(ultimo['percentual'], 0, 100) is None or not DATA.fullmatch(str(ultimo['medido_em'])):
+        raise ValueError('ultimo sem número de 0 a 100 ou sem data')
 
 
 def validar(documento, agora):
@@ -378,6 +465,8 @@ def validar(documento, agora):
             if not GRUPO.fullmatch(str(grupo.get('grupo'))):
                 raise ValueError('id de grupo inválido')
             percentual = grupo.get('percentual')
+            if 'ultimo' in grupo:
+                validar_ultimo(grupo)
             if percentual is None:
                 if grupo.get('motivo') not in MOTIVOS:
                     raise ValueError('percentual nulo exige motivo')
