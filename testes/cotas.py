@@ -456,8 +456,99 @@ class Cotas(unittest.TestCase):
             self.assertTrue(janela['renova_em'].endswith('+00:00'), janela)
         self.assertEqual(cotas.instante(janelas[0]['renova_em']), agora + 600)
 
-    def assertNulo(self, casa, grupo, motivo, *args):
-        saida = casa.router(*args)
+    def test_ambiente_e_arquivos_de_fora_do_alcance_nao_derrubam_o_comando(self):
+        gigante = '1' * 401
+        for valor in (gigante, '9' * 5000, '525601', '-5', 'abc', '1e3', '', ' 7 '):
+            with self.subTest(entrada='JANGADA_DELEGAR_CACHE no cache', valor=valor[:12]):
+                casa = self.casa()
+                casa.cache_agy()
+                saida = casa.router('cotas', JANGADA_DELEGAR_CACHE=valor)
+                self.assertEqual(saida.returncode, 0, saida.stderr)
+                documento = lido(casa)
+                cotas.validar(documento, time.time())
+                self.assertEqual(documento['provedores'][-1]['provedor'], 'claude')
+                if valor in (gigante, '9' * 5000, '525601', 'abc', '1e3', ''):
+                    gemini = grupos(documento)['gemini']
+                    self.assertEqual(gemini['percentual'], 87.5)
+                    self.assertEqual(cotas.instante(gemini['valido_ate']) - cotas.instante(gemini['medido_em']), 300)
+            with self.subTest(entrada='JANGADA_DELEGAR_CACHE na resposta', valor=valor[:12]):
+                casa = self.casa()
+                executavel(casa.bin, 'agy', "cat <<'FIM'\n%s\nFIM" % json.dumps(AGY_USO))
+                saida = casa.router('cotas', '--atualizar', '--permitir-remoto', JANGADA_DELEGAR_CACHE=valor)
+                self.assertEqual(saida.returncode, 0, saida.stderr)
+                cotas.validar(lido(casa), time.time())
+                self.assertEqual(lido(casa)['provedores'][-1]['provedor'], 'claude')
+        for valor in ('', 'a' * 100000, 'gemini-é\tx   claude-', 'gemini-4-argon- claude- gpt- ??'):
+            with self.subTest(entrada='JANGADA_DELEGAR_MODELOS', valor=valor[:12]):
+                casa = self.casa()
+                casa.cache_agy()
+                saida = casa.router('cotas', JANGADA_DELEGAR_MODELOS=valor)
+                self.assertEqual(saida.returncode, 0, saida.stderr)
+                cotas.validar(lido(casa), time.time())
+        for nome in ('arquivo', 'x' * 5000):
+            with self.subTest(entrada='XDG_CACHE_HOME', valor=nome[:12]):
+                casa = self.casa()
+                (casa.casa / '.cache').mkdir()
+                alvo = casa.casa / nome
+                if nome == 'arquivo':
+                    alvo.write_text('x')
+                self.assertNulo(casa, 'gemini', 'consulta_falhou', 'cotas', XDG_CACHE_HOME=str(alvo))
+
+        def profundo(abre, fecha):
+            return abre * 100000 + fecha * 100000
+
+        corpos = {'aninhado': profundo('[', ']'), 'sobre o limite': ' ' * (1024 * 1024 + 1) + '{}', 'utf-8 inválido': '\377'}
+        for nome, corpo in corpos.items():
+            with self.subTest(entrada='cache do agy', corpo=nome):
+                casa = self.casa()
+                casa.cache.mkdir(parents=True)
+                (casa.cache / 'agy-usage.json').write_bytes(corpo.encode('latin-1' if nome == 'utf-8 inválido' else 'utf-8'))
+                self.assertNulo(casa, 'gemini', 'consulta_falhou', 'cotas')
+        for nome, comando in (('aninhado', "head -c 100000 /dev/zero | tr '\\0' '['; head -c 100000 /dev/zero | tr '\\0' ']'"),
+                              ('sobre o limite', "head -c 1100000 /dev/zero | tr '\\0' ' '"),
+                              ('utf-8 inválido', "printf '\\377'")):
+            with self.subTest(entrada='resposta do agy', corpo=nome):
+                casa = self.casa()
+                executavel(casa.bin, 'agy', comando)
+                self.assertNulo(casa, 'gemini', 'consulta_falhou', 'cotas', '--atualizar', '--permitir-remoto')
+        for nome in ('diretório', 'link', 'fifo'):
+            with self.subTest(entrada='cache do agy', tipo=nome):
+                casa = self.casa()
+                casa.cache.mkdir(parents=True)
+                alvo = casa.cache / 'agy-usage.json'
+                if nome == 'diretório':
+                    alvo.mkdir()
+                elif nome == 'link':
+                    alvo.symlink_to(casa.cache_agy(nome='outro.json'))
+                else:
+                    os.mkfifo(alvo)
+                self.assertNulo(casa, 'gemini', 'consulta_falhou', 'cotas')
+        with self.subTest(entrada='auth.json do Codex aninhado'):
+            casa = self.casa()
+            autenticacao_falsa(casa)
+            (casa.casa / '.codex/auth.json').write_text(profundo('[', ']'))
+            self.assertNulo(casa, 'codex', 'consulta_falhou', 'cotas', '--atualizar', '--permitir-remoto')
+        with self.subTest(entrada='resposta do Codex aninhada'):
+            casa = self.casa()
+            autenticacao_falsa(casa)
+            executavel(casa.bin, 'codex', "read l; echo '{\"id\":1,\"result\":{}}'; read l; read l\n"
+                       "a=$(head -c 100000 /dev/zero | tr '\\0' '['); b=$(head -c 100000 /dev/zero | tr '\\0' ']')\n"
+                       "echo \"{\\\"id\\\":2,\\\"result\\\":$a$b}\"; sleep 1")
+            self.assertNulo(casa, 'codex', 'consulta_falhou', 'cotas', '--atualizar', '--permitir-remoto')
+        for nome in ('lixo', 'grande'):
+            with self.subTest(entrada='SQLite', corpo=nome):
+                casa = self.casa()
+                banco = casa.estado / 'agentes/runtime/tarefas.sqlite'
+                banco.parent.mkdir(parents=True)
+                if nome == 'lixo':
+                    banco.write_bytes(b'isto nao e um banco' * 100)
+                else:
+                    with banco.open('wb') as arquivo:
+                        arquivo.truncate(cotas.LIMITE_BANCO + 1)
+                self.assertNulo(casa, 'codex', 'consulta_falhou', 'cotas')
+
+    def assertNulo(self, casa, grupo, motivo, *args, **ambiente):
+        saida = casa.router(*args, **ambiente)
         self.assertEqual(saida.returncode, 0, saida.stderr)
         documento = lido(casa)
         cotas.validar(documento, time.time())

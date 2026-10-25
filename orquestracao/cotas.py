@@ -28,6 +28,9 @@ ORIGEM_AGY = 'agy -p /usage'
 ORIGEM_CODEX = 'codex app-server account/rateLimits/read'
 ORIGEM_CODEX_ESTADO = 'estado dos provedores'
 LIMITE_LEITURA = 1024 * 1024
+LIMITE_BANCO = 64 * 1024 * 1024
+CACHE_PADRAO = 5
+CACHE_TETO = 365 * 24 * 60
 GRUPO = re.compile(r'[a-z0-9-]+')
 BALDE = re.compile(r'(.+)-(5h|weekly)')
 NOME_CONTA = re.compile(r'[A-Za-z0-9_-]+')
@@ -107,10 +110,12 @@ def renovacao(texto):
 
 def validade_cache():
     try:
-        minutos = int(os.environ.get('JANGADA_DELEGAR_CACHE', '5'))
+        minutos = int(os.environ.get('JANGADA_DELEGAR_CACHE', str(CACHE_PADRAO)))
     except ValueError:
-        minutos = 5
-    return max(minutos, 0) * 60
+        minutos = CACHE_PADRAO
+    # Acima do teto a soma com a data não caberia em datetime: vale o padrão.
+    minutos = numero(minutos, None, CACHE_TETO)
+    return max(CACHE_PADRAO if minutos is None else minutos, 0) * 60
 
 
 def grupo_do_modelo(modelo):
@@ -249,7 +254,7 @@ def medir_agy(core, conta, catalogo, atualizar, cache, agora):
     if atualizar:
         try:
             dados = consultar_agy(core, conta, catalogo)
-        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        except (OSError, ValueError, TypeError, RecursionError, subprocess.SubprocessError):
             return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
         medido = time.time()
         return grupos_agy_em(dados, esperados, medido, medido + validade)
@@ -267,7 +272,7 @@ def medir_agy(core, conta, catalogo, atualizar, cache, agora):
                            iso(mtime + validade) if passado else None) for g in esperados]
     try:
         dados = json.loads(conteudo)
-    except ValueError:
+    except (ValueError, RecursionError):
         return [grupo_nulo(g, 'consulta_falhou', ORIGEM_AGY) for g in esperados]
     return grupos_agy_em(dados, esperados, mtime, mtime + validade)
 
@@ -289,7 +294,7 @@ def estado_codex(raiz_estado, agora):
     if not banco.is_file():
         return grupo_nulo('codex', 'sem_cache')
     try:
-        with banco_leitura(banco) as db:
+        with banco_leitura(banco, LIMITE_BANCO) as db:
             linha = db.execute("SELECT cota, atualizado, valido_ate FROM provedores WHERE id='codex'").fetchone()
     except (OSError, ValueError, sqlite3.Error):
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
@@ -320,7 +325,7 @@ def consulta_codex(raiz_estado, agora):
         if medido_em is None or valido_ate is None or any(j['renova_em'] is None for j in janelas):
             return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX)
         return grupo_medido('codex', round(cota, 2), janelas, ORIGEM_CODEX, medido_em, valido_ate)
-    except (OSError, OverflowError, ValueError, TypeError, subprocess.SubprocessError):
+    except (OSError, OverflowError, ValueError, TypeError, RecursionError, subprocess.SubprocessError):
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX)
 
 
