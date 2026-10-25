@@ -346,7 +346,7 @@ class Cotas(unittest.TestCase):
         gigantes = [10 ** 20, -10 ** 20, 10 ** 400, 253402300800, float('inf'), float('nan')]
         for valor in gigantes + [1e20, -1e20, 1e308]:
             self.assertIsNone(cotas.iso(valor), valor)
-            self.assertIsNone(cotas.iso(valor, utc=True), valor)
+            self.assertIsNone(cotas.iso(valor), valor)
         for texto in ruins + gigantes:
             self.assertIsNone(cotas.renovacao(texto), texto)
         self.assertEqual(cotas.renovacao('9999-12-31T23:59:59+00:00'), '9999-12-31T23:59:59+00:00')
@@ -439,7 +439,7 @@ class Cotas(unittest.TestCase):
         self.assertEqual(saida.returncode, 0, saida.stderr)
         janelas = grupos(lido(casa))['gemini']['janelas']
         self.assertEqual([j['renova_em'] for j in janelas], ['2026-10-30T23:23:36+00:00', '2026-10-25T00:51:24+00:00'])
-        self.assertTrue(lido(casa)['gerado'].endswith('-03:00'), 'o TZ do teste não chegou ao processo')
+        self.assertTrue(lido(casa)['gerado'].endswith('+00:00'))
         casa = self.casa()
         autenticacao_falsa(casa)
         agora = int(time.time())
@@ -546,6 +546,34 @@ class Cotas(unittest.TestCase):
                     with banco.open('wb') as arquivo:
                         arquivo.truncate(cotas.LIMITE_BANCO + 1)
                 self.assertNulo(casa, 'codex', 'consulta_falhou', 'cotas')
+
+    def test_data_com_fuso_local_de_segundos_nao_derruba_o_comando(self):
+        # Antes de 1914 o America/Sao_Paulo tem deslocamento -03:06:28; todo instante sai em UTC.
+        casa = self.casa()
+        banco = casa.estado / 'agentes/runtime/tarefas.sqlite'
+        banco.parent.mkdir(parents=True)
+        db = sqlite3.connect(banco)
+        db.execute('CREATE TABLE provedores(id TEXT PRIMARY KEY, status TEXT, motivo TEXT, atualizado REAL, '
+                   'valido_ate REAL, cota REAL, modelo TEXT, falhas INTEGER, pausado INTEGER)')
+        db.execute("INSERT INTO provedores VALUES('codex','AVAILABLE','x',-2208988800,?,41.5,NULL,0,0)", (time.time() + 600,))
+        db.commit()
+        db.close()
+        uso = json.loads(json.dumps(AGY_USO))
+        uso['command']['data']['groups'][0]['buckets'][0]['reset_time'] = '1899-12-31T20:53:32-03:06:28'
+        casa.cache_agy(uso)
+        saida = casa.router('cotas', TZ='America/Sao_Paulo')
+        self.assertEqual(saida.returncode, 0, saida.stderr)
+        documento = lido(casa)
+        cotas.validar(documento, time.time())
+        self.assertEqual(json.loads(saida.stdout), documento)
+        self.assertEqual(documento['provedores'][-1]['provedor'], 'claude')
+        codex = grupos(documento, 'codex', None)['codex']
+        self.assertEqual((codex['percentual'], codex['medido_em']), (41.5, '1900-01-01T00:00:00+00:00'))
+        self.assertEqual(grupos(documento)['gemini']['janelas'][0]['renova_em'], '1900-01-01T00:00:00+00:00')
+        datas = [documento['gerado']] + [grupo[campo] for entrada in documento['provedores'] for grupo in entrada['grupos']
+                                          for campo in ('medido_em', 'valido_ate') if grupo[campo]]
+        for data in datas:
+            self.assertTrue(data.endswith('+00:00'), data)
 
     def assertNulo(self, casa, grupo, motivo, *args, **ambiente):
         saida = casa.router(*args, **ambiente)

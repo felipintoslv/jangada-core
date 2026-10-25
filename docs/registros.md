@@ -845,7 +845,7 @@ bordas para conferir assinaturas não entra nessas contagens.
   também o imprime.
 - **Campos:**
   - `versao`: sempre `1`.
-  - `gerado`: data da geração, com fuso.
+  - `gerado`: data da geração, em UTC (`+00:00`).
   - `provedores`: lista, nesta ordem: uma entrada do agy por conta do
     catálogo `contas/agy.json` (sem catálogo, só `principal`), o Codex e o Claude.
     - `provedor`: `agy`, `codex` ou `claude`.
@@ -870,9 +870,9 @@ bordas para conferir assinaturas não entra nessas contagens.
       - `origem`: de onde veio o número (`agy -p /usage`,
         `codex app-server account/rateLimits/read` ou `estado dos provedores`).
         Todo número tem origem.
-      - `medido_em`: data da medição, com fuso. No cache do agy é a data de
+      - `medido_em`: data da medição, em UTC. No cache do agy é a data de
         modificação do arquivo. Todo número tem data.
-      - `valido_ate`: fim da validade. Um número só aparece com `valido_ate`
+      - `valido_ate`: fim da validade, em UTC. Um número só aparece com `valido_ate`
         futuro; dado vencido não é reaproveitado.
       - `motivo`: por que `percentual` é `null`, ou `null` quando medido:
         `sem_cache` (nada lido), `cache_vencido` (cache ou observação além da

@@ -63,13 +63,14 @@ done <<<"$contas"
 FALHAS_DE_DATA = (ValueError, OverflowError, OSError, TypeError)
 
 
-def iso(segundos, utc=False):
-    """Segundos desde a época como ISO-8601 com fuso, ou None se não representável."""
+def iso(segundos):
+    """Segundos desde a época como ISO-8601 em UTC, ou None se não representável.
+
+    Sempre UTC: o fuso local pode ter deslocamento com segundos (antes de 1914), que
+    DATA recusa.
+    """
     try:
-        if utc:
-            data = datetime.datetime.fromtimestamp(float(segundos), datetime.timezone.utc)
-        else:
-            data = datetime.datetime.fromtimestamp(float(segundos)).astimezone()
+        data = datetime.datetime.fromtimestamp(float(segundos), datetime.timezone.utc)
         return data.isoformat(timespec='seconds')
     except FALHAS_DE_DATA:
         return None
@@ -105,7 +106,7 @@ def arredondar(valor):
 def renovacao(texto):
     """ISO-8601 em UTC, ou None se o texto não for uma data com fuso representável."""
     segundos = instante(texto)
-    return None if segundos is None else iso(segundos, utc=True)
+    return None if segundos is None else iso(segundos)
 
 
 def validade_cache():
@@ -319,7 +320,7 @@ def consulta_codex(raiz_estado, agora):
         medido = time.time()
         cota, validade = percentual_codex(dados, medido)
         confirmadas, _ = janelas_codex(dados, medido)
-        janelas = [{'id': 'codex-' + nome, 'percentual': round(restante, 2), 'renova_em': iso(fim, utc=True)}
+        janelas = [{'id': 'codex-' + nome, 'percentual': round(restante, 2), 'renova_em': iso(fim)}
                    for nome, restante, fim in confirmadas]
         medido_em, valido_ate = iso(medido), iso(medido + validade)
         if medido_em is None or valido_ate is None or any(j['renova_em'] is None for j in janelas):
