@@ -1,10 +1,34 @@
-# Piloto de autor, implementador e revisor
+# Autor, implementador e revisor
 
 O autor delimita a atividade, seleciona especialistas e confere os arquivos.
 O implementador agy escreve numa cópia isolada. O autor inspeciona, aceita e
 testa antes da revisão independente. Nenhum resultado do executor autoriza
 commit, integração ou exclusão. O coordenador continua sendo a sessão externa;
 um nome declarado não comprova identidade, autoridade ou modelo real.
+
+## Adoção opcional do implementador
+
+O autor padrão escreve. O implementador `gemini-3.8-flash-high` é uma opção
+que o coordenador liga no pedido da tarefa. Vale só para tarefa pequena e bem
+especificada: arquivos exatos, critério testável e nenhum caso extremo de
+formato, como parsing de CSV com aspas. Sem a opção no pedido, o autor não
+chama o implementador.
+
+O teto é de 3 chamadas por tarefa, e a chamada com `saida_invalida` conta no
+teto. Acabado o teto, o autor termina à mão e registra no corpo do commit
+quais linhas são dele. Seguem obrigatórios a cópia isolada, a base exata, o
+aceite pelo hash, os testes e a revisão independente.
+
+Resultado do piloto MOD-06 (relatório de 25/10/2026): em seis ciclos
+comparáveis, delegar não reduziu o gasto do autor. A saída somou 28.306 tokens
+delegando contra 18.372 escrevendo. O Flash escreveu código aceito sem linha
+à mão em duas tarefas pequenas. Na tarefa de casos extremos de parsing os dois
+arranjos pararam no limite de rodadas, e o autor corrigiu à mão. O dono decidiu
+a adoção opcional em 25/10/2026.
+
+Voltar atrás é parar de ligar a opção nos pedidos. Nada muda sozinho, nenhum
+padrão foi trocado e não existe chave de configuração para isso. O MOD-04
+(Flash como autor de sessão) fica parado.
 
 ## Modelos por tarefa
 
@@ -22,7 +46,7 @@ jangada-agente --perfil codex-claude --projeto PASTA --nome TAREFA \
   --revisor-modelo opus --revisor-esforco high --prompt-arquivo PEDIDO
 ```
 
-O piloto é explícito: `--autor-modelo` ou `JANGADA_AUTOR_MODELO` ativa o contrato.
+A seleção é explícita: `--autor-modelo` ou `JANGADA_AUTOR_MODELO` ativa o contrato.
 Os perfis padrão conservam o comportamento antigo quando não há seleção.
 Precedência: opções da abertura, campos do perfil pessoal ou padrão, campos
 da configuração global/ambiente. Quando o modelo vem de uma opção, o esforço
@@ -49,7 +73,7 @@ o campo `comando` nunca é executado.
 
 O CLI recebe explicitamente modelo e esforço. Isso registra o pedido ao
 provedor; não é atestado da identidade interna do serviço. Indisponibilidade
-do modelo falha sem trocar a seleção do autor. No piloto, a revisão deve ser
+do modelo falha sem trocar a seleção do autor. Com essa seleção, a revisão deve ser
 chamada com `--revisor` explícito, para impedir as alternativas antigas do
 validador: `jangada-validar --revisor claude --modelo opus --esforco high`.
 Para autor Claude, use `--revisor codex --modelo gpt-6.1-sol --esforco high`.
@@ -101,7 +125,7 @@ O D-Bus, quando disponível, exige atributos de keyring já configurados em
 `JANGADA_ISOLAR_KEYRING_ITEM`. Somente leitura dos itens selecionados volta ao
 executor; ele não pode criar, substituir ou excluir credenciais. Não se libera
 o serviço inteiro. Falha de autenticação ou necessidade de renovar login
-impede a prova. O piloto não altera a configuração pessoal para contorná-la.
+impede a prova. O implementador não altera a configuração pessoal para contorná-la.
 
 Chamado de dentro da sessão isolada do autor, o implementador lê o keyring por
 `$XDG_RUNTIME_DIR/bus-implementacao`, soquete que o isolamento de fora liga

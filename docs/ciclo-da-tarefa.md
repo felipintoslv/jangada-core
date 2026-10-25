@@ -504,12 +504,19 @@ prazo para sair.
 | `testes/confianca-agy-fluxo.sh` | confiança do agy na abertura, no reaproveitamento e na retomada |
 | `testes/contratos-consulta.sh` | consultas de `jangada-agentes` sem gravar no estado e limpeza explícita das órfãs |
 
-## Piloto com implementador
+## Implementador opcional
 
-O piloto permite selecionar autor e revisor por tarefa e delegar uma atividade
-com arquivos exatos ao agy. O autor inspeciona, aceita pelo hash e testa;
-o revisor independente continua obrigatório.
-Veja o [contrato do piloto](coordenacao-central/10-executor-agy.md).
+É possível selecionar autor e revisor por tarefa. O autor padrão escreve. O
+coordenador pode ligar no pedido a delegação de uma atividade com arquivos
+exatos ao implementador agy, só em tarefa pequena e bem especificada. Sem a
+opção no pedido, o autor não chama o implementador. O autor inspeciona, aceita
+pelo hash e testa; o revisor independente continua obrigatório.
+
+O teto é de 3 chamadas por tarefa, e a chamada com `saida_invalida` conta no
+teto. Acabado o teto, o autor termina à mão e registra no corpo do commit
+quais linhas são dele. Voltar atrás é parar de ligar a opção nos pedidos:
+nenhum padrão foi trocado e o MOD-04 fica parado. Os números do piloto MOD-06
+estão no [contrato](coordenacao-central/10-executor-agy.md).
 
 ## Worktrees dos agentes
 

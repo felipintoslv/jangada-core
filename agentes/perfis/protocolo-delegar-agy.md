@@ -35,8 +35,12 @@
    - Papel local só leitor ou redator; o modelo local nunca é revisor
      independente nem emite o parecer do supervisor.
 
-   - Exceção delimitada: `jangada-delegar implementador` edita somente cópia
+   - Exceção delimitada, só com a opção ligada no pedido do coordenador e em
+     tarefa pequena e bem especificada; sem a opção, não chame.
+     `jangada-delegar implementador` edita somente cópia
      isolada, com base exata, fontes, arquivos permitidos e critérios. Modelo
      fixo `gemini-3.8-flash-high`, sem terminal ou alternativa automática.
+     Teto de 3 chamadas por tarefa; `saida_invalida` conta no teto. Acabado o
+     teto, termine à mão e registre no corpo do commit quais linhas são suas.
      Inspecione e aceite pelo hash; teste antes da revisão independente.
      Especialistas de leitura continuam sem escrita; resultado não aprova.

@@ -1223,12 +1223,21 @@ Os campos de cada arquivo estão em [registros](registros.md).
 | `testes/delegar.sh` | `jangada-delegar` com agy falso: recusas (entre elas o leitor sem o hook no agy), cota, corte do relatório e registro |
 | `testes/validar.sh` | o campo `subagentes` e o `subagentes_erro` do `validar.jsonl` |
 
-## Implementador do piloto
+## Implementador opcional
 
 A exceção à leitura é o papel `implementador`, exclusivo do caminho protegido
 de implementação. Ele edita uma cópia sem Git e sem terminal; os outros papéis
 continuam sem escrita. Relatório leitor nunca substitui revisão independente.
-Veja o [contrato do piloto](coordenacao-central/10-executor-agy.md).
+Veja o [contrato](coordenacao-central/10-executor-agy.md).
+
+O autor só chama o implementador quando o coordenador liga a opção no pedido,
+em tarefa pequena e bem especificada (arquivos exatos, critério testável, sem
+casos extremos de formato). O teto é de 3 chamadas por tarefa, e a chamada com
+`saida_invalida` conta no teto. Acabado o teto, o autor termina à mão e
+registra no corpo do commit quais linhas são dele. No piloto MOD-06 (relatório
+de 25/10/2026), delegar não reduziu o gasto do autor: 28.306 tokens de saída
+contra 18.372 escrevendo. Voltar atrás é parar de ligar a opção nos pedidos;
+nenhum padrão foi trocado e o MOD-04 fica parado.
 
 Sem login do agy, o implementador grava `motivo_codigo` `sem_login_agy` só
 quando o isolador detecta a falta: sessão sem o soquete do implementador, item

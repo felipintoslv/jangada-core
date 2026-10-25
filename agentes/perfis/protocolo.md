@@ -9,7 +9,8 @@ durante toda a conversa.
    coisa e siga as regras dele, inclusive a de testes.
 3. Faça commits pequenos, com mensagem em português e sem linha
    `Co-Authored-By`. Resumo curto no padrão do `git log` do projeto; corpo
-   só para o porquê.
+   só para o porquê e, se o teto do implementador acabou, para as linhas
+   feitas à mão.
 4. Ao executar suítes de testes ou comandos com saída extensa no terminal,
    utilize `jangada-filtrar` (ou o atalho `resumir` no jangada shell) para
    condensar a saída e economizar tokens do contexto. Para consultar a
@@ -24,6 +25,9 @@ durante toda a conversa.
    (`sandbox_permissions: "require_escalated"`, com justificativa curta): dentro
    dela os revisores não gravam as próprias pastas e falham. O dono aprova na
    janela.
+   Quando o pedido do coordenador manda esperar o aval, não rode
+   `jangada-validar` antes dele, nem de novo depois de corrigir um REVISAR sem
+   novo aval.
    - `STATUS: APROVADO`: resuma o que foi feito e pare.
    - `STATUS: REVISAR`: o revisor pode errar. Confira cada apontamento no
      código, corrija o que for procedente, faça commit e rode de novo dizendo

@@ -888,8 +888,18 @@ de `revisoes/` faz o `jangada-isolar` recusar qualquer lançamento. As duas
 pastas ficam ocultas; só a foto escolhida volta, somente leitura.
 Prompts e protocolos são registrados antes de iniciar ou retomar a sessão.
 
-## Piloto do implementador agy
+## Implementador agy (opcional)
 
+- O autor padrão escreve. Só chame `jangada-delegar implementador` quando o
+  pedido do coordenador ligar a opção, em tarefa pequena e bem especificada:
+  arquivos exatos, critério testável, sem casos extremos de formato (parsing
+  de CSV com aspas). Sem a opção no pedido, não chame.
+- Teto de 3 chamadas por tarefa; a chamada com `saida_invalida` conta no teto.
+  Acabado o teto, termine à mão e registre no corpo do commit quais linhas
+  são suas.
+- Piloto MOD-06 (relatório de 25/10/2026): delegar não reduziu o gasto do
+  autor (28.306 tokens de saída contra 18.372). Voltar atrás é parar de ligar
+  a opção nos pedidos; nenhum padrão foi trocado e o MOD-04 fica parado.
 - Selecione modelo e esforço do autor na abertura; `modelos_tarefa` protegido
   conserva a escolha na restauração, sem executar `.comando`.
 - `jangada-delegar implementador` exige base SHA exata, fontes, arquivos
@@ -925,7 +935,7 @@ Prompts e protocolos são registrados antes de iniciar ou retomar a sessão.
 - `aceita_pelo_autor` não significa testes passados nem revisão aprovada.
   Chame revisão forte com provedor explícito, sem alternativas automáticas.
 
-Contrato: [piloto](../../../../docs/coordenacao-central/10-executor-agy.md).
+Contrato: [implementador](../../../../docs/coordenacao-central/10-executor-agy.md).
 
 - Em Arch com systemd-resolved, `/etc/resolv.conf` pode apontar para `/run`.
   Ocultar `/run` também oculta o DNS. A implementação devolve somente leitura

@@ -43,6 +43,7 @@ Grave o pedido num arquivo e passe por `--prompt-arquivo`. Ele traz:
 - campo novo de registro: `docs/registros.md` e `testes/contratos/registros.json` nos arquivos permitidos;
 - "sem configuração nova fica idêntico" com teste que compara a saída real com a base;
 - uma subtarefa útil e delimitada de apoio agy, conforme "Acompanhar", com o comando rodado por você antes de colá-lo (papel posicional; `--arquivos` com arquivos separados por espaço). Antes de abrir, peça ao agy uma leitura do pedido contra o `AGENTS.md`;
+- a ordem de esperar seu aval antes de `jangada-validar` e após cada REVISAR; ligue o implementador Flash só em tarefa pequena e bem especificada, com teto de 3 chamadas (`saida_invalida` conta; acabado o teto, o autor termina à mão e registra as linhas dele no commit; sem a opção, o autor escreve; voltar atrás é parar de ligar a opção);
 - "rode `jangada-validar`; pare no parecer; no limite de rodadas, pare sem `--forcar`";
 - "não envie ao remoto e não integre".
 
@@ -53,7 +54,7 @@ jangada-agente --janela --coordenador VOCE --projeto PASTA --nome NOME --perfil 
 ```
 
 - `VOCE` é `claude`, `codex` ou `agy`; a Central e o painel mostram quem coordena.
-- Perfis: `claude-codex` e `codex-claude` (autor-revisor). Confira as cotas semanais. Selecione o piloto com `--autor-modelo` e `--autor-esforco`; isso não altera esta sessão coordenadora.
+- Perfis: `claude-codex` e `codex-claude` (autor-revisor). Confira as cotas semanais. Selecione modelo e esforço do autor com `--autor-modelo` e `--autor-esforco`; isso não altera esta sessão coordenadora.
 - Com o Codex como autor, avise das aprovações descritas adiante antes de abrir.
 - No máximo duas tarefas de escrita simultâneas; arquivos sobrepostos vão em sequência.
 
