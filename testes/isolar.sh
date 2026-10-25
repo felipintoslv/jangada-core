@@ -508,10 +508,12 @@ EOF
   # O keyring só é liberado para o agy. O proxy falso anota o que recebeu.
   mkdir -m 0700 "$tmp/run"
   mkdir -p "$tmp/proxy-falso" "$tmp/agy-falso"
-  printf '#!/bin/sh\nprintf "%%s\\n" "$@" >"$PROXY_ARGS"\nprintf x\n' >"$tmp/proxy-falso/xdg-dbus-proxy"
+  # O proxy do implementador (segundo soquete) grava em .impl; o do autor, em $PROXY_ARGS.
+  printf '#!/bin/sh\ncase "$2" in *bus-implementacao*) d="$PROXY_ARGS.impl" ;; *) d="$PROXY_ARGS" ;; esac\nprintf "%%s\\n" "$@" >"$d"\nprintf x\n' >"$tmp/proxy-falso/xdg-dbus-proxy"
   printf '#!/bin/sh\n' >"$tmp/agy-falso/agy"
   chmod +x "$tmp/proxy-falso/xdg-dbus-proxy" "$tmp/agy-falso/agy"
   proxy() {
+    rm -f "$tmp/proxy.args.impl"
     isolar "$tmp/wt" PATH="$tmp/proxy-falso:$1/usr/bin:/bin" PROXY_ARGS="$tmp/proxy.args" XDG_RUNTIME_DIR="$tmp/run" \
       DBUS_SESSION_BUS_ADDRESS=unix:path=/nada "${@:2}" "$repo_jangada/bin/jangada-isolar" -- true >/dev/null 2>>"$tmp/isolar.err"
   }
@@ -538,6 +540,12 @@ EOF
     conferir "keyring por item: a coleção do item aceita busca e gravação" \
       bash -c 'grep -qxF -- "--call=org.freedesktop.secrets=org.freedesktop.Secret.Collection.SearchItems@/org/freedesktop/secrets/collection/cofre" "$1" \
         && grep -qxF -- "--call=org.freedesktop.secrets=org.freedesktop.Secret.Collection.CreateItem@/org/freedesktop/secrets/collection/cofre" "$1"' _ "$tmp/proxy.args"
+    # O segundo proxy, do implementador: só leitura do item achado, sem gravação.
+    conferir "keyring por item: o proxy do implementador lê só o item achado" \
+      bash -c 'grep -qxF -- "--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/cofre/7" "$1" \
+        && ! grep -qF "=*@" "$1" && ! grep -qF CreateItem "$1" && ! grep -qxF -- --talk=org.freedesktop.secrets "$1"' _ "$tmp/proxy.args.impl"
+    conferir "keyring por item: o proxy do implementador busca na coleção do item" \
+      grep -qxF -- "--call=org.freedesktop.secrets=org.freedesktop.Secret.Collection.SearchItems@/org/freedesktop/secrets/collection/cofre" "$tmp/proxy.args.impl"
     # O jangada.conf não passa pelo shell: o valor com espaço vai sem aspas.
     rm -f "$tmp/proxy.args.gdbus"
     mkdir -p "$tmp/config/jangada"
