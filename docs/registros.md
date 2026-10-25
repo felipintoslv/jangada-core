@@ -709,7 +709,13 @@ subagente tem `.db` próprio.
     ferramentas, ou texto vazio quando não houve esse executor.
     Esses quatro campos são opcionais em registros anteriores.
   - `motivo_codigo`: motivo estável da recusa; vazio no sucesso. O
-    implementador usa `sem_login_agy` quando o agy fica sem o item do keyring.
+    implementador usa `sem_login_agy` só quando o isolador detecta a falta do
+    login: sessão sem o soquete do implementador, item ausente no keyring ou
+    código 69. Com o item presente e a credencial do agy vencida ou inválida,
+    o agy sai com código 1 e o registro diz `erro_execucao`, com o código de
+    saída no `motivo`; a renovação do login é feita fora do isolamento.
+    Sem o agy real não há sinal confiável da falha de autenticação, e o dono
+    decidiu esse escopo em 25/10/2026.
   - `verificacao`: `nao_exigida`, `reprovada`, `referencias_validas` ou
     `referencias_e_requisitos_validos`, com explicações e referências por requisito.
     Extração tipada usa `estrutura_e_referencias_validas`: campos, tipos,

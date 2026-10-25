@@ -318,6 +318,14 @@ Sem o soquete, a chamada aninhada sai com código 69 e a linha
 implementador ficou sem login no keyring". Fora do isolamento, o perfil
 `implementacao` com busca vazia também sai com 69.
 
+`sem_login_agy` vale só quando o isolador detecta a falta: sessão sem o
+soquete do implementador, item ausente no keyring ou código 69. Com o item
+presente e a credencial do agy vencida ou inválida, o agy sai com código 1 e
+o registro diz `erro_execucao`, com o código de saída no `motivo`. A
+renovação do login é feita fora do isolamento. Não há sinal confiável da
+falha de autenticação sem o agy real, pois a mensagem de login também aparece
+nas chamadas boas. O dono decidiu esse escopo em 25/10/2026.
+
 Os atributos do item do agy não estão documentados. Para listar os de todos
 os itens, sem os segredos, num terminal fora do isolamento:
 

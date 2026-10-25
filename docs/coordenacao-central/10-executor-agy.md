@@ -109,6 +109,14 @@ com o filtro do implementador (ver [isolamento](../isolamento.md), "Implementado
 chamado de dentro do isolamento"). Sem esse soquete a execução falha com
 `motivo_codigo` `sem_login_agy`, distinto de `erro_execucao`.
 
+`sem_login_agy` vale só quando o isolador detecta a falta: sessão sem o
+soquete do implementador, item ausente no keyring ou código 69. Com o item
+presente e a credencial do agy vencida ou inválida, o agy sai com código 1 e
+o registro diz `erro_execucao`, com o código de saída no `motivo`. A
+renovação do login é feita fora do isolamento. Não há sinal confiável da
+falha de autenticação sem o agy real, pois a mensagem de login também aparece
+nas chamadas boas. O dono decidiu esse escopo em 25/10/2026.
+
 Montagens de arquivo não aceitam substituição por rename. Se uma ferramenta
 de edição do agy exigir esse mecanismo, a chamada falha e mantém diagnóstico;
 não se libera o diretório. Arquivos temporários do CLI ficam em memória e não

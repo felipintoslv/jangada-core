@@ -1198,6 +1198,14 @@ de implementação. Ele edita uma cópia sem Git e sem terminal; os outros papé
 continuam sem escrita. Relatório leitor nunca substitui revisão independente.
 Veja o [contrato do piloto](coordenacao-central/10-executor-agy.md).
 
+Sem login do agy, o implementador grava `motivo_codigo` `sem_login_agy` só
+quando o isolador detecta a falta: sessão sem o soquete do implementador, item
+ausente no keyring ou código 69. Com o item presente e a credencial vencida ou
+inválida, o agy sai com código 1 e o registro diz `erro_execucao`, com o código
+de saída no `motivo`; a renovação do login é feita fora do isolamento. Não há
+sinal confiável da falha de autenticação sem o agy real. O dono decidiu esse
+escopo em 25/10/2026. Os detalhes estão em [isolamento](isolamento.md).
+
 ## Critérios de acompanhamento do apoio
 
 A aba Autonomia de agentes e o `jangada-subagentes`, ambos comandos opcionais fora do Core por ora, mostram os indicadores
