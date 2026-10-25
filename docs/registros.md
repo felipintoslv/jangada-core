@@ -873,6 +873,12 @@ bordas para conferir assinaturas não entra nessas contagens.
       - `percentual`: cota restante de 0 a 100, duas casas, a menor entre as
         janelas ativas do grupo (a mesma conta do `cota_do_grupo` do
         `jangada-delegar`). `null` quando não houve medição, nunca 0 nem 50.
+        Vale a medida válida mais recente entre o cache local e o `cotas.json`
+        anterior: se o grupo do arquivo anterior tem número, `medido_em` mais
+        novo que o da medição local (vencida ou não) e `valido_ate` ainda no
+        futuro, ele é republicado como está, com a origem, as datas e a
+        validade dele, sem estender nada. É o caso da medida de `--atualizar`,
+        que não grava no cache do agy.
       - `janelas`: as janelas que entraram na conta; vazia quando
         `percentual` é `null` ou vem do estado dos provedores.
         - `id`: `gemini-5h`, `gemini-weekly`, `codex-primary` e assim por diante.
@@ -885,7 +891,7 @@ bordas para conferir assinaturas não entra nessas contagens.
       - `medido_em`: data da medição, em UTC. No cache do agy é a data de
         modificação do arquivo. Todo número tem data.
       - `valido_ate`: fim da validade, em UTC. Um número só aparece com `valido_ate`
-        futuro; dado vencido não é reaproveitado.
+        futuro; dado vencido não é reaproveitado como `percentual`, só como `ultimo`.
       - `motivo`: por que `percentual` é `null`, ou `null` quando medido:
         `sem_cache` (nada lido), `cache_vencido` (cache ou observação além da
         validade, ou com data futura; `origem`, `medido_em` e `valido_ate`

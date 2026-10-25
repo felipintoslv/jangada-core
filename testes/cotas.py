@@ -774,20 +774,61 @@ class Cotas(unittest.TestCase):
             self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'sem_cache'))
             self.assertEqual(gemini['ultimo'], anterior['ultimo'])
 
-    def test_medida_da_atualizacao_vira_ultimo_na_leitura_simples_seguinte(self):
+    def vencer_anterior(self, casa, grupo='gemini'):
+        arquivo = casa.estado / 'cotas.json'
+        documento = json.loads(arquivo.read_text())
+        for entrada in documento['provedores']:
+            for item in entrada['grupos']:
+                if item['grupo'] == grupo and item['percentual'] is not None:
+                    item['valido_ate'] = cotas.iso(time.time() - 1)
+        arquivo.write_text(json.dumps(documento))
+
+    def test_medida_da_atualizacao_sobrevive_ao_cache_antigo_ate_vencer_e_depois_vira_ultimo(self):
         casa = self.casa()
         executavel(casa.bin, 'agy', "cat <<'FIM'\n%s\nFIM" % json.dumps(AGY_USO))
         self.assertEqual(casa.router('cotas', '--atualizar', '--permitir-remoto').returncode, 0)
-        medido = grupos(lido(casa))['gemini']
-        self.assertNotIn('ultimo', medido)
+        t1 = grupos(lido(casa))['gemini']
+        self.assertEqual(t1['percentual'], 87.5)
+        antigo = json.loads(json.dumps(AGY_USO))
+        antigo['command']['data']['groups'][0]['buckets'][0]['remaining_fraction'] = 0.5
+        antigo['command']['data']['groups'][0]['buckets'][1]['remaining_fraction'] = 0.5
+        casa.cache_agy(antigo, idade=60)
         executavel(casa.bin, 'agy', 'exit 1')
+        # Cache T0 ainda válido e mais velho: vale a medida T1, com a validade dela.
+        publicado = grupos(lido_apos(casa))['gemini']
+        self.assertEqual(publicado, t1)
+        self.assertNotIn('ultimo', publicado)
+        self.assertEqual(grupos(lido(casa))['3p']['percentual'], 90.5)
+        # T1 venceu e o cache T0 também: T1 só entra como `ultimo`.
+        self.vencer_anterior(casa)
+        casa.cache_agy(antigo, idade=3600)
+        vencido = grupos(lido_apos(casa))['gemini']
+        self.assertEqual((vencido['percentual'], vencido['motivo']), (None, 'cache_vencido'))
+        self.assertEqual(vencido['ultimo'], {'percentual': 87.5, 'medido_em': t1['medido_em']})
+
+    def test_medida_do_anterior_mais_velha_que_o_cache_nao_vence(self):
+        casa = self.casa()
+        casa.cache_agy(idade=30)
+        self.anterior(casa, [self.medida('gemini', 12.5, 600, validade=900)])
         gemini = grupos(lido_apos(casa))['gemini']
-        self.assertIsNone(gemini['percentual'])
-        self.assertEqual(gemini['ultimo'], {'percentual': 87.5, 'medido_em': medido['medido_em']})
-        falha = casa.router('cotas', '--atualizar', '--permitir-remoto')
-        self.assertEqual(falha.returncode, 0, falha.stderr)
-        gemini = grupos(lido(casa))['gemini']
-        self.assertEqual((gemini['motivo'], gemini['ultimo']['percentual']), ('consulta_falhou', 87.5))
+        self.assertEqual((gemini['percentual'], gemini['origem']), (87.5, 'agy -p /usage'))
+        self.assertNotIn('ultimo', gemini)
+
+    def test_medida_do_anterior_com_validade_vencida_so_entra_como_ultimo(self):
+        casa = self.casa()
+        casa.cache_agy(idade=3600)
+        anterior = self.medida('gemini', 12.5, 100, validade=50)
+        self.anterior(casa, [anterior])
+        gemini = grupos(lido_apos(casa))['gemini']
+        self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'cache_vencido'))
+        self.assertEqual(gemini['ultimo'], {'percentual': 12.5, 'medido_em': anterior['medido_em']})
+
+    def test_medida_valida_do_anterior_nao_atravessa_conta_sem_confianca(self):
+        casa = self.casa(confia=False)
+        self.anterior(casa, [self.medida('gemini', 12.5, 60, validade=900)])
+        gemini = grupos(lido_apos(casa))['gemini']
+        self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'conta_sem_confianca'))
+        self.assertNotIn('ultimo', gemini)
 
     def test_codex_vencido_traz_o_ultimo(self):
         casa = self.casa()
@@ -820,7 +861,7 @@ class Cotas(unittest.TestCase):
 
     def test_cotas_json_anterior_invalido_e_ignorado(self):
         casa = self.casa()
-        valido = lambda **extra: dict(self.medida('gemini', 40, 600), **extra)
+        valido = lambda **extra: dict(self.medida('gemini', 40, 600, validade=900), **extra)
         gigante = json.dumps({'versao': 1, 'provedores': [], 'folga': 'x' * cotas.LIMITE_LEITURA})
         textos = {'corrompido': '{ruim', 'vazio': '', 'gigante': gigante, 'lista': '[1, 2]',
                   'sem_lista': json.dumps({'provedores': {'agy': 1}}), 'NaN': '{"provedores": [{"provedor": "agy", "conta": "principal", '
@@ -840,15 +881,17 @@ class Cotas(unittest.TestCase):
                 documento = lido_apos(casa)
                 for grupo in grupos(documento).values():
                     self.assertNotIn('ultimo', grupo)
+                    self.assertIsNone(grupo['percentual'])
                 cotas.validar(documento, time.time())
         with self.subTest(rotulo='link'):
-            self.anterior(casa, [self.medida('gemini', 40, 600)])
+            self.anterior(casa, [self.medida('gemini', 40, 600, validade=900)])
             real = casa.estado / 'real.json'
             (casa.estado / 'cotas.json').rename(real)
             (casa.estado / 'cotas.json').symlink_to(real)
             self.assertEqual(casa.router('cotas').returncode, 0)
             for grupo in grupos(lido(casa)).values():
                 self.assertNotIn('ultimo', grupo)
+                self.assertIsNone(grupo['percentual'])
 
     def test_data_futura_e_ignorada(self):
         casa = self.casa()
@@ -857,6 +900,7 @@ class Cotas(unittest.TestCase):
         documento = lido_apos(casa)
         for grupo in list(grupos(documento).values()) + list(grupos(documento, 'codex', None).values()):
             self.assertNotIn('ultimo', grupo)
+            self.assertIsNone(grupo['percentual'])
         casa.cache_agy(idade=3600)
         self.assertEqual(grupos(lido_apos(casa))['gemini']['ultimo']['percentual'], 87.5)
         agora = time.time()
