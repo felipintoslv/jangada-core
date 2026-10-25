@@ -299,9 +299,18 @@ soquete, não link, e ponto de montagem em `/proc/self/mountinfo` (com os
 escapes `\040` e afins do caminho tratados). Um soquete
 que o autor criou na própria pasta em memória, ou em outro `XDG_RUNTIME_DIR`,
 e que repasse ao `bus` dele (com `CreateItem`) não é montagem e é recusado
-com o código 69. A checagem não vale contra um autor que monte o soquete num
-namespace de usuário próprio; mesmo assim ele só entrega o que o autor já
-alcança.
+com o código 69.
+
+Risco residual aceito pelo dono em 25/10/2026: um autor que monte o próprio
+`bus` nesse caminho, num namespace de usuário dele, entrega ao implementador
+o filtro do autor (`*@item` e `CreateItem`). Dentro da sessão o autor controla
+tudo o que o isolar aninhado enxerga, então não existe referência de origem
+que ele não possa trocar; identificar o cliente do soquete também não adianta,
+pois o autor roda com o mesmo uid. O implementador não passa do que o autor já
+alcança. Fechar o caso exige tirar `CreateItem` e `*@item` do filtro do autor,
+para que o filtro dele seja igual ao do implementador e forjar não acrescente
+nada. É tarefa à parte: o agy do autor deixa de regravar o token dentro da
+sessão, e a renovação do login passa a ser feita fora do isolamento.
 
 Sem o soquete, a chamada aninhada sai com código 69 e a linha
 `jangada-isolar: sem login do agy no keyring: ...`. O `jangada-delegar` grava
