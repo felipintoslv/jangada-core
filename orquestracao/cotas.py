@@ -81,6 +81,18 @@ def instante(texto):
         return None
 
 
+def numero(valor, minimo=None, maximo=None):
+    """Número vindo de fora: int ou float finito (bool não) dentro de [minimo, maximo], ou None."""
+    try:
+        if type(valor) not in (int, float) or not math.isfinite(valor):
+            return None
+        if (minimo is not None and valor < minimo) or (maximo is not None and valor > maximo):
+            return None
+    except (OverflowError, ValueError, TypeError):
+        return None
+    return valor
+
+
 def arredondar(valor):
     """Meio para longe do zero, como o round do jq em cota_do_grupo."""
     inteiro = math.floor(valor)
@@ -148,8 +160,8 @@ def baldes_agy(dados):
             partes = BALDE.fullmatch(identificador) if isinstance(identificador, str) else None
             if not partes or not GRUPO.fullmatch(partes[1]) or balde.get('disabled') is True:
                 continue
-            fracao = balde.get('remaining_fraction')
-            valido = (type(fracao) in (int, float) and math.isfinite(fracao) and 0 <= fracao <= 1)
+            fracao = numero(balde.get('remaining_fraction'), 0, 1)
+            valido = fracao is not None
             entrada = grupos.setdefault(partes[1], {'janelas': [], 'valido': True})
             reset = balde.get('reset_time')
             fim = renovacao(reset)
@@ -283,8 +295,8 @@ def estado_codex(raiz_estado, agora):
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
     if linha is None or linha['cota'] is None:
         return grupo_nulo('codex', 'sem_cache')
-    cota, medido, valido = linha['cota'], linha['atualizado'], linha['valido_ate']
-    if any(type(x) not in (int, float) or not math.isfinite(x) for x in (cota, medido, valido)) or not 0 <= cota <= 100:
+    cota, medido, valido = numero(linha['cota'], 0, 100), numero(linha['atualizado']), numero(linha['valido_ate'])
+    if cota is None or medido is None or valido is None:
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
     medido_em, valido_ate = iso(medido), iso(valido)
     if medido_em is None or valido_ate is None:
@@ -302,7 +314,7 @@ def consulta_codex(raiz_estado, agora):
         medido = time.time()
         cota, validade = percentual_codex(dados, medido)
         confirmadas, _ = janelas_codex(dados, medido)
-        janelas = [{'id': 'codex-' + nome, 'percentual': round(restante, 2), 'renova_em': iso(fim)}
+        janelas = [{'id': 'codex-' + nome, 'percentual': round(restante, 2), 'renova_em': iso(fim, utc=True)}
                    for nome, restante, fim in confirmadas]
         medido_em, valido_ate = iso(medido), iso(medido + validade)
         if medido_em is None or valido_ate is None or any(j['renova_em'] is None for j in janelas):
@@ -364,7 +376,7 @@ def validar(documento, agora):
                 if grupo.get('motivo') not in MOTIVOS:
                     raise ValueError('percentual nulo exige motivo')
                 continue
-            if type(percentual) not in (int, float) or not math.isfinite(percentual) or not 0 <= percentual <= 100:
+            if numero(percentual, 0, 100) is None:
                 raise ValueError('percentual fora de 0 a 100')
             if not isinstance(grupo.get('origem'), str) or not grupo['origem']:
                 raise ValueError('percentual sem origem')

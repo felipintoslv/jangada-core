@@ -82,7 +82,7 @@ class Casa:
     def cache_agy(self, dados=None, nome='agy-usage.json', idade=0):
         self.cache.mkdir(parents=True, exist_ok=True)
         arquivo = self.cache / nome
-        arquivo.write_text(json.dumps(AGY_USO if dados is None else dados))
+        arquivo.write_text(dados if isinstance(dados, str) else json.dumps(AGY_USO if dados is None else dados))
         os.utime(arquivo, (time.time() - idade, time.time() - idade))
         return arquivo
 
@@ -387,6 +387,74 @@ class Cotas(unittest.TestCase):
                 except (OverflowError, OSError, ValueError):
                     continue
                 self.assertNulo(casa, 'gemini', 'cache_vencido', 'cotas')
+
+    def test_numeros_extremos_de_toda_entrada_viram_nulo_sem_derrubar_o_comando(self):
+        # Texto JSON cru: 1e309, NaN e Infinity só existem assim, e o inteiro de 401 dígitos também.
+        fracoes = ['1' + '0' * 400, '1e309', '-1', '2', 'true', 'NaN', 'Infinity', '-Infinity', '"0.5"']
+        modelo = json.dumps(AGY_USO)
+        for fracao in fracoes:
+            texto = modelo.replace('"remaining_fraction": 0.875', '"remaining_fraction": ' + fracao, 1)
+            self.assertNotEqual(texto, modelo)
+            with self.subTest(entrada='cache do agy', valor=fracao[:12]):
+                casa = self.casa()
+                casa.cache_agy(texto)
+                self.assertNulo(casa, 'gemini', 'consulta_falhou', 'cotas')
+                self.assertEqual(grupos(lido(casa))['3p']['percentual'], 90.5)
+            with self.subTest(entrada='resposta do agy', valor=fracao[:12]):
+                casa = self.casa()
+                executavel(casa.bin, 'agy', "cat <<'FIM'\n%s\nFIM" % texto)
+                self.assertNulo(casa, 'gemini', 'consulta_falhou', 'cotas', '--atualizar', '--permitir-remoto')
+                self.assertEqual(grupos(lido(casa))['3p']['percentual'], 90.5)
+        agora = time.time()
+        valores = ['-1', '101', '9e999', '-9e999', "'abc'", "x'00'", '1' + '0' * 400, "'" + '1' * 401 + "'", 'NULL']
+        casos = [(coluna, valor) for coluna in ('cota', 'atualizado', 'valido_ate') for valor in valores]
+        casos += [('atualizado', '9223372036854775807'), ('valido_ate', '9223372036854775807')]
+        for coluna, valor in casos:
+            if coluna == 'cota' and valor in ('1' + '0' * 400, "'" + '1' * 401 + "'"):
+                continue
+            if coluna != 'cota' and valor in ('-1', '101'):
+                continue
+            with self.subTest(entrada='sqlite', coluna=coluna, valor=valor[:12]):
+                casa = self.casa()
+                banco = casa.estado / 'agentes/runtime/tarefas.sqlite'
+                banco.parent.mkdir(parents=True)
+                db = sqlite3.connect(banco)
+                db.execute('CREATE TABLE provedores(id TEXT PRIMARY KEY, status TEXT, motivo TEXT, atualizado REAL, '
+                           'valido_ate REAL, cota REAL, modelo TEXT, falhas INTEGER, pausado INTEGER)')
+                campos = {'atualizado': str(agora - 10), 'valido_ate': str(agora + 50), 'cota': '41.5'}
+                campos[coluna] = valor
+                db.execute("INSERT INTO provedores VALUES('codex','AVAILABLE','x',%(atualizado)s,%(valido_ate)s,%(cota)s,NULL,0,0)"
+                           % campos)
+                db.commit()
+                db.close()
+                alvo = self.assertNulo(casa, 'codex', None, 'cotas')
+                if valor != 'NULL':
+                    self.assertEqual(alvo['motivo'], 'consulta_falhou')
+
+    def test_renova_em_sai_em_utc_com_tz_local_diferente(self):
+        self.assertTrue(pathlib.Path('/usr/share/zoneinfo/America/Sao_Paulo').exists(), 'BLOQUEADO: tzdata ausente')
+        casa = self.casa()
+        casa.cache_agy()
+        saida = casa.router('cotas', TZ='America/Sao_Paulo')
+        self.assertEqual(saida.returncode, 0, saida.stderr)
+        janelas = grupos(lido(casa))['gemini']['janelas']
+        self.assertEqual([j['renova_em'] for j in janelas], ['2026-10-30T23:23:36+00:00', '2026-10-25T00:51:24+00:00'])
+        self.assertTrue(lido(casa)['gerado'].endswith('-03:00'), 'o TZ do teste não chegou ao processo')
+        casa = self.casa()
+        autenticacao_falsa(casa)
+        agora = int(time.time())
+        resposta = {'id': 2, 'result': {'rateLimits': {'limitId': 'codex',
+                                                       'primary': {'usedPercent': 20, 'resetsAt': agora + 600},
+                                                       'secondary': {'usedPercent': 70.5, 'resetsAt': agora + 86400}}}}
+        executavel(casa.bin, 'codex', "read l; echo '{\"id\":1,\"result\":{}}'; read l; read l\n"
+                   "echo '%s'; sleep 1" % json.dumps(resposta))
+        saida = casa.router('cotas', '--atualizar', '--permitir-remoto', TZ='America/Sao_Paulo')
+        self.assertEqual(saida.returncode, 0, saida.stderr)
+        janelas = grupos(lido(casa), 'codex', None)['codex']['janelas']
+        self.assertEqual(len(janelas), 2)
+        for janela in janelas:
+            self.assertTrue(janela['renova_em'].endswith('+00:00'), janela)
+        self.assertEqual(cotas.instante(janelas[0]['renova_em']), agora + 600)
 
     def assertNulo(self, casa, grupo, motivo, *args):
         saida = casa.router(*args)
