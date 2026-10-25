@@ -10,7 +10,9 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
+import time
 import signal
 import tempfile
 import unittest
@@ -20,6 +22,49 @@ REPO = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("implementacao", REPO / "delegacao/implementacao.py")
 modulo = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(modulo)
+
+
+KEYRING_FALSO = """import dbus, dbus.service, dbus.mainloop.glib
+from gi.repository import GLib
+
+dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+bus = dbus.SessionBus()
+nome = dbus.service.BusName("org.freedesktop.secrets", bus)
+RAIZ = "/org/freedesktop/secrets"
+ITENS = {RAIZ + "/collection/login/1": "agy-teste", RAIZ + "/collection/login/2": "outro"}
+
+
+def achar(atributos):
+    return [dbus.ObjectPath(c) for c, s in ITENS.items() if atributos.get("service", s) == s]
+
+
+class Servico(dbus.service.Object):
+    @dbus.service.method("org.freedesktop.Secret.Service", in_signature="a{ss}", out_signature="aoao")
+    def SearchItems(self, atributos):
+        return dbus.Array(achar(atributos), signature="o"), dbus.Array([], signature="o")
+
+
+class Colecao(dbus.service.Object):
+    @dbus.service.method("org.freedesktop.Secret.Collection", in_signature="a{ss}", out_signature="ao")
+    def SearchItems(self, atributos):
+        return dbus.Array(achar(atributos), signature="o")
+
+
+    @dbus.service.method("org.freedesktop.Secret.Collection", in_signature="a{sv}(oayays)b", out_signature="oo")
+    def CreateItem(self, propriedades, segredo, substituir):
+        return dbus.ObjectPath("/"), dbus.ObjectPath("/")
+
+
+class Item(dbus.service.Object):
+    @dbus.service.method("org.freedesktop.Secret.Item", in_signature="o", out_signature="s")
+    def GetSecret(self, sessao):
+        return "segredo de " + self._object_path
+
+
+objetos = [Servico(bus, RAIZ), Colecao(bus, RAIZ + "/collection/login")] + [Item(bus, c) for c in ITENS]
+open(__file__ + ".pronto", "w").close()
+GLib.MainLoop().run()
+"""
 
 
 class Implementacao(unittest.TestCase):
@@ -1152,6 +1197,175 @@ print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"
         self.assertNotIn("CreateItem", chamadas)
         self.assertNotIn("=*@", chamadas)
         self.assertNotIn("--talk=org.freedesktop.secrets", chamadas)
+
+    def preparar_keyring_falso(self, nega_busca_do_servico):
+        """Fakes de proxy, gdbus e bwrap para o jangada-isolar; devolve os registros."""
+        self.manifesto = str(Path(json.loads(self.executar().stdout)["pasta"]) / "contrato.json")
+        runtime = self.tmp / "run"
+        runtime.mkdir(exist_ok=True)
+        proxies = self.tmp / "proxies.log"
+        chamada = self.tmp / "bwrap.args"
+        self.script("xdg-dbus-proxy", "import socket, sys\n"
+                    f"open({str(proxies)!r}, 'a').write(sys.argv[1] + '|' + sys.argv[2] + '|' + ' '.join(sys.argv[3:]) + '\\n')\n"
+                    "socket.socket(socket.AF_UNIX).bind(sys.argv[2])\nprint('x')")
+        self.script("gdbus", "import sys\n"
+                    + ("if 'org.freedesktop.Secret.Service.SearchItems' in sys.argv:\n"
+                       " sys.stderr.write('AccessDenied'); sys.exit(1)\n" if nega_busca_do_servico else "")
+                    + "print(\"'/org/freedesktop/secrets/collection/login/14'\")")
+        self.script("bwrap", "import sys\nfrom pathlib import Path\n"
+                    f"Path({str(chamada)!r}).write_text('\\n'.join(sys.argv[1:]))")
+        return runtime, proxies, chamada
+
+    def isolar_implementacao(self, runtime, extras=None):
+        ambiente = {**self.env, "JANGADA_ISOLAR_PERFIL": "implementacao",
+                    "JANGADA_IMPLEMENTACAO_MANIFESTO": self.manifesto, "XDG_RUNTIME_DIR": str(runtime),
+                    "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + str(runtime / "bus"),
+                    "JANGADA_ISOLAR_KEYRING_ITEM": "service=gemini username=antigravity", **(extras or {})}
+        return subprocess.run([str(REPO / "bin/jangada-isolar"), "--", "agy"], cwd=self.raiz, env=ambiente,
+                              input="", capture_output=True, text=True)
+
+    def test_chamada_aninhada_usa_o_soquete_do_implementador_sem_subir_proxy(self):
+        # Dentro da sessão do autor o proxy dele nega Service.SearchItems e não
+        # aceita outro xdg-dbus-proxy atrás de si (serial 0xFFFF0000 das
+        # chamadas falsas). O soquete do implementador vem pronto de fora.
+        runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=True)
+        soquete = runtime / "bus-implementacao"
+        servidor = socket.socket(socket.AF_UNIX)
+        self.addCleanup(servidor.close)
+        servidor.bind(str(soquete))
+        p = self.isolar_implementacao(runtime, {"JANGADA_ISOLADO": "1", "JANGADA_MARCA_ISOLADO": "/"})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse(proxies.exists(), "a chamada aninhada subiu outro proxy")
+        argumentos = chamada.read_text().splitlines()
+        i = argumentos.index(str(soquete))
+        self.assertEqual(argumentos[i - 1:i + 2], ["--ro-bind", str(soquete), str(runtime / "bus")])
+        self.assertIn("unix:path=" + str(runtime / "bus"), argumentos)
+
+    def test_chamada_aninhada_sem_soquete_do_implementador_recusa_com_codigo_proprio(self):
+        runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=True)
+        alvo = runtime / "bus-implementacao"
+        outro = runtime / "bus"
+        outro.touch()
+        for preparo in (lambda: None, lambda: alvo.symlink_to(outro),
+                        lambda: (alvo.unlink(), alvo.write_text(""))):
+            preparo()
+            p = self.isolar_implementacao(runtime, {"JANGADA_ISOLADO": "1", "JANGADA_MARCA_ISOLADO": "/"})
+            self.assertEqual(p.returncode, 69, p.stderr)
+            self.assertIn("sem login do agy no keyring", p.stderr)
+            self.assertFalse(proxies.exists())
+            self.assertFalse(chamada.exists())
+
+    def test_autor_recebe_segundo_soquete_com_o_filtro_do_implementador(self):
+        runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=False)
+        ambiente = {**self.env, "XDG_RUNTIME_DIR": str(runtime),
+                    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/inexistente",
+                    "JANGADA_ISOLAR_KEYRING_ITEM": "service=gemini username=antigravity"}
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--", "true"], cwd=self.raiz, env=ambiente,
+                           input="", capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        registros = [linha.split("|") for linha in proxies.read_text().splitlines()]
+        self.assertEqual(len(registros), 2, registros)
+        autor, implementador = (r[2] for r in registros)
+        item = "/org/freedesktop/secrets/collection/login/14"
+        self.assertIn("=*@" + item, autor)
+        self.assertIn("org.freedesktop.Secret.Item.GetSecret@" + item, implementador)
+        for proibido in ("CreateItem", "=*@", "--talk=org.freedesktop.secrets"):
+            self.assertNotIn(proibido, implementador)
+        argumentos = chamada.read_text().splitlines()
+        destino = str(runtime / "bus-implementacao")
+        self.assertIn(destino, argumentos)
+        i = argumentos.index(destino)
+        self.assertEqual(argumentos[i - 2], "--ro-bind")
+        self.assertEqual(registros[1][1], argumentos[i - 1])
+        self.assertNotEqual(registros[0][1], registros[1][1])
+
+    def test_implementador_sem_login_do_agy_tem_motivo_proprio(self):
+        # Chamada aninhada sem o soquete do implementador: antes era erro_execucao
+        # com "o agy saiu com código 1" depois de ~65 s.
+        runtime = self.tmp / "run"
+        runtime.mkdir()
+        self.env.update(JANGADA_ISOLADO="1", JANGADA_MARCA_ISOLADO="/", XDG_RUNTIME_DIR=str(runtime))
+        p = self.executar(sucesso=False)
+        resultado = json.loads(p.stdout)
+        self.assertEqual(resultado["estado"], "falhou")
+        self.assertEqual(resultado["motivo_codigo"], "sem_login_agy")
+        self.assertIn("sem login", resultado["diagnostico"])
+        registro = json.loads((self.tmp / "estado/jangada/delegacoes.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(registro["motivo_codigo"], "sem_login_agy")
+        self.assertEqual(registro["motivo"],
+                         "o agy do implementador ficou sem login: item do keyring ausente ou inacessível nesta sessão")
+        self.assertEqual(registro["codigo_saida"], 4)
+
+    def test_fronteira_real_aninhada_le_so_o_item_do_agy_pelo_soquete_de_fora(self):
+        # A cadeia inteira com bwrap, xdg-dbus-proxy e barramento reais: o autor
+        # roda o delegar dentro do jangada-isolar e o implementador, aninhado,
+        # lê o item do agy pelo soquete que o isolar de fora trouxe. Antes, o
+        # xdg-dbus-proxy interno era derrubado pelo proxy do autor.
+        capacidade = subprocess.run(["/usr/bin/bwrap", "--ro-bind", "/", "/", "--unshare-pid", "true"],
+                                    capture_output=True)
+        if capacidade.returncode:
+            self.skipTest("Bubblewrap indisponível: " + capacidade.stderr.decode()[:200])
+        if not all(shutil.which(nome) for nome in ("xdg-dbus-proxy", "dbus-daemon", "gdbus")):
+            self.skipTest("sem xdg-dbus-proxy, dbus-daemon ou gdbus")
+        if subprocess.run(["python3", "-c", "import dbus, gi"], capture_output=True).returncode:
+            self.skipTest("sem dbus-python")
+        (self.bin / "bwrap").unlink()
+        kr = self.tmp / "kr"
+        kr.mkdir()
+        # Fora de self.tmp: a pasta gravável do autor cobriria os soquetes montados.
+        runtime = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, runtime, True)
+        (kr / "keyring.py").write_text(KEYRING_FALSO)
+        barramento = "unix:path=" + str(kr / "bus")
+        daemon = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--address=" + barramento],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(daemon.wait)
+        self.addCleanup(daemon.terminate)
+        for _ in range(50):
+            if (kr / "bus").exists():
+                break
+            time.sleep(0.1)
+        servico = subprocess.Popen(["python3", str(kr / "keyring.py")], env={**os.environ, "DBUS_SESSION_BUS_ADDRESS": barramento},
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(servico.wait)
+        self.addCleanup(servico.terminate)
+        for _ in range(50):
+            if (kr / "keyring.py.pronto").exists():
+                break
+            time.sleep(0.1)
+        self.assertTrue((kr / "keyring.py.pronto").exists(), "keyring falso não subiu")
+        self.script("agy", r'''import json,subprocess,sys
+from pathlib import Path
+if sys.argv[1:] == ["agents"]: print("implementador"); sys.exit()
+if "/usage" in sys.argv:
+ print(json.dumps({"command":{"data":{"groups":[{"buckets":[{"id":"gemini-weekly","remaining_fraction":0.9}]}]}}})); sys.exit()
+RAIZ = "/org/freedesktop/secrets"
+def gdbus(caminho, metodo, *args):
+ r = subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.secrets", "--object-path", caminho,
+                     "--method", metodo, *args], capture_output=True, text=True, timeout=20)
+ return "ok" if r.returncode == 0 else "negado"
+item = lambda n: RAIZ + "/collection/login/" + str(n)
+resumo = [
+ "item1=" + gdbus(item(1), "org.freedesktop.Secret.Item.GetSecret", "/"),
+ "item2=" + gdbus(item(2), "org.freedesktop.Secret.Item.GetSecret", "/"),
+ "busca=" + gdbus(RAIZ + "/collection/login", "org.freedesktop.Secret.Collection.SearchItems", "@a{ss} {}"),
+ "criar=" + gdbus(RAIZ + "/collection/login", "org.freedesktop.Secret.Collection.CreateItem", "@a{sv} {}", "(objectpath '/', @ay [], @ay [], '')", "false"),
+]
+Path("dados.txt").write_text("valor=2\n" + "\n".join(resumo) + "\n")
+print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","conversation_id":"sintetica"}))
+''')
+        ambiente = {**self.env, "XDG_RUNTIME_DIR": str(runtime), "DBUS_SESSION_BUS_ADDRESS": barramento,
+                    "JANGADA_ISOLAR_KEYRING_ITEM": "service=agy-teste",
+                    "JANGADA_ISOLAR_ESCRITA": str(self.tmp)}
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--", str(REPO / "bin/jangada-delegar"), "implementador",
+                            "Mudar valor para 2", "--permitir-remoto", "--base", self.base, "--arquivos", "fonte.txt",
+                            "--permitidos", "dados.txt", "--criterio", "O teste do autor exige valor=2"],
+                           cwd=self.raiz, env=ambiente, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+        self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
+        resultado = json.loads(p.stdout)
+        self.assertEqual(resultado["estado"], "aguarda_autor", p.stdout)
+        self.assertEqual((Path(resultado["pasta"]) / "arquivos/dados.txt").read_text(),
+                         "valor=2\nitem1=ok\nitem2=negado\nbusca=ok\ncriar=negado\n")
 
     def test_base_divergente_e_arquivo_do_autor_alterado(self):
         r = json.loads(self.executar().stdout)

@@ -103,6 +103,12 @@ executor; ele não pode criar, substituir ou excluir credenciais. Não se libera
 o serviço inteiro. Falha de autenticação ou necessidade de renovar login
 impede a prova. O piloto não altera a configuração pessoal para contorná-la.
 
+Chamado de dentro da sessão isolada do autor, o implementador lê o keyring por
+`$XDG_RUNTIME_DIR/bus-implementacao`, soquete que o isolamento de fora liga
+com o filtro do implementador (ver [isolamento](../isolamento.md), "Implementador
+chamado de dentro do isolamento"). Sem esse soquete a execução falha com
+`motivo_codigo` `sem_login_agy`, distinto de `erro_execucao`.
+
 Montagens de arquivo não aceitam substituição por rename. Se uma ferramenta
 de edição do agy exigir esse mecanismo, a chamada falha e mantém diagnóstico;
 não se libera o diretório. Arquivos temporários do CLI ficam em memória e não

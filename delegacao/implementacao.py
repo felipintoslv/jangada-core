@@ -326,6 +326,8 @@ def executar(args, raiz):
         gravar(execucao, "registro.json", codificar(evidencia), novo=True)
         atual["motivo_codigo"] = registro.get("motivo_codigo", "saida_invalida")
         if processo.returncode:
+            if atual["motivo_codigo"] == "sem_login_agy":
+                raise ValueError("o agy do implementador ficou sem login no keyring; código " + str(processo.returncode))
             raise ValueError("delegação recusada ou falhou; código " + str(processo.returncode))
         registro = json.loads(saida)
         if registro.get("codigo_saida") != 0 or registro.get("modelo") != MODELO or registro.get("papel") != "implementador":

@@ -280,6 +280,30 @@ passa a liberar só eles. O resto do serviço fica assim:
 Um item criado durante a sessão só fica legível na abertura seguinte. Valor
 fora do formato fecha a leitura do keyring e avisa no terminal.
 
+### Implementador chamado de dentro do isolamento
+
+O proxy do implementador não pode ser encadeado atrás do proxy do autor: o
+`xdg-dbus-proxy` interno envia chamadas com número de série 0xFFFF0000, que o
+proxy externo trata como inválido e por isso derruba a conexão. O agy do
+implementador ficaria sem o item do keyring e sairia sem login. Além disso, o
+proxy do autor nega `Service.SearchItems`, e a busca do item ficaria vazia.
+
+Por isso, na abertura da sessão do autor (perfil `agente`, com
+`JANGADA_ISOLAR_KEYRING_ITEM`), o `jangada-isolar` de fora sobe um segundo
+proxy, com o filtro do implementador, e o liga em
+`$XDG_RUNTIME_DIR/bus-implementacao`. O filtro do implementador é subconjunto
+do filtro do autor: só `GetSecret` e propriedades do item, busca na coleção e
+nada de `CreateItem`. A chamada aninhada não sobe proxy nem busca itens: só
+monta esse soquete como `bus` do implementador. O caminho é fixo e precisa ser
+soquete, não link. Um autor hostil que o aponte para o próprio `bus` não passa
+do que já alcança.
+
+Sem o soquete, a chamada aninhada sai com código 69 e a linha
+`jangada-isolar: sem login do agy no keyring: ...`. O `jangada-delegar` grava
+`motivo_codigo` `sem_login_agy` e o `implementacao.py` mostra "o agy do
+implementador ficou sem login no keyring". Fora do isolamento, o perfil
+`implementacao` com busca vazia também sai com 69.
+
 Os atributos do item do agy não estão documentados. Para listar os de todos
 os itens, sem os segredos, num terminal fora do isolamento:
 

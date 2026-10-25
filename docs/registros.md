@@ -708,7 +708,8 @@ subagente tem `.db` próprio.
   - `registro_ferramentas`: pasta privada do cliente para conferir conversas e
     ferramentas, ou texto vazio quando não houve esse executor.
     Esses quatro campos são opcionais em registros anteriores.
-  - `motivo_codigo`: motivo estável da recusa; vazio no sucesso.
+  - `motivo_codigo`: motivo estável da recusa; vazio no sucesso. O
+    implementador usa `sem_login_agy` quando o agy fica sem o item do keyring.
   - `verificacao`: `nao_exigida`, `reprovada`, `referencias_validas` ou
     `referencias_e_requisitos_validos`, com explicações e referências por requisito.
     Extração tipada usa `estrutura_e_referencias_validas`: campos, tipos,

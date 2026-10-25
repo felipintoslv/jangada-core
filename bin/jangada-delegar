@@ -1148,6 +1148,12 @@ for modelo in "${modelos_agy[@]}"; do
     continue
   fi
   if ((codigo)); then
+    # O jangada-isolar sai com 69 e esta linha quando o implementador ficaria sem
+    # o login do agy: item do keyring ausente ou soquete do keyring não trazido.
+    if [[ "$papel" == implementador ]] && ((codigo == 69)) \
+       && grep -q '^jangada-isolar: sem login do agy no keyring: ' "$saida"; then
+      recusar "o agy do implementador ficou sem login: item do keyring ausente ou inacessível nesta sessão" sem_login_agy
+    fi
     [[ "$papel" != implementador ]] || recusar "o agy saiu com código $codigo"
     recusar "o agy saiu com código $codigo: $(head -c 300 "$saida")"
   fi

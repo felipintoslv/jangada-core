@@ -27,6 +27,11 @@ conferir_apos() {
 conferir "implementação: ambiente vazio, keyring por item sem criação ou acesso irrestrito" \
   env PYTHONDONTWRITEBYTECODE=1 python3 testes/implementacao-agy.py \
     Implementacao.test_perfil_isolamento_limita_keyring_e_limpa_ambiente
+conferir "implementação chamada de dentro do isolamento: soquete do implementador, sem proxy encadeado" \
+  env PYTHONDONTWRITEBYTECODE=1 python3 testes/implementacao-agy.py \
+    Implementacao.test_chamada_aninhada_usa_o_soquete_do_implementador_sem_subir_proxy \
+    Implementacao.test_autor_recebe_segundo_soquete_com_o_filtro_do_implementador \
+    Implementacao.test_fronteira_real_aninhada_le_so_o_item_do_agy_pelo_soquete_de_fora
 pular() {
   if [[ "${JANGADA_TESTES_EXIGIR_ISOLAMENTO:-}" == 1 ]]; then
     falha "$* (o isolamento real é exigido)"

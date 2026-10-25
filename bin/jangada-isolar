@@ -191,73 +191,122 @@ done
 # deixa falar com org.freedesktop.secrets (o agy lê o login do keyring) e
 # org.freedesktop.Notifications (os hooks avisam pelo notify-send). Sem
 # proxy, o agente fica sem D-Bus.
+#
+# O implementador (perfil implementacao) é chamado de dentro da sessão do
+# autor, onde não há como subir outro proxy: o xdg-dbus-proxy numérico das
+# chamadas falsas (serial 0xFFFF0000) é derrubado pelo proxy do autor, e este
+# nega Service.SearchItems. Por isso o jangada-isolar de fora sobe, junto com
+# o proxy do autor, um segundo com o filtro do implementador e o liga dentro
+# da sessão em $XDG_RUNTIME_DIR/bus-implementacao. O filtro dele é subconjunto
+# do filtro do autor, então o autor não alcança nada novo.
 dbus_sinc=""
+dbus_impl_sinc=""
+sem_login=69
+recusar_sem_login() {
+  echo "jangada-isolar: sem login do agy no keyring: $1" >&2
+  exit "$sem_login"
+}
+chamada_aninhada=0
+[[ "$perfil" != implementacao ]] || ! ja_isolado || chamada_aninhada=1
+soquete_impl="${XDG_RUNTIME_DIR:-}/bus-implementacao"
+if ((chamada_aninhada && !mostrar)) \
+   && { [[ -z "${XDG_RUNTIME_DIR:-}" || -L "$soquete_impl" || ! -S "$soquete_impl" ]]; }; then
+  recusar_sem_login 'a sessão do autor não trouxe o soquete do implementador (item do keyring ausente ou sessão aberta sem ele)'
+fi
 if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]]; then
   args+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")
+  if ((chamada_aninhada)); then
+    # Só o soquete trazido de fora pela sessão do autor vale.
+    if ((!mostrar)); then
+      args+=(--ro-bind "$soquete_impl" "$XDG_RUNTIME_DIR/bus")
+      dbus_aninhado=1
+    fi
+  fi
+fi
+if ((!chamada_aninhada)) && [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]]; then
   pasta_proxy="$XDG_RUNTIME_DIR/jangada-isolar"
   if ((!mostrar)) && [[ ( "$perfil" == agente || "$perfil" == implementacao ) && -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] \
      && command -v xdg-dbus-proxy >/dev/null 2>&1 \
      && { [[ -d "$pasta_proxy" ]] || mkdir -m 0700 "$pasta_proxy" 2>/dev/null; }; then
-    sock="$pasta_proxy/bus-$$"
-    rm -f "$sock"
-    # O proxy escreve um byte quando está pronto e sai quando o outro lado do
-    # cano fecha. O bwrap guarda esse lado (--sync-fd) enquanto o agente vive.
-    # Sem o agy instalado, ninguém precisa do keyring. Com ele, o proxy libera
-    # o serviço inteiro: com o keyring aberto, o agente alcança o que estiver
-    # nele. JANGADA_ISOLAR_KEYRING_ITEM restringe a leitura aos itens com
-    # aqueles atributos, achados aqui fora; item criado depois só entra na
-    # próxima abertura. A busca e o CreateItem seguem liberados: o go-keyring
-    # do agy procura o item pelos atributos e regrava o token por CreateItem.
+    segredos=org.freedesktop.secrets raiz=/org/freedesktop/secrets
+    itens_keyring=()
+    colecoes=("$raiz/aliases/default" "$raiz/collection/login")
+    # Preenche itens_keyring e colecoes com os itens do keyring que têm os
+    # atributos de JANGADA_ISOLAR_KEYRING_ITEM. A busca roda uma vez, aqui
+    # fora; item criado depois só entra na próxima abertura.
+    achar_itens_keyring() {
+      local atributos="" par item
+      local -a pares
+      read -ra pares <<<"$JANGADA_ISOLAR_KEYRING_ITEM"
+      for par in "${pares[@]}"; do
+        if [[ "$par" =~ ^([A-Za-z0-9_.:@+-]+)=([A-Za-z0-9_.:@/+-]+)$ ]]; then
+          atributos+="${atributos:+, }'${BASH_REMATCH[1]}': '${BASH_REMATCH[2]}'"
+        else
+          echo "jangada-isolar: JANGADA_ISOLAR_KEYRING_ITEM espera pares atributo=valor separados por espaço; sem eles o agente não lê o keyring." >&2
+          return 0
+        fi
+      done
+      [[ -n "$atributos" ]] || return 0
+      while IFS= read -r item; do
+        itens_keyring+=("$item")
+        [[ " ${colecoes[*]} " == *" ${item%/*} "* ]] || colecoes+=("${item%/*}")
+      done < <(timeout 5 gdbus call --session --dest "$segredos" --object-path "$raiz" \
+        --method org.freedesktop.Secret.Service.SearchItems "{$atributos}" 2>/dev/null \
+        | grep -oE "$raiz/collection/[A-Za-z0-9_]+/[A-Za-z0-9_]+" || true)
+    }
+    # Preenche politica com o filtro do keyring de um perfil. O autor também
+    # cria e regrava o item (o go-keyring do agy procura o item pelos atributos
+    # e regrava o token por CreateItem); o implementador só lê o segredo.
+    politica_keyring() {
+      local item colecao
+      politica=(--see="$segredos"
+        --call="$segredos=org.freedesktop.DBus.Properties.Get@$raiz"
+        --call="$segredos=org.freedesktop.Secret.Service.OpenSession@$raiz"
+        --call="$segredos=org.freedesktop.Secret.Service.Unlock@$raiz"
+        --call="$segredos=org.freedesktop.Secret.Session.Close@$raiz/session/*"
+        --call="$segredos=org.freedesktop.Secret.Prompt.*@$raiz/prompt/*"
+        --broadcast="$segredos=org.freedesktop.Secret.Prompt.Completed@$raiz/prompt/*")
+      for item in "${itens_keyring[@]}"; do
+        if [[ "$1" == implementacao ]]; then
+          politica+=(--call="$segredos=org.freedesktop.Secret.Item.GetSecret@$item"
+                     --call="$segredos=org.freedesktop.DBus.Properties.Get@$item"
+                     --call="$segredos=org.freedesktop.DBus.Properties.GetAll@$item")
+        else
+          politica+=(--call="$segredos=*@$item")
+        fi
+      done
+      for colecao in "${colecoes[@]}"; do
+        politica+=(--call="$segredos=org.freedesktop.Secret.Collection.SearchItems@$colecao")
+        [[ "$1" == implementacao ]] || politica+=(--call="$segredos=org.freedesktop.Secret.Collection.CreateItem@$colecao")
+      done
+    }
     if [[ "$perfil" == implementacao && -z "${JANGADA_ISOLAR_KEYRING_ITEM:-}" ]]; then
-      echo 'jangada-isolar: implementação exige atributos de keyring já configurados; não liberar o serviço inteiro' >&2
-      exit 1
+      recusar_sem_login 'implementação exige atributos de keyring já configurados; não liberar o serviço inteiro'
     fi
+    # Sem o agy instalado, ninguém precisa do keyring. Com ele, e sem
+    # JANGADA_ISOLAR_KEYRING_ITEM, o proxy libera o serviço inteiro: com o
+    # keyring aberto, o agente alcança o que estiver nele.
     falar=(--talk=org.freedesktop.Notifications)
+    falar_impl=()
     if command -v agy >/dev/null 2>&1; then
       if [[ -z "${JANGADA_ISOLAR_KEYRING_ITEM:-}" ]]; then
         falar+=(--talk=org.freedesktop.secrets)
       else
-        segredos=org.freedesktop.secrets raiz=/org/freedesktop/secrets
-        falar+=(--see="$segredos"
-          --call="$segredos=org.freedesktop.DBus.Properties.Get@$raiz"
-          --call="$segredos=org.freedesktop.Secret.Service.OpenSession@$raiz"
-          --call="$segredos=org.freedesktop.Secret.Service.Unlock@$raiz"
-          --call="$segredos=org.freedesktop.Secret.Session.Close@$raiz/session/*"
-          --call="$segredos=org.freedesktop.Secret.Prompt.*@$raiz/prompt/*"
-          --broadcast="$segredos=org.freedesktop.Secret.Prompt.Completed@$raiz/prompt/*")
-        colecoes=("$raiz/aliases/default" "$raiz/collection/login")
-        atributos=""
-        read -ra pares <<<"$JANGADA_ISOLAR_KEYRING_ITEM"
-        for par in "${pares[@]}"; do
-          if [[ "$par" =~ ^([A-Za-z0-9_.:@+-]+)=([A-Za-z0-9_.:@/+-]+)$ ]]; then
-            atributos+="${atributos:+, }'${BASH_REMATCH[1]}': '${BASH_REMATCH[2]}'"
-          else
-            echo "jangada-isolar: JANGADA_ISOLAR_KEYRING_ITEM espera pares atributo=valor separados por espaço; sem eles o agente não lê o keyring." >&2
-            atributos=""
-            break
-          fi
-        done
-        if [[ -n "$atributos" ]]; then
-          while IFS= read -r item; do
-            if [[ "$perfil" == implementacao ]]; then
-              falar+=(--call="$segredos=org.freedesktop.Secret.Item.GetSecret@$item"
-                      --call="$segredos=org.freedesktop.DBus.Properties.Get@$item"
-                      --call="$segredos=org.freedesktop.DBus.Properties.GetAll@$item")
-            else
-              falar+=(--call="$segredos=*@$item")
-            fi
-            [[ " ${colecoes[*]} " == *" ${item%/*} "* ]] || colecoes+=("${item%/*}")
-          done < <(timeout 5 gdbus call --session --dest "$segredos" --object-path "$raiz" \
-            --method org.freedesktop.Secret.Service.SearchItems "{$atributos}" 2>/dev/null \
-            | grep -oE "$raiz/collection/[A-Za-z0-9_]+/[A-Za-z0-9_]+" || true)
+        achar_itens_keyring
+        politica_keyring "$perfil"
+        falar+=("${politica[@]}")
+        if ((${#itens_keyring[@]})); then
+          politica_keyring implementacao
+          falar_impl=(--talk=org.freedesktop.Notifications "${politica[@]}")
+        elif [[ "$perfil" == implementacao ]]; then
+          recusar_sem_login 'nenhum item do keyring com os atributos de JANGADA_ISOLAR_KEYRING_ITEM'
         fi
-        for colecao in "${colecoes[@]}"; do
-          falar+=(--call="$segredos=org.freedesktop.Secret.Collection.SearchItems@$colecao"
-                  )
-          [[ "$perfil" == implementacao ]] || falar+=(--call="$segredos=org.freedesktop.Secret.Collection.CreateItem@$colecao")
-        done
       fi
     fi
+    sock="$pasta_proxy/bus-$$"
+    rm -f "$sock"
+    # O proxy escreve um byte quando está pronto e sai quando o outro lado do
+    # cano fecha. O bwrap guarda esse lado (--sync-fd) enquanto o agente vive.
     exec {dbus_sinc}< <(exec xdg-dbus-proxy "$DBUS_SESSION_BUS_ADDRESS" "$sock" \
       --filter "${falar[@]}" --fd=1 2>/dev/null)
     if read -r -N1 -t 5 -u "$dbus_sinc" _ && [[ -S "$sock" ]]; then
@@ -267,15 +316,29 @@ if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]]; then
       exec {dbus_sinc}<&-
       dbus_sinc=""
     fi
+    if [[ "$perfil" == agente ]] && ((${#falar_impl[@]})); then
+      # Este lado do cano fica com este processo, que só acaba depois do
+      # bwrap: o segundo proxy sai junto com ele.
+      sock_impl="$pasta_proxy/bus-implementacao-$$"
+      rm -f "$sock_impl"
+      exec {dbus_impl_sinc}< <(exec xdg-dbus-proxy "$DBUS_SESSION_BUS_ADDRESS" "$sock_impl" \
+        --filter "${falar_impl[@]}" --fd=1 2>/dev/null)
+      if read -r -N1 -t 5 -u "$dbus_impl_sinc" _ && [[ -S "$sock_impl" ]]; then
+        args+=(--ro-bind "$sock_impl" "$XDG_RUNTIME_DIR/bus-implementacao")
+      else
+        exec {dbus_impl_sinc}<&-
+        dbus_impl_sinc=""
+      fi
+    fi
   fi
 fi
-[[ -n "$dbus_sinc" ]] || args+=(--unsetenv DBUS_SESSION_BUS_ADDRESS)
+[[ -n "$dbus_sinc" || -n "${dbus_aninhado:-}" ]] || args+=(--unsetenv DBUS_SESSION_BUS_ADDRESS)
 
 if [[ "$perfil" == implementacao ]]; then
   args+=(--clearenv --setenv HOME "$HOME" --setenv PATH "$PATH" --setenv LANG "${LANG:-C.UTF-8}"
          --setenv TMPDIR /tmp/jangada-implementacao-temporarios
          --setenv JANGADA_ISOLADO 1 --setenv JANGADA_HOOK_DESLIGADO 1 --setenv JANGADA_AGY_PAPEL implementador)
-  [[ -z "$dbus_sinc" ]] || args+=(--setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$XDG_RUNTIME_DIR/bus")
+  [[ -z "$dbus_sinc" && -z "${dbus_aninhado:-}" ]] || args+=(--setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$XDG_RUNTIME_DIR/bus")
   args+=(--chdir "$pasta" -- python3 -c 'import os,subprocess,sys
 comando = sys.argv[1:]
 catalogo = subprocess.run([comando[0], "agents"], capture_output=True, text=True, timeout=30)
