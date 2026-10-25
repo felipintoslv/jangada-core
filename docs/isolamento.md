@@ -295,7 +295,8 @@ proxy, com o filtro do implementador, e o liga em
 do filtro do autor: só `GetSecret` e propriedades do item, busca na coleção e
 nada de `CreateItem`. A chamada aninhada não sobe proxy nem busca itens: só
 monta esse soquete como `bus` do implementador. O caminho é fixo e precisa ser
-soquete, não link, e ponto de montagem em `/proc/self/mountinfo`. Um soquete
+soquete, não link, e ponto de montagem em `/proc/self/mountinfo` (com os
+escapes `\040` e afins do caminho tratados). Um soquete
 que o autor criou na própria pasta em memória, ou em outro `XDG_RUNTIME_DIR`,
 e que repasse ao `bus` dele (com `CreateItem`) não é montagem e é recusado
 com o código 69. A checagem não vale contra um autor que monte o soquete num

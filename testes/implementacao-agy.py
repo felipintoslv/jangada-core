@@ -1198,10 +1198,10 @@ print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"
         self.assertNotIn("=*@", chamadas)
         self.assertNotIn("--talk=org.freedesktop.secrets", chamadas)
 
-    def preparar_keyring_falso(self, nega_busca_do_servico):
+    def preparar_keyring_falso(self, nega_busca_do_servico, pasta_run="run"):
         """Fakes de proxy, gdbus e bwrap para o jangada-isolar; devolve os registros."""
         self.manifesto = str(Path(json.loads(self.executar().stdout)["pasta"]) / "contrato.json")
-        runtime = self.tmp / "run"
+        runtime = self.tmp / pasta_run
         runtime.mkdir(exist_ok=True)
         proxies = self.tmp / "proxies.log"
         chamada = self.tmp / "bwrap.args"
@@ -1245,7 +1245,8 @@ print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"
         # aceita outro xdg-dbus-proxy atrás de si (serial 0xFFFF0000 das
         # chamadas falsas). O soquete do implementador vem pronto de fora.
         self.exigir_bwrap()
-        runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=True)
+        # Espaço no caminho: o mountinfo o escreve como \040.
+        runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=True, pasta_run="run com espaço")
         soquete = runtime / "bus-implementacao"
         servidor = socket.socket(socket.AF_UNIX)
         self.addCleanup(servidor.close)

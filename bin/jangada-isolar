@@ -212,7 +212,9 @@ recusar_sem_login() {
 soquete_montado() {
   local alvo
   alvo="$(realpath -e -- "$1" 2>/dev/null)" || return 1
-  awk -v m="$alvo" '$5 == m { achou = 1 } END { exit !achou }' /proc/self/mountinfo 2>/dev/null
+  # O mountinfo escreve barra, espaço, tab e quebra de linha como \134, \040, \011 e \012.
+  alvo="${alvo//\\/\\134}"; alvo="${alvo// /\\040}"; alvo="${alvo//$'\t'/\\011}"; alvo="${alvo//$'\n'/\\012}"
+  M="$alvo" awk '$5 == ENVIRON["M"] { achou = 1 } END { exit !achou }' /proc/self/mountinfo 2>/dev/null
 }
 chamada_aninhada=0
 [[ "$perfil" != implementacao ]] || ! ja_isolado || chamada_aninhada=1
