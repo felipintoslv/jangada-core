@@ -303,6 +303,104 @@ jangada_conta_agy() {
   return 1
 }
 
+# Escolhe a conta do agy para abrir uma sessão: entre as que confiam em PASTA, a
+# de maior saldo conhecido do grupo gemini; sem medida fica atrás de qualquer
+# saldo, e empate mantém a ordem do catálogo. O saldo conhecido é a medida mais
+# recente da conta entre o cotas.json e o cota_depois do delegacoes.jsonl, mesmo
+# vencida: ela só ordena as contas e nunca autoriza chamar modelo. Só lê
+# arquivos do estado; não chama o agy nem a rede.
+# Com NOME, mede só essa conta, sem conferir a confiança.
+# Preenche CONTA_AGY_ESCOLHIDA, CONTA_AGY_SALDO (ex.: 94,6) e CONTA_AGY_MEDIDA_EM
+# (HH:MM); os dois últimos ficam vazios sem medida.
+# Devolve 1 quando nenhuma conta confia e 2 com o catálogo inválido.
+# shellcheck disable=SC2034  # CONTA_AGY_* são lidas por quem carrega este arquivo
+jangada_conta_agy_escolher() {
+  local pasta="$1" fixa="${2:-}" contas n _p _a linha saldo epoch
+  local -a candidatas=()
+  CONTA_AGY_ESCOLHIDA=""; CONTA_AGY_SALDO=""; CONTA_AGY_MEDIDA_EM=""
+  contas="$(jangada_contas_agy)" || return 2
+  while IFS=$'\t' read -r n _p _a; do
+    if [[ -n "$fixa" ]]; then
+      [[ "$n" != "$fixa" ]] || candidatas+=("$n")
+    elif (export JANGADA_AGY_CONTA="$n"; unset JANGADA_AGY_SETTINGS; jangada_agy_confia "$pasta"); then
+      candidatas+=("$n")
+    fi
+  done <<<"$contas"
+  ((${#candidatas[@]})) || return 1
+  linha="$(python3 -I - "$JANGADA_ESTADO" "${candidatas[@]}" <<'PY' 2>/dev/null
+import datetime, json, math, sys
+estado, candidatas = sys.argv[1], sys.argv[2:]
+agora = datetime.datetime.now(datetime.timezone.utc)
+LIMITE = 16 * 1024 * 1024
+medidas = {}
+
+
+def anotar(conta, quando, valor):
+    if conta not in candidatas:
+        return
+    try:
+        data = datetime.datetime.fromisoformat(quando)
+    except (TypeError, ValueError):
+        return
+    if data.tzinfo is None or data > agora:
+        return
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)) \
+            or not math.isfinite(valor) or not 0 <= valor <= 100:
+        return
+    if conta not in medidas or data > medidas[conta][0]:
+        medidas[conta] = (data, float(valor))
+
+
+try:
+    with open(estado + "/cotas.json", "rb") as f:
+        documento = json.loads(f.read(LIMITE))
+    for provedor in documento["provedores"]:
+        if provedor.get("provedor") != "agy":
+            continue
+        for grupo in provedor.get("grupos") or []:
+            if grupo.get("grupo") == "gemini":
+                anotar(provedor.get("conta"), grupo.get("medido_em"), grupo.get("percentual"))
+except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    pass
+
+try:
+    with open(estado + "/delegacoes.jsonl", "rb") as f:
+        tamanho = f.seek(0, 2)
+        f.seek(max(0, tamanho - LIMITE))
+        if tamanho > LIMITE:
+            f.readline()
+        for bruta in f:
+            try:
+                registro = json.loads(bruta)
+            except ValueError:
+                continue
+            if not isinstance(registro, dict) or registro.get("destino") != "agy":
+                continue
+            modelo = registro.get("modelo")
+            if not isinstance(modelo, str) or not modelo.startswith("gemini-") \
+                    or modelo.startswith("gemini-4-argon-"):
+                continue
+            anotar(registro.get("conta"), registro.get("data"), registro.get("cota_depois"))
+except OSError:
+    pass
+
+melhor = candidatas[0]
+for conta in candidatas[1:]:
+    if conta in medidas and (melhor not in medidas or medidas[conta][1] > medidas[melhor][1]):
+        melhor = conta
+if melhor in medidas:
+    data, valor = medidas[melhor]
+    print(melhor, f"{valor:.2f}".rstrip("0").rstrip(".").replace(".", ","), int(data.timestamp()), sep="\t")
+else:
+    print(melhor, "-", "-", sep="\t")
+PY
+)" || linha="${candidatas[0]}"$'\t-\t-'
+  IFS=$'\t' read -r CONTA_AGY_ESCOLHIDA saldo epoch <<<"$linha"
+  [[ "$saldo" != - && "$epoch" =~ ^[0-9]+$ ]] || return 0
+  CONTA_AGY_MEDIDA_EM="$(date -d "@$epoch" +%H:%M 2>/dev/null)" || return 0
+  CONTA_AGY_SALDO="$saldo"
+}
+
 # Nomes dos provedores válidos do registro; com FUNCAO, só os que a declaram.
 jangada_provedores() {
   local _a _n
@@ -591,7 +689,7 @@ jangada_agy_sincronizar_worktree() {
 # direta na raiz. Devolve 1 com registro ausente, ilegível, de outra sessão
 # ou com campo de tipo errado: agente é texto não vazio, raiz é caminho
 # absoluto de pasta que existe, worktree é nulo, vazio ou caminho absoluto, e
-# delegar e revisor são nulos ou texto. Devolve 2 quando o worktree
+# delegar, revisor e conta_agy são nulos ou texto. Devolve 2 quando o worktree
 # registrado não existe mais; a raiz fica resolvida e o worktree, como está
 # no registro.
 jangada_agy_registro_tarefa() {
@@ -606,7 +704,8 @@ jangada_agy_registro_tarefa() {
     and (.raiz | caminho)
     and (.worktree | . == null or . == "" or caminho)
     and (.delegar | . == null or texto)
-    and (.revisor | . == null or texto)' "$copia" >/dev/null 2>&1 || return 1
+    and (.revisor | . == null or texto)
+    and (.conta_agy | . == null or texto)' "$copia" >/dev/null 2>&1 || return 1
   JANGADA_AGY_REG_RAIZ="$(realpath -e -- "$(jq -r '.raiz' "$copia")" 2>/dev/null)" || JANGADA_AGY_REG_RAIZ=""
   [[ -n "$JANGADA_AGY_REG_RAIZ" && -d "$JANGADA_AGY_REG_RAIZ" ]] || return 1
   JANGADA_AGY_REG_WORKTREE="$(jq -r '.worktree // ""' "$copia")"

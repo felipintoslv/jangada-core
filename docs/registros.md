@@ -428,7 +428,7 @@ resultado.
   `atividade` e `tarefa_id` (vínculos dados por `--atividade` e
   `--tarefa-id`), `inicio` (commit),
   `revisor`, `conversa`, `validacao`, `delegar` (sempre gravado),
-  `coordenador` (sempre gravado), `coordenador_sessao` e
+  `coordenador` (sempre gravado), `coordenador_sessao`, `conta_agy` e
   `pid` (só o antigo par; nenhum script grava hoje, e o
   `jangada-agente-fim` não o lê nem mata processo por ele).
 - `jangada-agente-fim` (função `conferir_estado`) recusa, sem alterar nada,
@@ -453,6 +453,11 @@ resultado.
   é aberta de dentro de uma sessão do `jangada-coordenador`: vale
   `JANGADA_COORDENADOR` quando há registro em `coordenadores/` com esse
   nome. Vai também para a cópia em `revisoes/`.
+- `conta_agy` é gravado a partir de 25/10/2026 só quando há catálogo de contas
+  do agy: nome da conta que o `jangada-agente` escolheu (ou que `--conta-agy`
+  ou `JANGADA_AGY_CONTA` fixou) e passou ao `jangada-isolar --conta`. Vai
+  também para a cópia em `revisoes/`, que vale; nulo ou texto. Sessão
+  anterior não tem o campo.
 - `conversa` é o `sessionId` do Claude (nome do `.jsonl`) ou o
   `conversationId` do agy (nome do `.db`). É o único lugar que liga a sessão
   do jangada à conversa.

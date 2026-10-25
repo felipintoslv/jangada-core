@@ -389,6 +389,31 @@ continua desconhecida e não autoriza chamar o modelo. Empates preservam a
 ordem do catálogo. Cada conta tem cache de cota próprio. O registro inclui
 `conta`; as medidas por modelo também identificam a conta consultada.
 
+`jangada-agente` escolhe a conta ao criar uma sessão nova com catálogo. Vale,
+nesta ordem: `--conta-agy NOME`, `JANGADA_AGY_CONTA` do ambiente, ou a conta
+que confia na pasta da tarefa e tem o maior saldo conhecido do grupo `gemini`.
+O saldo conhecido é a medida mais recente da conta entre o `cotas.json` e o
+`cota_depois` das linhas de `delegacoes.jsonl` com modelo `gemini` (sem Argon),
+mesmo vencida: ela só ordena as contas, e quem autoriza chamar o modelo
+continua sendo o `jangada-delegar`. Conta sem medida fica atrás de qualquer
+saldo conhecido; empate, ou nenhuma medida, mantém a ordem do catálogo. Se
+nenhuma conta confia na pasta, vale a primeira do catálogo. A escolha só lê
+arquivos do estado: não chama o agy nem a rede, e não roda
+`jangada-router cotas --atualizar`. Nome inexistente, em opção ou ambiente,
+recusa antes de criar o worktree. A abertura imprime
+`conta do agy: NOME (gemini NN%, medido às HH:MM)` ou
+`conta do agy: NOME (sem medida)`.
+
+A conta escolhida vai ao `jangada-isolar --conta` e ao campo `conta_agy` do
+registro protegido da sessão (`revisoes/SESSAO.json`). Reabrir uma sessão
+que existe só anexa o tmux, com a conta registrada e sem nova escolha; a
+opção `--conta-agy` é ignorada com aviso. Registro sem `conta_agy` (sessão
+antiga) e instalação sem catálogo seguem como antes. A sessão monta uma
+conta só, até o fim; trocar de conta no meio dela não é suportado.
+O `jangada-agentes --restaurar` ainda monta a conta pela regra do
+`jangada-isolar` (`JANGADA_AGY_CONTA` ou a primeira do catálogo), e não a
+registrada.
+
 `jangada-isolar --conta NOME -- COMANDO` monta a conta em
 `~/.gemini/antigravity-cli` e oculta as pastas originais das contas.
 O `bin` da conta é criado vazio quando falta, como na principal, e montado em

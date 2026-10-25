@@ -21,11 +21,21 @@
 #   --coordenador NOME  quem coordena a tarefa (padrão: JANGADA_COORDENADOR ou "dono"); só exibição
 #   --prompt TEXTO    tarefa inicial, entregue ao agente ao abrir
 #   --prompt-arquivo ARQ  o mesmo, lida de um arquivo
+#   --conta-agy NOME  conta do agy da sessão (só com o catálogo contas/agy.json)
 #   --sem-isolar      opção antiga, ignorada com aviso; isolamento obrigatório
 #
 # Sem --agente nem --perfil, num terminal, um seletor pergunta qual agente
 # abrir: o padrão (JANGADA_AGENTE) ou um dos perfis, cada um com a descrição
 # entre parênteses. JANGADA_AGENTE_ESCOLHER=0 desliga a pergunta.
+#
+# Com o catálogo de contas do agy, a sessão nova monta uma conta só, até o
+# fim. Sem --conta-agy nem JANGADA_AGY_CONTA, vale a que confia na pasta da
+# tarefa e tem o maior saldo conhecido do grupo gemini (a medida mais recente
+# entre cotas.json e delegacoes.jsonl, mesmo vencida: ela só ordena as contas,
+# e quem autoriza chamar o modelo continua sendo o jangada-delegar). Conta sem
+# medida fica atrás; empate mantém a ordem do catálogo. A conta escolhida vai
+# para o registro protegido da sessão e para o jangada-isolar --conta. Sem
+# catálogo, nada muda.
 #
 # O agente principal é o Claude ou o Codex. O agy não abre sessão: ele atende
 # as delegações (jangada-delegar) e a revisão do jangada-validar.
@@ -115,6 +125,7 @@ agente="$JANGADA_AGENTE"; extras=(); prompt=""; perfil=""; agente_dado=0
 revisor="${JANGADA_VALIDAR_REVISOR:-}"; revisor_dado=0
 coordenador="${JANGADA_COORDENADOR:-}"; coordenador_dado=0
 isolar="$JANGADA_AGENTE_ISOLAR"; isolar_dado=0; delegacao_dada=""; atividade=""; tarefa_id=""
+conta_agy_dada=""
 PERFIL_AMBIENTE=()
 autor_modelo=""; autor_esforco=""; revisor_modelo=""; revisor_esforco=""
 while (($#)); do
@@ -135,19 +146,20 @@ while (($#)); do
     --tarefa-id) tarefa_id="$2"; shift 2 ;;
     --revisor) revisor="$2"; revisor_dado=1; shift 2 ;;
     --coordenador) coordenador="$2"; coordenador_dado=1; shift 2 ;;
+    --conta-agy) conta_agy_dada="$2"; shift 2 ;;
     --sem-isolar) isolar=0; isolar_dado=1; shift ;;
     --prompt) prompt="$2"; shift 2 ;;
     --prompt-arquivo)
       [[ -r "$2" ]] || { echo "arquivo não encontrado: $2" >&2; exit 1; }
       prompt="$(<"$2")"; shift 2 ;;
     --) shift; extras=("$@"); break ;;
-    -h|--ajuda) sed -n '2,30s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    -h|--ajuda) sed -n '2,38s/^# \{0,1\}//p' "$0"; exit 0 ;;
     *) echo "argumento desconhecido: $1" >&2; exit 1 ;;
   esac
 done
 
 # Com --projeto, a central abre a sessão; sem tarefa, abre o formulário.
-if ((janela)) && [[ -z "$projeto$nome$perfil$prompt$delegacao_dada$autor_modelo$autor_esforco$revisor_modelo$revisor_esforco" ]] && \
+if ((janela)) && [[ -z "$projeto$nome$perfil$prompt$delegacao_dada$conta_agy_dada$autor_modelo$autor_esforco$revisor_modelo$revisor_esforco" ]] && \
     ((!direto && !snapshot && !agente_dado && !revisor_dado && !coordenador_dado && !isolar_dado && ${#extras[@]} == 0)); then
   jangada_abrir_central --nova
 fi
@@ -164,6 +176,7 @@ if ((janela)); then
   ((revisor_dado)) && args+=(--revisor "$revisor")
   ((coordenador_dado)) && args+=(--coordenador "$coordenador")
   ((isolar_dado)) && args+=(--sem-isolar)
+  [[ -z "$conta_agy_dada" ]] || args+=(--conta-agy "$conta_agy_dada")
   [[ -n "$prompt" ]] && args+=(--prompt "$prompt")
   [[ -z "$autor_modelo" ]] || args+=(--autor-modelo "$autor_modelo")
   [[ -z "$autor_esforco" ]] || args+=(--autor-esforco "$autor_esforco")
@@ -262,6 +275,20 @@ fi
 if ! command -v "${agente%% *}" >/dev/null 2>&1; then
   echo "agente indisponível: ${agente%% *} não instalado; nenhuma sessão criada" >&2
   exit 1
+fi
+
+# Conta do agy fixada pela linha de comando ou pelo ambiente, conferida antes
+# de qualquer worktree. Só o catálogo registra e repassa a conta; sem ele a
+# conta continua implícita e a opção só aceita o nome dela.
+catalogo_agy=0
+[[ ! -e "$JANGADA_ESTADO/contas/agy.json" ]] || catalogo_agy=1
+conta_agy=""
+if [[ -n "$conta_agy_dada" ]]; then
+  jangada_conta_agy "$conta_agy_dada" || exit 1
+  ((!catalogo_agy)) || conta_agy="$CONTA_AGY_NOME"
+elif ((catalogo_agy)) && [[ -n "${JANGADA_AGY_CONTA:-}" ]]; then
+  jangada_conta_agy || exit 1
+  conta_agy="$CONTA_AGY_NOME"
 fi
 
 # Nome seguro para ramo, pasta e sessão do tmux. Acentos viram a letra sem
@@ -482,11 +509,45 @@ elif ((anexar)); then
   fi
 fi
 
+# Sessão que já existe segue com a conta do registro protegido, sem nova escolha.
+if ((anexar)) && jangada_agy_registro_tarefa "$sessao"; then
+  conta_registrada="$(jq -r '.conta_agy // ""' "$JANGADA_ESTADO/revisoes/$sessao.json")"
+  if [[ -n "$conta_registrada" ]]; then
+    echo "conta do agy: $conta_registrada (registrada na sessão)"
+    [[ -z "$conta_agy" || "$conta_agy" == "$conta_registrada" ]] \
+      || echo "a sessão $sessao já existe: a conta pedida ($conta_agy) foi ignorada" >&2
+  fi
+fi
+
 if ((sessao_nova)); then
   # O snapshot é do jangada-shell: sem o comando no PATH, a sessão segue sem ele.
   if ((snapshot)) && command -v jangada-snapshot >/dev/null 2>&1; then
     jangada-snapshot --agente "antes do agente $sessao" || true
   fi
+
+  # A conta do agy sai da medida já gravada, depois da conferência de confiança
+  # acima: não consulta o agy nem a rede. A linha mostra a conta e a medida
+  # que a decidiu.
+  if ((catalogo_agy)); then
+    if [[ -n "$conta_agy" ]]; then
+      jangada_conta_agy_escolher "$dir" "$conta_agy" || true
+    elif jangada_conta_agy_escolher "$dir"; then
+      conta_agy="$CONTA_AGY_ESCOLHIDA"
+    else
+      # Nenhuma conta confia na pasta (ou o catálogo falhou): vale a primeira,
+      # como antes, e a delegação pelo agy já fica indisponível.
+      conta_agy="$(jangada_contas_agy | head -n1 | cut -f1)"
+      CONTA_AGY_SALDO=""
+    fi
+    [[ -n "$conta_agy" ]] || { echo "jangada-agente: catálogo de contas do agy sem conta; nenhuma sessão criada" >&2; exit 1; }
+    if [[ -n "$CONTA_AGY_SALDO" ]]; then
+      echo "conta do agy: $conta_agy (gemini ${CONTA_AGY_SALDO}%, medido às $CONTA_AGY_MEDIDA_EM)"
+    else
+      echo "conta do agy: $conta_agy (sem medida)"
+    fi
+  fi
+  isolar_bin="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-isolar")"
+  [[ -z "$conta_agy" ]] || isolar_bin+=" --conta $conta_agy"
 
   cmd_agente="$agente"
   if [[ -n "$perfil" ]]; then
@@ -518,7 +579,7 @@ if ((sessao_nova)); then
   [[ "$isolar" != 0 ]] || echo "isolamento obrigatório na correção P0; opção sem isolamento ignorada" >&2
   isolar=1
   if [[ "$isolar" != 0 ]]; then
-    cmd_agente="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-isolar") -- $cmd_agente"
+    cmd_agente="$isolar_bin -- $cmd_agente"
     cmd_base="$cmd_agente"
   fi
   protocolo="$JANGADA_CORE_PATH/agentes/perfis/protocolo.md"
@@ -553,7 +614,7 @@ if ((sessao_nova)); then
     cmd_agente="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-codex")"
     [[ -n "$protocolo" ]] && cmd_agente+=" --protocolo $(printf '%q' "$protocolo")"
     cmd_agente+=" -- $cmd_codex"
-    cmd_agente="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-isolar") -- $cmd_agente"
+    cmd_agente="$isolar_bin -- $cmd_agente"
     cmd_base="$cmd_agente"
     if [[ -n "$prompt" ]]; then
       printf '%s\n' "$prompt" >"$arq_prompt"
@@ -620,7 +681,7 @@ if ((sessao_nova)); then
     --arg tarefa "$prompt" --arg perfil "$perfil" --arg comando "$cmd_base" \
     --arg atividade "$atividade" --arg tarefa_id "$tarefa_id" --arg execucao "$execucao" \
     --arg revisor "$revisor_efetivo" --arg delegar "$delegar" --arg coordenador "${coordenador:-dono}" \
-    --arg coordenador_sessao "$coordenador_sessao" --argjson isolar "$([[ "$isolar" != 0 ]] && echo true || echo false)" \
+    --arg coordenador_sessao "$coordenador_sessao" --arg conta_agy "$conta_agy" --argjson isolar "$([[ "$isolar" != 0 ]] && echo true || echo false)" \
     '{sessao:$sessao, dir:$dir, raiz:$raiz, worktree:$worktree, ramo:$ramo, base:$base,
       agente:$agente, comando:$comando, isolar:$isolar, estado:"iniciado", mensagem:"", desde:$agora, atualizado:$agora}
      + (if $tarefa != "" then {tarefa:$tarefa} else {} end)
@@ -632,7 +693,8 @@ if ((sessao_nova)); then
      + (if $inicio != "" then {inicio:$inicio} else {} end)
      + (if $revisor != "" then {revisor:$revisor} else {} end)
      + {delegar:$delegar, coordenador:$coordenador}
-     + (if $coordenador_sessao != "" then {coordenador_sessao:$coordenador_sessao} else {} end)' \
+     + (if $coordenador_sessao != "" then {coordenador_sessao:$coordenador_sessao} else {} end)
+     + (if $conta_agy != "" then {conta_agy:$conta_agy} else {} end)' \
     >"$estado_dir/$sessao.json"
   # Cópia dos metadados em revisoes/, que o jangada-isolar oculta: o
   # jangada-validar rodado fora do isolamento lê base, tarefa, autor e
@@ -640,7 +702,7 @@ if ((sessao_nova)); then
   # isolamento, a cópia cairia na pasta que some no fim.
   if [[ -z "${JANGADA_ISOLADO:-}" ]]; then
     (umask 077; mkdir -p "$JANGADA_ESTADO/revisoes") \
-      && jq '{sessao, raiz, worktree, ramo, base, agente, desde, tarefa, inicio, revisor, delegar, execucao, atividade, tarefa_id, modelos_tarefa, coordenador_sessao}
+      && jq '{sessao, raiz, worktree, ramo, base, agente, desde, tarefa, inicio, revisor, delegar, execucao, atividade, tarefa_id, modelos_tarefa, coordenador_sessao, conta_agy}
              | with_entries(select(.value != null))' "$estado_dir/$sessao.json" \
            >"$JANGADA_ESTADO/revisoes/$sessao.json" \
       || echo "aviso: não gravei a cópia da sessão em $JANGADA_ESTADO/revisoes" >&2
