@@ -3,8 +3,9 @@
 O arquivo é derivado: nasce dos caches e das observações que já existem e não
 é lido por quem decide a delegação. Número só entra com origem e data; sem
 medição o percentual é null com o motivo. Nesse caso o grupo pode trazer
-`ultimo`, a última medida conhecida, só para exibição. Medida do arquivo
-anterior ainda válida e mais nova que a do cache local é republicada como está.
+`ultimo`, a última medida conhecida, só para exibição. Por grupo vale uma só
+medida, a mais recente entre o cache local, o arquivo anterior e a consulta
+desta execução; só depois se aplica a validade dela.
 """
 
 import datetime
@@ -30,6 +31,7 @@ ORIGEM_AGY = 'agy -p /usage'
 ORIGEM_CODEX = 'codex app-server account/rateLimits/read'
 ORIGEM_CODEX_ESTADO = 'estado dos provedores'
 ORIGENS = (ORIGEM_AGY, ORIGEM_CODEX, ORIGEM_CODEX_ESTADO)
+RANK_CACHE, RANK_ANTERIOR, RANK_ATUALIZADO = 0, 1, 2
 LIMITE_LEITURA = 1024 * 1024
 LIMITE_BANCO = 64 * 1024 * 1024
 CACHE_PADRAO = 5
@@ -153,17 +155,23 @@ def grupo_medido(grupo, percentual, janelas, origem, medido_em, valido_ate):
             'medido_em': medido_em, 'valido_ate': valido_ate, 'motivo': None}
 
 
-def lembrar(ultimas, chave, percentual, medido, agora):
-    """Guarda a medida mais recente de (provedor, conta, grupo); data futura não entra."""
+def lembrar(candidatas, chave, percentual, medido, valido, origem, janelas, rank, agora):
+    """Guarda, por (provedor, conta, grupo), a medida mais recente entre as candidatas.
+
+    Compara pelo segundo; no mesmo segundo vence o rank maior (cache local, arquivo anterior,
+    atualização). Data futura não entra. `valido` None é a medida sem validade, só para `ultimo`.
+    """
     percentual, medido = numero(percentual, 0, 100), numero(medido)
     if percentual is None or medido is None or medido > agora:
         return
-    if chave not in ultimas or medido > ultimas[chave][1]:
-        ultimas[chave] = (percentual, medido)
+    ordem = (math.floor(medido), rank, medido)
+    if chave not in candidatas or ordem > candidatas[chave]['ordem']:
+        candidatas[chave] = {'ordem': ordem, 'percentual': percentual, 'medido': medido, 'valido': valido,
+                             'origem': origem, 'janelas': janelas}
 
 
-def lembrar_cache_agy(ultimas, conta, lido, agora):
-    """Medida do cache do agy, mesmo vencido: só a data de modificação importa."""
+def lembrar_cache_agy(candidatas, conta, lido, validade, agora):
+    """Medidas do cache do agy, vencidas ou não: valem a data de modificação mais a validade de hoje."""
     if lido is None:
         return
     conteudo, mtime = lido
@@ -172,42 +180,29 @@ def lembrar_cache_agy(ultimas, conta, lido, agora):
     except (ValueError, RecursionError):
         return
     for grupo in grupos_agy(dados, [], ORIGEM_AGY, None, None):
-        lembrar(ultimas, ('agy', conta, grupo['grupo']), grupo['percentual'], mtime, agora)
+        lembrar(candidatas, ('agy', conta, grupo['grupo']), grupo['percentual'], mtime, mtime + validade,
+                ORIGEM_AGY, grupo['janelas'], RANK_CACHE, agora)
 
 
-def grupo_anterior(grupo, agora):
-    """Grupo medido do cotas.json anterior ainda dentro da validade, refeito só com campos conferidos."""
-    percentual = numero(grupo.get('percentual'), 0, 100)
-    datas = (grupo.get('medido_em'), grupo.get('valido_ate'))
-    if percentual is None or grupo.get('origem') not in ORIGENS \
-            or not all(isinstance(d, str) and DATA.fullmatch(d) for d in datas):
-        return None
-    inicio, fim = instante(datas[0]), instante(datas[1])
-    if inicio is None or fim is None or inicio > agora:
-        return None
-    # A validade só encurta: arquivo com valido_ate distante não vira número atual para sempre.
-    fim = min(fim, inicio + validade_cache())
-    if fim <= agora:
-        return None
-    medido_em, valido_ate = iso(inicio), iso(fim)
-    if medido_em is None or valido_ate is None:
-        return None
+def janelas_anteriores(lista):
     janelas = []
-    for janela in grupo.get('janelas') if isinstance(grupo.get('janelas'), list) else []:
+    for janela in lista if isinstance(lista, list) else []:
         if not isinstance(janela, dict) or not isinstance(janela.get('id'), str) or not GRUPO.fullmatch(janela['id']) \
                 or numero(janela.get('percentual'), 0, 100) is None:
             continue
         renova = janela.get('renova_em')
-        renova = None if renova is None else renovacao(renova) if isinstance(renova, str) and DATA.fullmatch(renova) else False
+        if renova is not None:
+            renova = renovacao(renova) if isinstance(renova, str) and DATA.fullmatch(renova) else False
         if renova is not False:
             janelas.append({'id': janela['id'], 'percentual': janela['percentual'], 'renova_em': renova})
-    return grupo_medido(grupo['grupo'], percentual, janelas, grupo['origem'], medido_em, valido_ate)
+    return janelas
 
 
-def lembrar_anterior(ultimas, anteriores, arquivo, agora):
-    """Medidas do cotas.json anterior: grupo com percentual numérico ou com `ultimo`.
+def lembrar_anterior(candidatas, arquivo, validade, agora):
+    """Medidas do cotas.json anterior: grupo com percentual numérico ou só com `ultimo`.
 
-    Em `anteriores` ficam, por chave, os grupos medidos que ainda estão dentro da validade.
+    A validade do grupo numérico só encurta: vale o menor entre o valido_ate dele e a data da
+    medida mais a validade de hoje.
     """
     try:
         lido = ler_regular(arquivo)
@@ -226,45 +221,56 @@ def lembrar_anterior(ultimas, anteriores, arquivo, agora):
             if not isinstance(grupo, dict) or not isinstance(grupo.get('grupo'), str) or not GRUPO.fullmatch(grupo['grupo']):
                 continue
             chave = (nome, conta, grupo['grupo'])
-            medida = grupo if grupo.get('percentual') is not None else grupo.get('ultimo')
-            data = medida.get('medido_em') if isinstance(medida, dict) else None
-            if isinstance(data, str) and DATA.fullmatch(data):
-                lembrar(ultimas, chave, medida.get('percentual'), instante(data), agora)
-            vigente = grupo_anterior(grupo, agora) if grupo.get('percentual') is not None else None
-            if vigente and (chave not in anteriores or vigente['medido_em'] > anteriores[chave]['medido_em']):
-                anteriores[chave] = vigente
-
-
-def preferir_anteriores(documento, anteriores):
-    """Troca o grupo pelo do arquivo anterior quando este é medido, válido e mais novo que a medição local, vencida ou não."""
-    for provedor in documento['provedores']:
-        for indice, grupo in enumerate(provedor['grupos']):
-            anterior = anteriores.get((provedor['provedor'], provedor['conta'], grupo['grupo']))
-            if anterior is None or grupo['motivo'] == 'conta_sem_confianca':
+            if grupo.get('percentual') is not None:
+                medida, origem, janelas = grupo, grupo.get('origem'), janelas_anteriores(grupo.get('janelas'))
+                datas = (grupo.get('medido_em'), grupo.get('valido_ate'))
+            else:
+                medida, origem, janelas = grupo.get('ultimo'), None, []
+                datas = (medida.get('medido_em') if isinstance(medida, dict) else None, None)
+            if not isinstance(medida, dict) or not isinstance(datas[0], str) or not DATA.fullmatch(datas[0]):
                 continue
-            atual = instante(grupo['medido_em'])
-            if atual is None or instante(anterior['medido_em']) > atual:
-                provedor['grupos'][indice] = anterior
+            medido, valido = instante(datas[0]), None
+            if medido is None:
+                continue
+            if origem in ORIGENS and isinstance(datas[1], str) and DATA.fullmatch(datas[1]):
+                valido = instante(datas[1])
+            if valido is None:
+                origem, janelas = None, []
+            else:
+                valido = min(valido, medido + validade)
+            lembrar(candidatas, chave, medida.get('percentual'), medido, valido, origem, janelas, RANK_ANTERIOR, agora)
 
 
-def lembrar_medidos(ultimas, documento, agora):
+def lembrar_medidos(candidatas, documento, rank_agy, rank_codex, agora):
+    """Medidas que o documento já traz (cache lido ou consulta desta execução), antes de vencerem."""
     for provedor in documento['provedores']:
         for grupo in provedor['grupos']:
             if grupo['percentual'] is not None:
-                lembrar(ultimas, (provedor['provedor'], provedor['conta'], grupo['grupo']),
-                        grupo['percentual'], instante(grupo['medido_em']), agora)
+                lembrar(candidatas, (provedor['provedor'], provedor['conta'], grupo['grupo']), grupo['percentual'],
+                        instante(grupo['medido_em']), instante(grupo['valido_ate']), grupo['origem'], grupo['janelas'],
+                        rank_agy if provedor['provedor'] == 'agy' else rank_codex, agora)
 
 
-def acrescentar_ultimo(documento, ultimas):
-    """Põe `ultimo` no grupo sem número, menos quando a conta não tem confiança."""
+def resolver(documento, candidatas, agora):
+    """Publica, por grupo, só a medida mais recente: dentro da validade como número, vencida como `ultimo`."""
     for provedor in documento['provedores']:
-        for grupo in provedor['grupos']:
-            if grupo['percentual'] is not None or grupo['motivo'] == 'conta_sem_confianca':
+        for indice, grupo in enumerate(provedor['grupos']):
+            escolhida = candidatas.get((provedor['provedor'], provedor['conta'], grupo['grupo']))
+            if escolhida is None or grupo['motivo'] == 'conta_sem_confianca':
                 continue
-            medida = ultimas.get((provedor['provedor'], provedor['conta'], grupo['grupo']))
-            medido_em = iso(medida[1]) if medida else None
-            if medido_em is not None:
-                grupo['ultimo'] = {'percentual': medida[0], 'medido_em': medido_em}
+            medido_em = iso(escolhida['medido'])
+            if medido_em is None:
+                continue
+            valido = escolhida['valido']
+            valido_ate = iso(valido) if valido is not None else None
+            if valido_ate is not None and valido > agora:
+                provedor['grupos'][indice] = grupo_medido(grupo['grupo'], escolhida['percentual'], escolhida['janelas'],
+                                                          escolhida['origem'], medido_em, valido_ate)
+                continue
+            if grupo['percentual'] is not None:
+                grupo = provedor['grupos'][indice] = grupo_nulo(grupo['grupo'], 'cache_vencido', escolhida['origem'],
+                                                                medido_em, valido_ate)
+            grupo['ultimo'] = {'percentual': escolhida['percentual'], 'medido_em': medido_em}
 
 
 def baldes_agy(dados):
@@ -364,7 +370,7 @@ def consultar_agy(core, conta, catalogo):
     return json.loads(resposta.stdout)
 
 
-def medir_agy(core, conta, catalogo, atualizar, cache, agora, ultimas):
+def medir_agy(core, conta, catalogo, atualizar, cache, agora, candidatas):
     esperados = grupos_esperados(conta['argon'])
     if not conta['confia']:
         return [grupo_nulo(g, 'conta_sem_confianca') for g in esperados]
@@ -374,7 +380,7 @@ def medir_agy(core, conta, catalogo, atualizar, cache, agora, ultimas):
         lido, ilegivel = ler_regular(arquivo), False
     except (OSError, ValueError):
         lido, ilegivel = None, True
-    lembrar_cache_agy(ultimas, conta['nome'], lido, agora)
+    lembrar_cache_agy(candidatas, conta['nome'], lido, validade, agora)
     if atualizar:
         try:
             dados = consultar_agy(core, conta, catalogo)
@@ -398,7 +404,7 @@ def medir_agy(core, conta, catalogo, atualizar, cache, agora, ultimas):
     return grupos_agy_em(dados, esperados, mtime, mtime + validade)
 
 
-def entradas_agy(core, raiz_estado, atualizar, agora, ultimas):
+def entradas_agy(core, raiz_estado, atualizar, agora, candidatas):
     catalogo = (raiz_estado / 'contas/agy.json').is_file()
     cache = pathlib.Path(os.environ.get('XDG_CACHE_HOME') or pathlib.Path.home() / '.cache') / 'jangada'
     try:
@@ -406,11 +412,11 @@ def entradas_agy(core, raiz_estado, atualizar, agora, ultimas):
     except (OSError, ValueError, subprocess.SubprocessError):
         return [{'provedor': 'agy', 'conta': None, 'grupos': [], 'motivo': 'consulta_falhou'}]
     return [{'provedor': 'agy', 'conta': conta['nome'],
-             'grupos': medir_agy(core, conta, catalogo, atualizar, cache, agora, ultimas), 'motivo': None}
+             'grupos': medir_agy(core, conta, catalogo, atualizar, cache, agora, candidatas), 'motivo': None}
             for conta in contas]
 
 
-def estado_codex(raiz_estado, agora, ultimas):
+def estado_codex(raiz_estado, agora, candidatas):
     banco = raiz_estado / 'agentes/runtime/tarefas.sqlite'
     if not banco.is_file():
         return grupo_nulo('codex', 'sem_cache')
@@ -424,7 +430,7 @@ def estado_codex(raiz_estado, agora, ultimas):
     cota, medido, valido = numero(linha['cota'], 0, 100), numero(linha['atualizado']), numero(linha['valido_ate'])
     if cota is None or medido is None or valido is None:
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
-    lembrar(ultimas, ('codex', None, 'codex'), round(cota, 2), medido, agora)
+    lembrar(candidatas, ('codex', None, 'codex'), round(cota, 2), medido, valido, ORIGEM_CODEX_ESTADO, [], RANK_CACHE, agora)
     medido_em, valido_ate = iso(medido), iso(valido)
     if medido_em is None or valido_ate is None:
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX_ESTADO)
@@ -451,8 +457,8 @@ def consulta_codex(raiz_estado, agora):
         return grupo_nulo('codex', 'consulta_falhou', ORIGEM_CODEX)
 
 
-def entrada_codex(raiz_estado, atualizar, permitir_remoto, agora, ultimas):
-    grupo = estado_codex(raiz_estado, agora, ultimas)
+def entrada_codex(raiz_estado, atualizar, permitir_remoto, agora, candidatas):
+    grupo = estado_codex(raiz_estado, agora, candidatas)
     if atualizar and permitir_remoto:
         grupo = consulta_codex(raiz_estado, agora)
     return {'provedor': 'codex', 'conta': None, 'grupos': [grupo], 'motivo': None}
@@ -476,18 +482,18 @@ def montar(raiz_estado, core, atualizar=False, permitir_remoto=False, agora=None
     agora = time.time() if agora is None else agora
     # Sem --permitir-remoto nada sai da máquina, nem a consulta ao agy.
     consultar_rede = atualizar and permitir_remoto
-    ultimas, anteriores = {}, {}
-    lembrar_anterior(ultimas, anteriores, raiz_estado / 'cotas.json', agora)
+    candidatas = {}
+    lembrar_anterior(candidatas, raiz_estado / 'cotas.json', validade_cache(), agora)
     documento = {'versao': VERSAO, 'gerado': iso(agora),
-                 'provedores': entradas_agy(core, raiz_estado, consultar_rede, agora, ultimas)
-                 + [entrada_codex(raiz_estado, atualizar, permitir_remoto, agora, ultimas),
+                 'provedores': entradas_agy(core, raiz_estado, consultar_rede, agora, candidatas)
+                 + [entrada_codex(raiz_estado, atualizar, permitir_remoto, agora, candidatas),
                     {'provedor': 'claude', 'conta': None, 'grupos': [], 'motivo': 'nao_medido_por_este_provedor'}]}
     # A validade é conferida no instante da entrega, não no da partida.
     agora = max(agora, time.time())
-    preferir_anteriores(documento, anteriores)
-    lembrar_medidos(ultimas, documento, agora)
+    lembrar_medidos(candidatas, documento, RANK_ATUALIZADO if consultar_rede else RANK_CACHE,
+                    RANK_ATUALIZADO if consultar_rede else RANK_CACHE, agora)
     vencer(documento, agora)
-    acrescentar_ultimo(documento, ultimas)
+    resolver(documento, candidatas, agora)
     documento['gerado'] = iso(agora)
     validar(documento, agora)
     return documento

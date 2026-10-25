@@ -873,13 +873,8 @@ bordas para conferir assinaturas não entra nessas contagens.
       - `percentual`: cota restante de 0 a 100, duas casas, a menor entre as
         janelas ativas do grupo (a mesma conta do `cota_do_grupo` do
         `jangada-delegar`). `null` quando não houve medição, nunca 0 nem 50.
-        Vale a medida válida mais recente entre o cache local e o `cotas.json`
-        anterior: se o grupo do arquivo anterior tem número, `medido_em` mais
-        novo que o da medição local (vencida ou não) e `valido_ate` ainda no
-        futuro, ele é republicado com a origem e as datas dele. A validade
-        republicada é a menor entre a dele e `medido_em` mais a validade do
-        cache (5 minutos por padrão): encurta, nunca alonga. É o caso da
-        medida de `--atualizar`, que não grava no cache do agy.
+        Por grupo vale uma só medida, a regra única de "Escolha da medida"
+        abaixo.
       - `janelas`: as janelas que entraram na conta; vazia quando
         `percentual` é `null` ou vem do estado dos provedores.
         - `id`: `gemini-5h`, `gemini-weekly`, `codex-primary` e assim por diante.
@@ -902,16 +897,32 @@ bordas para conferir assinaturas não entra nessas contagens.
         nem lida, nem consultada) e `nao_medido_por_este_provedor`.
       - `ultimo` (opcional): `{"percentual": N, "medido_em": "ISO UTC"}`, a
         última medida conhecida do mesmo provedor, conta e grupo. Só aparece
-        quando `percentual` é `null` e há medida anterior válida; em grupo
-        medido e em `conta_sem_confianca` o campo não existe. É a medida mais
-        recente entre o cache local (arquivo do agy ou banco do Codex, mesmo
-        vencido) e o `cotas.json` anterior (grupo com `percentual` ou com
-        `ultimo`). Número fora de 0 a 100, data fora do formato ou no futuro,
-        arquivo anterior que não seja regular, passe de 1 MiB ou não seja JSON
-        são ignorados. Serve só para exibição: a escolha da conta, a liberação
-        do Argon e o `jangada-delegar` não o leem, e a validade de 5 minutos
-        não muda. Obtê-lo não faz consulta nova: sem
-        `--atualizar --permitir-remoto` nada sai da máquina.
+        quando `percentual` é `null` e existe medida válida de antes; em grupo
+        medido e em `conta_sem_confianca` o campo não existe. É sempre a medida
+        escolhida pela regra abaixo, nunca uma mais antiga. Serve só para
+        exibição: a escolha da conta, a liberação do Argon e o `jangada-delegar`
+        não o leem.
+- **Escolha da medida:** para cada provedor, conta e grupo, juntam-se as
+  candidatas e fica uma só, a de `medido_em` mais recente. Só depois se aplica
+  a validade dela.
+  - Candidatas: o cache local (arquivo do agy ou banco do Codex, vencido ou
+    não), o grupo do `cotas.json` anterior com `percentual` ou só com `ultimo`
+    e a medida nova de `--atualizar --permitir-remoto`.
+  - Empate no mesmo segundo (as datas têm precisão de segundos): vence a
+    atualização, depois o `cotas.json` anterior, depois o cache local.
+  - Validade: a do cache local é `medido_em` mais `JANGADA_DELEGAR_CACHE`
+    minutos (5 por padrão); a do Codex é a do banco; a do grupo anterior é o
+    menor entre o `valido_ate` dele e `medido_em` mais a validade de hoje, de
+    modo que só encurta. Dentro da validade a candidata sai como `percentual`,
+    com a origem e as datas dela. Vencida, o grupo sai com `percentual` `null`,
+    com o motivo que já teria (`cache_vencido` se vinha medido) e `ultimo` com
+    ela. Grupo anterior com número mas sem origem ou validade válidas conta só
+    como `ultimo`. Medida mais antiga que a
+    escolhida nunca sai, nem como `ultimo`.
+  - Entradas recusadas: data de `medido_em` no futuro, número fora de 0 a 100,
+    data fora do formato, origem desconhecida, `cotas.json` anterior que não
+    seja arquivo regular, passe de 1 MiB ou não seja JSON.
+  - `conta_sem_confianca` não recebe número nem `ultimo`.
 - **Fontes:**
   - Sem `--atualizar`, só leitura local: o cache do agy de cada conta
     (`~/.cache/jangada/agy-usage.json` ou `agy-usage-CONTA.json` com catálogo,

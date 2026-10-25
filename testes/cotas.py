@@ -337,6 +337,7 @@ class Cotas(unittest.TestCase):
         self.assertEqual((codex['percentual'], codex['origem']), (41.5, cotas.ORIGEM_CODEX_ESTADO))
         db.execute('UPDATE provedores SET valido_ate=?', (agora - 1,))
         db.commit()
+        (casa.estado / 'cotas.json').unlink()  # o arquivo anterior guarda a validade da leitura de antes
         codex = grupos(lido_apos(casa), 'codex', None)['codex']
         self.assertEqual((codex['percentual'], codex['motivo']), (None, 'cache_vencido'))
         db.close()
@@ -829,6 +830,41 @@ class Cotas(unittest.TestCase):
         gemini = grupos(lido(casa))['gemini']
         self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'sem_cache'))
         self.assertEqual(gemini['ultimo'], {'percentual': 12.5, 'medido_em': anterior['medido_em']})
+
+    def test_medida_mais_nova_ja_vencida_nao_cede_lugar_a_cache_antigo_ainda_valido(self):
+        casa = self.casa()
+        casa.cache_agy(idade=200)
+        # T1 foi gravada com JANGADA_DELEGAR_CACHE=1 (60 s) e venceu; T0 ainda vale pelos 5 minutos de hoje.
+        t1 = self.medida('gemini', 70, 120, validade=60)
+        self.anterior(casa, [t1])
+        gemini = grupos(lido_apos(casa))['gemini']
+        self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'cache_vencido'))
+        self.assertEqual(gemini['ultimo'], {'percentual': 70, 'medido_em': t1['medido_em']})
+        # O 3p não tem medida mais nova: segue o cache T0, que ainda vale.
+        self.assertEqual(grupos(lido(casa))['3p']['percentual'], 90.5)
+        # E a regravação não perde T1.
+        gemini = grupos(lido_apos(casa))['gemini']
+        self.assertEqual(gemini['ultimo'], {'percentual': 70, 'medido_em': t1['medido_em']})
+
+    def test_atualizacao_vence_o_cache_mesmo_no_mesmo_segundo(self):
+        casa = self.casa()
+        antigo = json.loads(json.dumps(AGY_USO))
+        for balde in antigo['command']['data']['groups'][0]['buckets']:
+            balde['remaining_fraction'] = 0.5
+        casa.cache_agy(antigo)
+        executavel(casa.bin, 'agy', "cat <<'FIM'\n%s\nFIM" % json.dumps(AGY_USO))
+        self.assertEqual(casa.router('cotas', '--atualizar', '--permitir-remoto').returncode, 0)
+        self.assertEqual(grupos(lido(casa))['gemini']['percentual'], 87.5)
+
+    def test_medidas_diferentes_no_mesmo_segundo_conservam_a_do_anterior(self):
+        casa = self.casa()
+        segundo = int(time.time()) - 60
+        arquivo = casa.cache_agy()
+        os.utime(arquivo, (segundo + 0.2, segundo + 0.2))
+        anterior = cotas.grupo_medido('gemini', 12.5, [], cotas.ORIGEM_AGY, cotas.iso(segundo), cotas.iso(segundo + 240))
+        self.anterior(casa, [anterior])
+        gemini = grupos(lido_apos(casa))['gemini']
+        self.assertEqual((gemini['percentual'], gemini['medido_em']), (12.5, anterior['medido_em']))
 
     def test_medida_do_anterior_com_validade_vencida_so_entra_como_ultimo(self):
         casa = self.casa()
