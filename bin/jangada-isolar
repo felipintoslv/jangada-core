@@ -206,11 +206,20 @@ recusar_sem_login() {
   echo "jangada-isolar: sem login do agy no keyring: $1" >&2
   exit "$sem_login"
 }
+# Só um ponto de montagem vem de fora: um soquete criado pelo autor na própria
+# pasta em memória (ou apontado por outro XDG_RUNTIME_DIR) que repasse ao bus
+# dele daria ao implementador o filtro do autor, com CreateItem.
+soquete_montado() {
+  local alvo
+  alvo="$(realpath -e -- "$1" 2>/dev/null)" || return 1
+  awk -v m="$alvo" '$5 == m { achou = 1 } END { exit !achou }' /proc/self/mountinfo 2>/dev/null
+}
 chamada_aninhada=0
 [[ "$perfil" != implementacao ]] || ! ja_isolado || chamada_aninhada=1
 soquete_impl="${XDG_RUNTIME_DIR:-}/bus-implementacao"
 if ((chamada_aninhada && !mostrar)) \
-   && { [[ -z "${XDG_RUNTIME_DIR:-}" || -L "$soquete_impl" || ! -S "$soquete_impl" ]]; }; then
+   && { [[ -z "${XDG_RUNTIME_DIR:-}" || -L "$soquete_impl" || ! -S "$soquete_impl" ]] \
+        || ! soquete_montado "$soquete_impl"; }; then
   recusar_sem_login 'a sessão do autor não trouxe o soquete do implementador (item do keyring ausente ou sessão aberta sem ele)'
 fi
 if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]]; then

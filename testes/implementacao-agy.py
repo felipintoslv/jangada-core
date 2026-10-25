@@ -1216,24 +1216,41 @@ print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"
                     f"Path({str(chamada)!r}).write_text('\\n'.join(sys.argv[1:]))")
         return runtime, proxies, chamada
 
-    def isolar_implementacao(self, runtime, extras=None):
+    def sem_dependencia(self, motivo):
+        # Com o isolamento real exigido, dependência ausente reprova em vez de pular.
+        if os.environ.get("JANGADA_TESTES_EXIGIR_ISOLAMENTO") == "1":
+            self.fail("isolamento real exigido, mas: " + motivo)
+        self.skipTest(motivo)
+
+    def exigir_bwrap(self):
+        if not os.access("/usr/bin/bwrap", os.X_OK):
+            self.sem_dependencia("Bubblewrap indisponível")
+        capacidade = subprocess.run(["/usr/bin/bwrap", "--dev-bind", "/", "/", "true"], capture_output=True)
+        if capacidade.returncode:
+            self.sem_dependencia("Bubblewrap indisponível: " + capacidade.stderr.decode()[:200])
+
+    def isolar_implementacao(self, runtime, extras=None, montado=None):
+        """Roda o isolar; `montado` é o soquete que o bwrap monta no lugar, como faz o isolar de fora."""
         ambiente = {**self.env, "JANGADA_ISOLAR_PERFIL": "implementacao",
                     "JANGADA_IMPLEMENTACAO_MANIFESTO": self.manifesto, "XDG_RUNTIME_DIR": str(runtime),
                     "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + str(runtime / "bus"),
                     "JANGADA_ISOLAR_KEYRING_ITEM": "service=gemini username=antigravity", **(extras or {})}
-        return subprocess.run([str(REPO / "bin/jangada-isolar"), "--", "agy"], cwd=self.raiz, env=ambiente,
-                              input="", capture_output=True, text=True)
+        comando = [str(REPO / "bin/jangada-isolar"), "--", "agy"]
+        if montado:
+            comando = ["/usr/bin/bwrap", "--dev-bind", "/", "/", "--bind", str(montado), str(montado), "--"] + comando
+        return subprocess.run(comando, cwd=self.raiz, env=ambiente, input="", capture_output=True, text=True)
 
     def test_chamada_aninhada_usa_o_soquete_do_implementador_sem_subir_proxy(self):
         # Dentro da sessão do autor o proxy dele nega Service.SearchItems e não
         # aceita outro xdg-dbus-proxy atrás de si (serial 0xFFFF0000 das
         # chamadas falsas). O soquete do implementador vem pronto de fora.
+        self.exigir_bwrap()
         runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=True)
         soquete = runtime / "bus-implementacao"
         servidor = socket.socket(socket.AF_UNIX)
         self.addCleanup(servidor.close)
         servidor.bind(str(soquete))
-        p = self.isolar_implementacao(runtime, {"JANGADA_ISOLADO": "1", "JANGADA_MARCA_ISOLADO": "/"})
+        p = self.isolar_implementacao(runtime, {"JANGADA_ISOLADO": "1", "JANGADA_MARCA_ISOLADO": "/"}, montado=soquete)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertFalse(proxies.exists(), "a chamada aninhada subiu outro proxy")
         argumentos = chamada.read_text().splitlines()
@@ -1254,6 +1271,26 @@ print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"
             self.assertIn("sem login do agy no keyring", p.stderr)
             self.assertFalse(proxies.exists())
             self.assertFalse(chamada.exists())
+
+    def test_chamada_aninhada_recusa_soquete_que_o_autor_criou_e_repassa_ao_bus_dele(self):
+        # O autor cria o soquete na pasta em memória dele e repassa ao próprio
+        # bus (que aceita CreateItem). Só um ponto de montagem, trazido de fora, vale.
+        runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=True)
+        repasse = runtime / "bus"
+        servidor = socket.socket(socket.AF_UNIX)
+        self.addCleanup(servidor.close)
+        servidor.bind(str(repasse))
+        servidor.listen()
+        forjado = runtime / "bus-implementacao"
+        forjado2 = socket.socket(socket.AF_UNIX)
+        self.addCleanup(forjado2.close)
+        forjado2.bind(str(forjado))
+        forjado2.listen()
+        p = self.isolar_implementacao(runtime, {"JANGADA_ISOLADO": "1", "JANGADA_MARCA_ISOLADO": "/"})
+        self.assertEqual(p.returncode, 69, p.stderr)
+        self.assertIn("sem login do agy no keyring", p.stderr)
+        self.assertFalse(chamada.exists(), "o implementador chegou a ser isolado com o soquete forjado")
+        self.assertFalse(proxies.exists())
 
     def test_autor_recebe_segundo_soquete_com_o_filtro_do_implementador(self):
         runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=False)
@@ -1301,14 +1338,11 @@ print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"
         # roda o delegar dentro do jangada-isolar e o implementador, aninhado,
         # lê o item do agy pelo soquete que o isolar de fora trouxe. Antes, o
         # xdg-dbus-proxy interno era derrubado pelo proxy do autor.
-        capacidade = subprocess.run(["/usr/bin/bwrap", "--ro-bind", "/", "/", "--unshare-pid", "true"],
-                                    capture_output=True)
-        if capacidade.returncode:
-            self.skipTest("Bubblewrap indisponível: " + capacidade.stderr.decode()[:200])
+        self.exigir_bwrap()
         if not all(shutil.which(nome) for nome in ("xdg-dbus-proxy", "dbus-daemon", "gdbus")):
-            self.skipTest("sem xdg-dbus-proxy, dbus-daemon ou gdbus")
+            self.sem_dependencia("sem xdg-dbus-proxy, dbus-daemon ou gdbus")
         if subprocess.run(["python3", "-c", "import dbus, gi"], capture_output=True).returncode:
-            self.skipTest("sem dbus-python")
+            self.sem_dependencia("sem dbus-python")
         (self.bin / "bwrap").unlink()
         kr = self.tmp / "kr"
         kr.mkdir()

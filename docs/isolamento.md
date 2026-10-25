@@ -295,8 +295,12 @@ proxy, com o filtro do implementador, e o liga em
 do filtro do autor: só `GetSecret` e propriedades do item, busca na coleção e
 nada de `CreateItem`. A chamada aninhada não sobe proxy nem busca itens: só
 monta esse soquete como `bus` do implementador. O caminho é fixo e precisa ser
-soquete, não link. Um autor hostil que o aponte para o próprio `bus` não passa
-do que já alcança.
+soquete, não link, e ponto de montagem em `/proc/self/mountinfo`. Um soquete
+que o autor criou na própria pasta em memória, ou em outro `XDG_RUNTIME_DIR`,
+e que repasse ao `bus` dele (com `CreateItem`) não é montagem e é recusado
+com o código 69. A checagem não vale contra um autor que monte o soquete num
+namespace de usuário próprio; mesmo assim ele só entrega o que o autor já
+alcança.
 
 Sem o soquete, a chamada aninhada sai com código 69 e a linha
 `jangada-isolar: sem login do agy no keyring: ...`. O `jangada-delegar` grava
