@@ -752,10 +752,10 @@ class Cotas(unittest.TestCase):
     def test_cotas_json_anterior_mais_novo_que_o_cache_vence(self):
         casa = self.casa()
         casa.cache_agy(idade=3600)
-        self.anterior(casa, [self.medida('gemini', 12.5, 600)])
+        anterior = self.medida('gemini', 12.5, 600)
+        self.anterior(casa, [anterior])
         gemini = grupos(lido_apos(casa))['gemini']
-        self.assertEqual(gemini['ultimo']['percentual'], 12.5)
-        self.assertEqual(gemini['ultimo']['medido_em'], cotas.iso(time.time() - 600))
+        self.assertEqual(gemini['ultimo'], {'percentual': 12.5, 'medido_em': anterior['medido_em']})
         self.assertEqual(grupos(lido(casa))['3p']['ultimo']['percentual'], 90.5)
 
     def test_cache_mais_novo_que_o_cotas_json_anterior_vence(self):
