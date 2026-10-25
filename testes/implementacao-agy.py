@@ -797,6 +797,89 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
         self.assertEqual(rodar().returncode, 0)
         self.assertEqual((destino / "agy.json").read_bytes(), antes)
 
+    def test_migracao_pula_links_da_conta_e_recusa_arquivo_especial(self):
+        import pty
+        origem = self.tmp / "estado/catamara/contas"
+        externo = self.tmp / "externo"
+        externo.mkdir()
+        (externo / "conteudo.txt").write_text("conteudo de fora")
+        for nome in ("conta1", "conta2"):
+            pasta = origem / nome / "antigravity-cli"
+            (pasta / "log").mkdir(parents=True)
+            (pasta / "settings.json").write_text("segredo " + nome)
+            (pasta / "log/cli-x.log").write_text("registro " + nome)
+            (pasta / "cli.log").symlink_to("log/cli-x.log")
+        pasta1 = origem / "conta1/antigravity-cli"
+        (pasta1 / "fora.txt").symlink_to("/etc/hostname")
+        (pasta1 / "pasta-fora").symlink_to(externo)
+        (pasta1 / "log/solto.txt").symlink_to(externo / "conteudo.txt")
+        migracao = REPO / "migrations/202610241200-importar-contas-agy.sh"
+        destino = Path(self.env["JANGADA_ESTADO"]) / "contas"
+
+        def rodar():
+            mestre, escravo = pty.openpty()
+            try:
+                os.write(mestre, b"s\ns\nn\n")
+                return subprocess.run(["bash", str(migracao)], env=self.env, stdin=escravo,
+                                      capture_output=True, text=True, timeout=10)
+            finally:
+                os.close(mestre)
+                os.close(escravo)
+
+        antes = sorted(str(p.relative_to(origem)) for p in origem.rglob("*"))
+        fifo = pasta1 / "fila"
+        os.mkfifo(fifo)
+        p = rodar()
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("arquivo especial", p.stderr)
+        self.assertFalse(destino.exists())
+        fifo.unlink()
+
+        p = rodar()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        for nome in ("conta1", "conta2"):
+            copia = destino / nome
+            self.assertFalse((copia / "cli.log").exists() or (copia / "cli.log").is_symlink())
+            self.assertEqual((copia / "log/cli-x.log").read_text(), "registro " + nome)
+            self.assertEqual((copia / "settings.json").read_text(), "segredo " + nome)
+            self.assertIn(f"{nome}/antigravity-cli/cli.log", p.stdout)
+        copia1 = destino / "conta1"
+        self.assertFalse((copia1 / "fora.txt").exists() or (copia1 / "fora.txt").is_symlink())
+        self.assertFalse((copia1 / "pasta-fora").exists() or (copia1 / "pasta-fora").is_symlink())
+        self.assertFalse((copia1 / "log/solto.txt").exists() or (copia1 / "log/solto.txt").is_symlink())
+        self.assertIn("conta1/antigravity-cli/fora.txt", p.stdout)
+        self.assertIn("conta1/antigravity-cli/pasta-fora", p.stdout)
+        self.assertIn("conta1/antigravity-cli/log/solto.txt", p.stdout)
+        self.assertNotIn("/etc/hostname", p.stdout + p.stderr)
+        self.assertNotIn(str(externo), p.stdout + p.stderr)
+        for arquivo in destino.rglob("*"):
+            self.assertFalse(arquivo.is_symlink(), arquivo)
+            if arquivo.is_file():
+                self.assertNotIn("conteudo de fora", arquivo.read_text())
+        self.assertEqual(sorted(str(p.relative_to(origem)) for p in origem.rglob("*")), antes)
+        self.assertEqual((externo / "conteudo.txt").read_text(), "conteudo de fora")
+
+    def test_migracao_recusa_link_na_pasta_da_conta(self):
+        import pty
+        origem = self.tmp / "estado/catamara/contas"
+        real = self.tmp / "real"
+        (real / "log").mkdir(parents=True)
+        (real / "settings.json").write_text("de fora")
+        (origem / "conta1").mkdir(parents=True)
+        (origem / "conta1/antigravity-cli").symlink_to(real)
+        (origem / "conta2/antigravity-cli").mkdir(parents=True)
+        mestre, escravo = pty.openpty()
+        try:
+            os.write(mestre, b"s\ns\nn\n")
+            p = subprocess.run(["bash", str(REPO / "migrations/202610241200-importar-contas-agy.sh")],
+                               env=self.env, stdin=escravo, capture_output=True, text=True, timeout=10)
+        finally:
+            os.close(mestre)
+            os.close(escravo)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("importação de contas recusada", p.stderr)
+        self.assertFalse((Path(self.env["JANGADA_ESTADO"]) / "contas").exists())
+
     def test_pesquisa_autoriza_so_dominio_na_copia(self):
         settings = self.casa / ".gemini/antigravity-cli/settings.json"
         original = {"trustedWorkspaces": [str(self.raiz)],

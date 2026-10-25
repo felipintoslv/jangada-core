@@ -423,6 +423,11 @@ Para importar depois, o dono executa em terminal:
 bash "$JANGADA_CORE_PATH/migrations/202610241200-importar-contas-agy.sh"
 ```
 
+Links dentro de `antigravity-cli` (como o `cli.log` que o agy recria a cada
+execução) não são seguidos nem copiados, e a migração lista os pulados pelo
+caminho relativo. Arquivo especial (fifo, soquete, dispositivo) ou link na
+própria pasta da conta recusa a importação.
+
 Catálogo ou destino existente são preservados. Nada é movido ou apagado
 na origem.
 
