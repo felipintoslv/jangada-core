@@ -183,7 +183,11 @@ def grupo_anterior(grupo, agora):
             or not all(isinstance(d, str) and DATA.fullmatch(d) for d in datas):
         return None
     inicio, fim = instante(datas[0]), instante(datas[1])
-    if inicio is None or fim is None or inicio > agora or fim <= agora:
+    if inicio is None or fim is None or inicio > agora:
+        return None
+    # A validade só encurta: arquivo com valido_ate distante não vira número atual para sempre.
+    fim = min(fim, inicio + validade_cache())
+    if fim <= agora:
         return None
     medido_em, valido_ate = iso(inicio), iso(fim)
     if medido_em is None or valido_ate is None:

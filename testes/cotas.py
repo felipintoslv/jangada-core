@@ -809,10 +809,26 @@ class Cotas(unittest.TestCase):
     def test_medida_do_anterior_mais_velha_que_o_cache_nao_vence(self):
         casa = self.casa()
         casa.cache_agy(idade=30)
-        self.anterior(casa, [self.medida('gemini', 12.5, 600, validade=900)])
+        self.anterior(casa, [self.medida('gemini', 12.5, 100, validade=900)])
         gemini = grupos(lido_apos(casa))['gemini']
         self.assertEqual((gemini['percentual'], gemini['origem']), (87.5, 'agy -p /usage'))
         self.assertNotIn('ultimo', gemini)
+
+    def test_validade_do_anterior_nunca_passa_da_validade_do_cache(self):
+        casa = self.casa()
+        anterior = self.medida('gemini', 12.5, 60, validade=10 ** 8)
+        self.anterior(casa, [anterior])
+        gemini = grupos(lido_apos(casa))['gemini']
+        self.assertEqual(gemini['percentual'], 12.5)
+        self.assertEqual(gemini['medido_em'], anterior['medido_em'])
+        self.assertEqual(gemini['valido_ate'], cotas.iso(cotas.instante(anterior['medido_em']) + cotas.CACHE_PADRAO * 60))
+        # Com a validade do cache em 1 minuto, a mesma medida já venceu e só resta o `ultimo`.
+        self.anterior(casa, [anterior])
+        resposta = casa.router('cotas', JANGADA_DELEGAR_CACHE='1')
+        self.assertEqual(resposta.returncode, 0, resposta.stderr)
+        gemini = grupos(lido(casa))['gemini']
+        self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'sem_cache'))
+        self.assertEqual(gemini['ultimo'], {'percentual': 12.5, 'medido_em': anterior['medido_em']})
 
     def test_medida_do_anterior_com_validade_vencida_so_entra_como_ultimo(self):
         casa = self.casa()
@@ -861,7 +877,7 @@ class Cotas(unittest.TestCase):
 
     def test_cotas_json_anterior_invalido_e_ignorado(self):
         casa = self.casa()
-        valido = lambda **extra: dict(self.medida('gemini', 40, 600, validade=900), **extra)
+        valido = lambda **extra: dict(self.medida('gemini', 40, 60, validade=900), **extra)
         gigante = json.dumps({'versao': 1, 'provedores': [], 'folga': 'x' * cotas.LIMITE_LEITURA})
         textos = {'corrompido': '{ruim', 'vazio': '', 'gigante': gigante, 'lista': '[1, 2]',
                   'sem_lista': json.dumps({'provedores': {'agy': 1}}), 'NaN': '{"provedores": [{"provedor": "agy", "conta": "principal", '
@@ -884,7 +900,7 @@ class Cotas(unittest.TestCase):
                     self.assertIsNone(grupo['percentual'])
                 cotas.validar(documento, time.time())
         with self.subTest(rotulo='link'):
-            self.anterior(casa, [self.medida('gemini', 40, 600, validade=900)])
+            self.anterior(casa, [self.medida('gemini', 40, 60, validade=900)])
             real = casa.estado / 'real.json'
             (casa.estado / 'cotas.json').rename(real)
             (casa.estado / 'cotas.json').symlink_to(real)

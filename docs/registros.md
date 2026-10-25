@@ -876,9 +876,10 @@ bordas para conferir assinaturas não entra nessas contagens.
         Vale a medida válida mais recente entre o cache local e o `cotas.json`
         anterior: se o grupo do arquivo anterior tem número, `medido_em` mais
         novo que o da medição local (vencida ou não) e `valido_ate` ainda no
-        futuro, ele é republicado como está, com a origem, as datas e a
-        validade dele, sem estender nada. É o caso da medida de `--atualizar`,
-        que não grava no cache do agy.
+        futuro, ele é republicado com a origem e as datas dele. A validade
+        republicada é a menor entre a dele e `medido_em` mais a validade do
+        cache (5 minutos por padrão): encurta, nunca alonga. É o caso da
+        medida de `--atualizar`, que não grava no cache do agy.
       - `janelas`: as janelas que entraram na conta; vazia quando
         `percentual` é `null` ou vem do estado dos provedores.
         - `id`: `gemini-5h`, `gemini-weekly`, `codex-primary` e assim por diante.
