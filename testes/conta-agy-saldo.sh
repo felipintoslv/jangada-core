@@ -195,6 +195,13 @@ else
   abrir --nome retomar --conta-agy conta1
   conferir "retomada: a conta pedida é ignorada com aviso" grep -qF 'a conta pedida (conta1) foi ignorada' "$tmp/saida"
   conferir "retomada: a conta pedida não altera o registro" test "$(conta_do retomar)" = conta2
+  abrir --nome retomar --conta-agy inexistente; rc=$?
+  conferir "retomada: --conta-agy inválida não impede anexar" test "$rc" = 0
+  conferir "retomada: --conta-agy inválida mantém a conta registrada" grep -qxF 'conta do agy: conta2 (registrada na sessão)' "$tmp/saida"
+  extra_env=(JANGADA_AGY_CONTA=inexistente); abrir --nome retomar; rc=$?; extra_env=()
+  conferir "retomada: JANGADA_AGY_CONTA inválida não impede anexar" test "$rc" = 0
+  conferir "retomada: JANGADA_AGY_CONTA inválida mantém a conta registrada" grep -qxF 'conta do agy: conta2 (registrada na sessão)' "$tmp/saida"
+  conferir "retomada: nome inválido não altera o registro" test "$(conta_do retomar)" = conta2
   jq 'del(.conta_agy)' "$estado/revisoes/app--retomar.json" >"$tmp/antigo.json" && mv "$tmp/antigo.json" "$estado/revisoes/app--retomar.json"
   abrir --nome retomar
   conferir "sessão antiga sem conta no registro segue como antes" bash -c '! grep -q "conta do agy" "$1"' _ "$tmp/saida"

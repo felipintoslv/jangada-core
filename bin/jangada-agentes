@@ -341,9 +341,22 @@ restaurar() {
     fi
   fi
 
+  # A conta do agy é a do registro protegido, a mesma da abertura, e não a que
+  # o ambiente ou o saldo de hoje escolheriam. Sem o campo, segue como antes.
+  local isolar_bin conta_reg=""
+  isolar_bin="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-isolar")"
+  if jangada_agy_registro_tarefa "$s"; then
+    conta_reg="$(jq -r '.conta_agy // ""' "$JANGADA_ESTADO/revisoes/$s.json")"
+  fi
+  if [[ -n "$conta_reg" ]]; then
+    jangada_conta_agy "$conta_reg" >/dev/null 2>&1 \
+      || { recusa "a conta do agy do registro ($conta_reg) não está mais no catálogo"; return 1; }
+    isolar_bin+=" --conta $(printf '%q' "$conta_reg")"
+  fi
+
   cmd="$exe"
   [[ -n "$args" ]] && cmd+=" $args"
-  cmd="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-isolar") -- $cmd"
+  cmd="$isolar_bin -- $cmd"
   if [[ "$base" == claude ]]; then
     local protocolo=""
     protocolo="$(refazer_protocolo "$s" "$dir" "$delegar" "${rev:-agy}")" || protocolo=""
@@ -371,7 +384,7 @@ restaurar() {
       echo "$s: sem o id da conversa e sem worktree próprio; abrindo conversa nova" >&2
     fi
     cmd+=" -- $exe${args:+ $args}"
-    cmd="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-isolar") -- $cmd"
+    cmd="$isolar_bin -- $cmd"
   else
     # O id vem do hook do agy (conversationId). Sem ele, o --continue retoma a
     # conversa mais recente do agy, que pode ser de outra pasta: só no worktree.

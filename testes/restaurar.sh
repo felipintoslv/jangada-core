@@ -89,6 +89,7 @@ EOF
 done
 cat >"$jp/bin/jangada-isolar" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$1" == --conta ]]; then printf '%s\n' "$2" >"$FALSO_DIR/conta"; shift 2; fi
 [[ "$1" == -- ]] && shift
 FALSO_ISOLADO=isolado JANGADA_ISOLADO=1 JANGADA_MARCA_ISOLADO=/ exec "$@"
 EOF
@@ -230,6 +231,36 @@ conferir "caso 15: a limpeza de órfãos preserva o contexto da rodada" \
 conferir "caso 15: o contexto da rodada não aparece como sessão" \
   bash -c '! grep -q "validacao-s-r1" "$1"' _ "$tmp/lista"
 conferir "caso 15: o estado órfão de sessão continua sendo limpo" test ! -e "$estado/morta.json"
+
+# Caso 16: a conta do agy volta a do registro protegido, mesmo com o saldo e o
+# ambiente de hoje apontando para outra; sem o campo, sem --conta.
+revisoes="$tmp/state/jangada/revisoes"
+mkdir -p "$revisoes" "$tmp/state/jangada/contas/conta1" "$tmp/state/jangada/contas/conta2"
+printf '[{"nome":"conta1","pasta":"%s","argon":false},{"nome":"conta2","pasta":"%s","argon":false}]\n' \
+  "$tmp/state/jangada/contas/conta1" "$tmp/state/jangada/contas/conta2" >"$tmp/state/jangada/contas/agy.json"
+jq -n '{versao:1, gerado:"2026-10-24T11:50:40+00:00", provedores:
+  [["conta1",99],["conta2",10]] | map({provedor:"agy", conta:.[0], grupos:[{grupo:"gemini", janelas:[], origem:"x",
+    medido_em:"2026-10-24T11:50:40+00:00", valido_ate:"2026-10-24T11:50:40+00:00", motivo:null, percentual:.[1]}]})}' \
+  >"$tmp/state/jangada/cotas.json"
+registro() {
+  jq -n --arg raiz "$tmp/projetos/proj" --argjson extra "$1" \
+    '{sessao:"s", agente:"claude", raiz:$raiz, worktree:"", delegar:"local", revisor:"claude"} + $extra' >"$revisoes/s.json"
+}
+conta_usada() { rm -f "$tmp/conta"; restaurar '{}' "$@"; cat "$tmp/conta" 2>/dev/null; }
+registro '{"conta_agy":"conta2"}'
+conferir "caso 16: restaura com a conta registrada, apesar do saldo maior da outra" \
+  test "$(conta_usada)" = conta2
+conferir "caso 16: a sessão restaurada abre isolada com a conta registrada" grep -q '^isolado|' "$log"
+conferir "caso 16: a conta do ambiente não vence a do registro" \
+  test "$(conta_usada JANGADA_AGY_CONTA=conta1)" = conta2
+registro '{}'
+conferir "caso 16: registro sem conta não passa --conta" test -z "$(conta_usada)"
+registro '{"conta_agy":"nenhuma"}'
+conta_usada >/dev/null
+conferir "caso 16: conta do registro fora do catálogo é recusada com o motivo" \
+  grep -q 'conta do agy do registro (nenhuma) não está mais no catálogo' "$tmp/saida"
+conferir "caso 16: a recusa não roda nada" nada_rodou
+rm -f "$revisoes/s.json"
 
 if ((falhas)); then
   echo "$falhas falha(s); saídas em $tmp (mantido)"

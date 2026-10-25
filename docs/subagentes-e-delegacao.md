@@ -407,12 +407,14 @@ recusa antes de criar o worktree. A abertura imprime
 A conta escolhida vai ao `jangada-isolar --conta` e ao campo `conta_agy` do
 registro protegido da sessão (`revisoes/SESSAO.json`). Reabrir uma sessão
 que existe só anexa o tmux, com a conta registrada e sem nova escolha; a
-opção `--conta-agy` é ignorada com aviso. Registro sem `conta_agy` (sessão
-antiga) e instalação sem catálogo seguem como antes. A sessão monta uma
-conta só, até o fim; trocar de conta no meio dela não é suportado.
-O `jangada-agentes --restaurar` ainda monta a conta pela regra do
-`jangada-isolar` (`JANGADA_AGY_CONTA` ou a primeira do catálogo), e não a
-registrada.
+opção `--conta-agy` e `JANGADA_AGY_CONTA` só valem para sessão nova: na
+retomada, mesmo com nome inexistente, o pedido é ignorado com aviso e a sessão
+anexa com a conta registrada. O `jangada-agentes --restaurar` passa ao
+`jangada-isolar --conta` o `conta_agy` do registro protegido, sem nova escolha
+e sem olhar o ambiente nem o saldo de hoje; se a conta saiu do catálogo, recusa
+sem executar nada. Registro sem `conta_agy` (sessão antiga) e instalação sem
+catálogo seguem como antes. A sessão monta uma conta só, até o fim; trocar de
+conta no meio dela não é suportado.
 
 `jangada-isolar --conta NOME -- COMANDO` monta a conta em
 `~/.gemini/antigravity-cli` e oculta as pastas originais das contas.

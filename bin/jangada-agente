@@ -277,20 +277,6 @@ if ! command -v "${agente%% *}" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Conta do agy fixada pela linha de comando ou pelo ambiente, conferida antes
-# de qualquer worktree. Só o catálogo registra e repassa a conta; sem ele a
-# conta continua implícita e a opção só aceita o nome dela.
-catalogo_agy=0
-[[ ! -e "$JANGADA_ESTADO/contas/agy.json" ]] || catalogo_agy=1
-conta_agy=""
-if [[ -n "$conta_agy_dada" ]]; then
-  jangada_conta_agy "$conta_agy_dada" || exit 1
-  ((!catalogo_agy)) || conta_agy="$CONTA_AGY_NOME"
-elif ((catalogo_agy)) && [[ -n "${JANGADA_AGY_CONTA:-}" ]]; then
-  jangada_conta_agy || exit 1
-  conta_agy="$CONTA_AGY_NOME"
-fi
-
 # Nome seguro para ramo, pasta e sessão do tmux. Acentos viram a letra sem
 # acento antes do filtro: com locale UTF-8 o intervalo a-z do sed aceita "á",
 # e o ramo saía com acento.
@@ -366,6 +352,25 @@ else
     --executor "$(basename "${agente%% *}")" "${vinculos[@]}" >/dev/null; then
     echo "jangada-agente: o projeto não permite abrir esta sessão interativa; confira a política e o orçamento. Use a fila para execução controlada, respeitando essas restrições." >&2
     exit 1
+  fi
+fi
+
+# Conta do agy fixada pela linha de comando ou pelo ambiente, conferida antes
+# de qualquer worktree. Só o catálogo registra e repassa a conta; sem ele a
+# conta continua implícita e a opção só aceita o nome dela. Sessão que já
+# existe usa a conta do registro: o pedido dela não é validado, só ignorado.
+catalogo_agy=0
+[[ ! -e "$JANGADA_ESTADO/contas/agy.json" ]] || catalogo_agy=1
+conta_agy=""
+conta_pedida="$conta_agy_dada"
+((!catalogo_agy)) || [[ -n "$conta_pedida" ]] || conta_pedida="${JANGADA_AGY_CONTA:-}"
+if ((!anexar)); then
+  if [[ -n "$conta_agy_dada" ]]; then
+    jangada_conta_agy "$conta_agy_dada" || exit 1
+    ((!catalogo_agy)) || conta_agy="$CONTA_AGY_NOME"
+  elif ((catalogo_agy)) && [[ -n "${JANGADA_AGY_CONTA:-}" ]]; then
+    jangada_conta_agy || exit 1
+    conta_agy="$CONTA_AGY_NOME"
   fi
 fi
 
@@ -514,8 +519,8 @@ if ((anexar)) && jangada_agy_registro_tarefa "$sessao"; then
   conta_registrada="$(jq -r '.conta_agy // ""' "$JANGADA_ESTADO/revisoes/$sessao.json")"
   if [[ -n "$conta_registrada" ]]; then
     echo "conta do agy: $conta_registrada (registrada na sessão)"
-    [[ -z "$conta_agy" || "$conta_agy" == "$conta_registrada" ]] \
-      || echo "a sessão $sessao já existe: a conta pedida ($conta_agy) foi ignorada" >&2
+    [[ -z "$conta_pedida" || "$conta_pedida" == "$conta_registrada" ]] \
+      || echo "a sessão $sessao já existe: a conta pedida ($conta_pedida) foi ignorada" >&2
   fi
 fi
 
