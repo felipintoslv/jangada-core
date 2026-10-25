@@ -133,6 +133,22 @@ printf 'lixo\n' >>"$estado/delegacoes.jsonl"
 conferir "outros grupos, datas futuras e linhas inválidas não contam como medida" \
   test "$(resultado "$raiz")" = 'conta1||'
 
+# Histórico maior que 16 MiB: a única medida da conta2 vem antes de toda a
+# janela final, e uma linha acima de 1 MiB no meio é pulada sem derrubar a leitura.
+limpar_medidas
+delegacao conta2 98 2026-10-20T09:00:00-03:00
+python3 - "$estado/delegacoes.jsonl" <<'PY'
+import json, sys
+with open(sys.argv[1], "a") as f:
+    cheio = json.dumps({"destino": "local", "texto": "x" * 1000}) + "\n"
+    for _ in range(17500):
+        f.write(cheio)
+    f.write(json.dumps({"destino": "agy", "modelo": "gemini-3.8-flash-high", "conta": "conta2", "texto": "y" * (2 << 20)}) + "\n")
+PY
+delegacao conta1 50 2026-10-24T09:00:00-03:00
+conferir "medida anterior aos últimos 16 MiB do delegacoes.jsonl ainda conta" \
+  test "$(escolhida "$raiz")" = conta2
+
 limpar_medidas
 echo '{"provedores": 3}' >"$estado/cotas.json"
 conferir "cotas.json malformado não derruba a escolha" test "$(escolhida "$raiz")" = conta1

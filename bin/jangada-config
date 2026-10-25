@@ -332,6 +332,7 @@ import datetime, json, math, sys
 estado, candidatas = sys.argv[1], sys.argv[2:]
 agora = datetime.datetime.now(datetime.timezone.utc)
 LIMITE = 16 * 1024 * 1024
+LINHA = 1024 * 1024
 medidas = {}
 
 
@@ -365,11 +366,14 @@ except (OSError, ValueError, KeyError, TypeError, AttributeError):
 
 try:
     with open(estado + "/delegacoes.jsonl", "rb") as f:
-        tamanho = f.seek(0, 2)
-        f.seek(max(0, tamanho - LIMITE))
-        if tamanho > LIMITE:
-            f.readline()
-        for bruta in f:
+        while True:
+            bruta = f.readline(LINHA)
+            if not bruta:
+                break
+            if len(bruta) == LINHA and not bruta.endswith(b"\n"):
+                while (resto := f.readline(LINHA)) and not resto.endswith(b"\n"):
+                    pass
+                continue
             try:
                 registro = json.loads(bruta)
             except ValueError:
