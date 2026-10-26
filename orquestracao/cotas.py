@@ -160,18 +160,20 @@ def lembrar(candidatas, chave, percentual, medido, valido, origem, janelas, rank
 
     Compara pelo segundo; no mesmo segundo vence o rank maior (cache local, arquivo anterior,
     atualização). Data futura não entra. `valido` None é a medida sem validade, só para `ultimo`.
-    Na mesma medição (mesmo segundo) vale a menor validade, de quem quer que vença o desempate.
+    Por chave também guarda, por segundo, a menor validade não nula de toda candidata aceita,
+    vencedora ou não: o resolver a aplica à escolhida, de modo que na mesma medição vale a menor.
     """
     percentual, medido = numero(percentual, 0, 100), numero(medido)
     if percentual is None or medido is None or medido > agora:
         return
     ordem = (math.floor(medido), rank, medido)
     atual = candidatas.get(chave)
-    if atual is not None and atual['ordem'][0] == ordem[0] and None not in (valido, atual['valido']):
-        valido = atual['valido'] = min(valido, atual['valido'])
+    limites = atual['limites'] if atual is not None else {}
+    if valido is not None:
+        limites[ordem[0]] = min(valido, limites.get(ordem[0], valido))
     if atual is None or ordem > atual['ordem']:
         candidatas[chave] = {'ordem': ordem, 'percentual': percentual, 'medido': medido, 'valido': valido,
-                             'origem': origem, 'janelas': janelas}
+                             'origem': origem, 'janelas': janelas, 'limites': limites}
 
 
 def lembrar_cache_agy(candidatas, conta, lido, validade, agora):
@@ -266,6 +268,8 @@ def resolver(documento, candidatas, agora):
             if medido_em is None:
                 continue
             valido = escolhida['valido']
+            if valido is not None:
+                valido = min(valido, escolhida['limites'][math.floor(escolhida['medido'])])
             valido_ate = iso(valido) if valido is not None else None
             # Compara o que é publicado: valido_ate sai truncado ao segundo.
             if valido_ate is not None and instante(valido_ate) > agora:

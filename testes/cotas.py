@@ -6,6 +6,7 @@ Uso: testes/cotas.py [--gravar-base PASTA]  (PASTA: extração de `git archive 5
 """
 
 import base64
+import itertools
 import json
 import os
 import pathlib
@@ -328,6 +329,34 @@ class Cotas(unittest.TestCase):
         publicado = documento['provedores'][0]['grupos'][0]
         self.assertEqual((publicado['percentual'], publicado['motivo']), (None, 'cache_vencido'))
         self.assertEqual(publicado['ultimo'], {'percentual': 50.0, 'medido_em': cotas.iso(940)})
+
+    def publicar_tres_candidatas(self, ordem):
+        chave, agora = ('codex', None, 'codex'), 1010.5
+        candidatas = {}
+        for percentual, valido, origem, rank in ordem:
+            cotas.lembrar(candidatas, chave, percentual, 1000.2, valido, origem, [], rank, agora)
+        grupo = cotas.grupo_medido('codex', 50.0, [], cotas.ORIGEM_CODEX, cotas.iso(1000.2), cotas.iso(1300))
+        documento = {'versao': 1, 'gerado': cotas.iso(agora),
+                     'provedores': [{'provedor': 'codex', 'conta': None, 'grupos': [grupo], 'motivo': None}]}
+        cotas.resolver(documento, candidatas, agora)
+        cotas.validar(documento, agora)
+        return documento
+
+    TRES_CANDIDATAS = [  # (percentual, valido, origem, rank), todas no mesmo segundo
+        (30.0, None, None, cotas.RANK_ANTERIOR),  # anterior com só `ultimo`
+        (40.0, 1001, cotas.ORIGEM_CODEX_ESTADO, cotas.RANK_CACHE),  # banco vencido
+        (50.0, 1300, cotas.ORIGEM_CODEX, cotas.RANK_ATUALIZADO)]  # atualização válida
+
+    def test_anterior_so_com_ultimo_banco_vencido_e_atualizacao_valida_publicam_vencido(self):
+        publicado = self.publicar_tres_candidatas(self.TRES_CANDIDATAS)['provedores'][0]['grupos'][0]
+        self.assertEqual((publicado['percentual'], publicado['motivo']), (None, 'cache_vencido'))
+        self.assertEqual(publicado['ultimo'], {'percentual': 50.0, 'medido_em': cotas.iso(1000.2)})
+
+    def test_tres_candidatas_no_mesmo_segundo_dao_o_mesmo_documento_em_qualquer_ordem(self):
+        documentos = [self.publicar_tres_candidatas(ordem) for ordem in itertools.permutations(self.TRES_CANDIDATAS)]
+        self.assertEqual(len(documentos), 6)
+        for documento in documentos:
+            self.assertEqual(documento, documentos[0])
 
     def test_validade_do_cache_zero_vira_nulo_na_atualizacao(self):
         casa = self.casa()
