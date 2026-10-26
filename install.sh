@@ -15,7 +15,8 @@ source "$JANGADA_CORE_PATH/install/lib.sh"
 [[ $EUID -ne 0 ]] || morrer "execute como usuário comum; o script pede sudo quando precisa"
 
 # A pasta de onde o install.sh roda vira o JANGADA_CORE_PATH dos hooks e da sessão.
-# A cópia de trabalho e os worktrees dos agentes são graváveis de dentro do
+# A cópia de trabalho, os worktrees dos agentes e tudo em JANGADA_PROJETOS
+# (onde fica a cópia de trabalho do Core) são graváveis de dentro do
 # isolamento, então instalar dali faria rodar fora dele o código que o agente
 # muda. A simulação não executa nada e continua liberada, para testar a
 # instalação na cópia de trabalho.
@@ -29,6 +30,8 @@ elif [[ -n "$JANGADA_REPO" && -d "$JANGADA_REPO" && "$(cd "$JANGADA_REPO" && pwd
   _motivo="$_aqui é a cópia de trabalho (JANGADA_REPO)"
 elif [[ -d "$JANGADA_WORKTREES" && "$_aqui/" == "$(cd "$JANGADA_WORKTREES" && pwd -P)/"* ]]; then
   _motivo="$_aqui fica em JANGADA_WORKTREES"
+elif [[ -d "$JANGADA_PROJETOS" && "$_aqui/" == "$(cd "$JANGADA_PROJETOS" && pwd -P)/"* ]]; then
+  _motivo="$_aqui fica em JANGADA_PROJETOS"
 fi
 if [[ -n "$_motivo" ]]; then
   simulando || morrer "$_motivo, gravável pelos agentes; instale de um clone em ~/.local/share/jangada-core (git clone $_aqui ~/.local/share/jangada-core)"

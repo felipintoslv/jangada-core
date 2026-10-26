@@ -14,7 +14,7 @@ fim quando ele está no PATH.
 flowchart TD
     A[./install.sh ETAPAS] --> B{usuário root?}
     B -- sim --> X[recusa]
-    B -- não --> B2{cópia de trabalho,<br>worktree ou JANGADA_WORKTREES?}
+    B -- não --> B2{cópia de trabalho, worktree,<br>JANGADA_WORKTREES ou JANGADA_PROJETOS?}
     B2 -- sim, sem simulação --> X
     B2 -- não, ou simulação --> C[install/NN-*.sh em ordem numérica]
     C --> D[00 verificações] --> E[10 pacotes] --> I[50 agentes]
@@ -23,9 +23,9 @@ flowchart TD
 - Com argumentos, roda só as etapas com esse prefixo: `./install.sh 10 50`.
 - `JANGADA_SIMULAR=1 ./install.sh` mostra o que seria feito sem executar.
 - A pasta de onde o `install.sh` roda vira o `JANGADA_CORE_PATH`. A cópia de
-  trabalho e os worktrees são graváveis de dentro do isolamento, então
-  instalar dali faria os hooks e a sessão rodarem o que o agente muda. Nelas
-  só a simulação roda.
+  trabalho, os worktrees e tudo em `JANGADA_PROJETOS` são graváveis de dentro
+  do isolamento, então instalar dali faria os hooks e a sessão rodarem o que o
+  agente muda. Nelas só a simulação roda.
 
 ## Como escrever uma etapa ou migração
 

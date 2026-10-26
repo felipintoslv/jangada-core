@@ -12,8 +12,9 @@ JANGADA_SIMULAR=1 ./install.sh   # confere o que será feito
 O `install.sh` executa as etapas de `install/` em ordem: verificações (00),
 pacotes (10), comandos (20) e agentes (50). Para rodar só algumas, passe o prefixo
 (`./install.sh 10 50`). O `install.sh` recusa rodar da cópia de trabalho
-(`JANGADA_REPO`), de um worktree ou de `JANGADA_WORKTREES`: essas pastas são
-graváveis de dentro do isolamento, e a pasta da instalação vira o
+(`JANGADA_REPO`), de um worktree, de `JANGADA_WORKTREES` ou de qualquer pasta
+dentro de `JANGADA_PROJETOS` (onde fica a cópia de trabalho do Core): essas
+pastas são graváveis de dentro do isolamento, e a pasta da instalação vira o
 `JANGADA_CORE_PATH` dos hooks e da sessão. Nelas só a simulação roda.
 
 A etapa 20 grava em `~/.local/bin` um invólucro para cada comando de `bin/`.

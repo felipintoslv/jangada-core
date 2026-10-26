@@ -154,6 +154,9 @@ python3 testes/update-codigo.py || falha "testes/update-codigo.py"
 passo "consumo do Claude"
 testes/consumo.sh || falha "testes/consumo.sh"
 
+passo "trava do install.sh contra pastas gravadas pelos agentes"
+testes/install-trava.sh || falha "testes/install-trava.sh"
+
 passo "comandos instalados em ~/.local/bin"
 testes/comandos-instalados.sh || falha "testes/comandos-instalados.sh"
 
