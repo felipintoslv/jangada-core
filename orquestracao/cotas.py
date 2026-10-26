@@ -160,12 +160,16 @@ def lembrar(candidatas, chave, percentual, medido, valido, origem, janelas, rank
 
     Compara pelo segundo; no mesmo segundo vence o rank maior (cache local, arquivo anterior,
     atualização). Data futura não entra. `valido` None é a medida sem validade, só para `ultimo`.
+    Na mesma medição (mesmo segundo) vale a menor validade, de quem quer que vença o desempate.
     """
     percentual, medido = numero(percentual, 0, 100), numero(medido)
     if percentual is None or medido is None or medido > agora:
         return
     ordem = (math.floor(medido), rank, medido)
-    if chave not in candidatas or ordem > candidatas[chave]['ordem']:
+    atual = candidatas.get(chave)
+    if atual is not None and atual['ordem'][0] == ordem[0] and None not in (valido, atual['valido']):
+        valido = atual['valido'] = min(valido, atual['valido'])
+    if atual is None or ordem > atual['ordem']:
         candidatas[chave] = {'ordem': ordem, 'percentual': percentual, 'medido': medido, 'valido': valido,
                              'origem': origem, 'janelas': janelas}
 
@@ -263,7 +267,8 @@ def resolver(documento, candidatas, agora):
                 continue
             valido = escolhida['valido']
             valido_ate = iso(valido) if valido is not None else None
-            if valido_ate is not None and valido > agora:
+            # Compara o que é publicado: valido_ate sai truncado ao segundo.
+            if valido_ate is not None and instante(valido_ate) > agora:
                 provedor['grupos'][indice] = grupo_medido(grupo['grupo'], escolhida['percentual'], escolhida['janelas'],
                                                           escolhida['origem'], medido_em, valido_ate)
                 continue

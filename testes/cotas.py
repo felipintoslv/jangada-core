@@ -315,6 +315,20 @@ class Cotas(unittest.TestCase):
         cotas.validar(documento, 1000.5)
         self.assertEqual(documento['provedores'][0]['grupos'][0]['motivo'], 'cache_vencido')
 
+    def test_validade_com_fracao_final_de_segundo_sai_vencida_com_ultimo(self):
+        # valido_ate sai truncado: 1000.9 vira 1000 e já não passa de agora=1000.5.
+        grupo = cotas.grupo_medido('gemini', 50.0, [], cotas.ORIGEM_AGY, cotas.iso(940), cotas.iso(1000))
+        documento = {'versao': 1, 'gerado': cotas.iso(1000.5),
+                     'provedores': [{'provedor': 'agy', 'conta': None, 'grupos': [grupo], 'motivo': None}]}
+        candidatas = {}
+        cotas.lembrar(candidatas, ('agy', None, 'gemini'), 50.0, 940, 1000.9, cotas.ORIGEM_AGY, [], cotas.RANK_CACHE, 1000.5)
+        cotas.vencer(documento, 1000.5)
+        cotas.resolver(documento, candidatas, 1000.5)
+        cotas.validar(documento, 1000.5)
+        publicado = documento['provedores'][0]['grupos'][0]
+        self.assertEqual((publicado['percentual'], publicado['motivo']), (None, 'cache_vencido'))
+        self.assertEqual(publicado['ultimo'], {'percentual': 50.0, 'medido_em': cotas.iso(940)})
+
     def test_validade_do_cache_zero_vira_nulo_na_atualizacao(self):
         casa = self.casa()
         executavel(casa.bin, 'agy', "cat <<'FIM'\n%s\nFIM" % json.dumps(AGY_USO))
@@ -337,7 +351,7 @@ class Cotas(unittest.TestCase):
         self.assertEqual((codex['percentual'], codex['origem']), (41.5, cotas.ORIGEM_CODEX_ESTADO))
         db.execute('UPDATE provedores SET valido_ate=?', (agora - 1,))
         db.commit()
-        (casa.estado / 'cotas.json').unlink()  # o arquivo anterior guarda a validade da leitura de antes
+        # O cotas.json anterior ainda guarda a validade longa; na mesma medição vale a menor.
         codex = grupos(lido_apos(casa), 'codex', None)['codex']
         self.assertEqual((codex['percentual'], codex['motivo']), (None, 'cache_vencido'))
         db.close()
