@@ -272,7 +272,7 @@ def resolver(documento, candidatas, agora):
                 provedor['grupos'][indice] = grupo_medido(grupo['grupo'], escolhida['percentual'], escolhida['janelas'],
                                                           escolhida['origem'], medido_em, valido_ate)
                 continue
-            if grupo['percentual'] is not None:
+            if grupo['percentual'] is not None or grupo['motivo'] == 'cache_vencido':
                 grupo = provedor['grupos'][indice] = grupo_nulo(grupo['grupo'], 'cache_vencido', escolhida['origem'],
                                                                 medido_em, valido_ate)
             grupo['ultimo'] = {'percentual': escolhida['percentual'], 'medido_em': medido_em}
@@ -504,7 +504,7 @@ def montar(raiz_estado, core, atualizar=False, permitir_remoto=False, agora=None
     return documento
 
 
-def validar_ultimo(grupo):
+def validar_ultimo(grupo, agora):
     ultimo = grupo['ultimo']
     if grupo.get('percentual') is not None or grupo.get('motivo') == 'conta_sem_confianca':
         raise ValueError('ultimo só cabe em grupo sem número e com conta confiável')
@@ -512,6 +512,9 @@ def validar_ultimo(grupo):
         raise ValueError('ultimo inválido')
     if numero(ultimo['percentual'], 0, 100) is None or not DATA.fullmatch(str(ultimo['medido_em'])):
         raise ValueError('ultimo sem número de 0 a 100 ou sem data')
+    medido = instante(ultimo['medido_em'])
+    if medido is None or medido > agora:
+        raise ValueError('ultimo com data impossível ou futura')
 
 
 def validar(documento, agora):
@@ -528,7 +531,7 @@ def validar(documento, agora):
                 raise ValueError('id de grupo inválido')
             percentual = grupo.get('percentual')
             if 'ultimo' in grupo:
-                validar_ultimo(grupo)
+                validar_ultimo(grupo, agora)
             if percentual is None:
                 if grupo.get('motivo') not in MOTIVOS:
                     raise ValueError('percentual nulo exige motivo')

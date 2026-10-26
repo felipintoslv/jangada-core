@@ -845,6 +845,17 @@ class Cotas(unittest.TestCase):
         self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'sem_cache'))
         self.assertEqual(gemini['ultimo'], {'percentual': 12.5, 'medido_em': anterior['medido_em']})
 
+    def test_cache_vencido_local_e_anterior_vencido_mais_novo_publicam_a_medida_do_anterior(self):
+        casa = self.casa()
+        casa.cache_agy(idade=3600)
+        t1 = self.medida('gemini', 70, 600, validade=60)
+        self.anterior(casa, [t1])
+        gemini = grupos(lido_apos(casa))['gemini']
+        self.assertEqual((gemini['percentual'], gemini['motivo']), (None, 'cache_vencido'))
+        self.assertEqual((gemini['origem'], gemini['medido_em'], gemini['valido_ate']),
+                         (cotas.ORIGEM_AGY, t1['medido_em'], t1['valido_ate']))
+        self.assertEqual(gemini['ultimo'], {'percentual': 70, 'medido_em': t1['medido_em']})
+
     def test_medida_mais_nova_ja_vencida_nao_cede_lugar_a_cache_antigo_ainda_valido(self):
         casa = self.casa()
         casa.cache_agy(idade=200)
@@ -972,6 +983,21 @@ class Cotas(unittest.TestCase):
         agora = time.time()
         self.banco_codex(casa, agora + 3600, agora + 7200)
         self.assertNotIn('ultimo', grupos(lido_apos(casa), 'codex', None)['codex'])
+
+    def validar_com_ultimo_em(self, medido_em):
+        agora = time.time()
+        nulo = cotas.grupo_nulo('gemini', 'cache_vencido', cotas.ORIGEM_AGY)
+        nulo['ultimo'] = {'percentual': 50.0, 'medido_em': medido_em(agora)}
+        cotas.validar({'versao': 1, 'gerado': cotas.iso(agora), 'provedores': [
+            {'provedor': 'agy', 'conta': 'principal', 'grupos': [nulo], 'motivo': None}]}, agora)
+
+    def test_validador_recusa_ultimo_com_data_impossivel(self):
+        with self.assertRaises(ValueError):
+            self.validar_com_ultimo_em(lambda agora: '2026-02-30T00:00:00+00:00')
+
+    def test_validador_recusa_ultimo_com_data_futura(self):
+        with self.assertRaises(ValueError):
+            self.validar_com_ultimo_em(lambda agora: cotas.iso(agora + 3600))
 
     def test_validador_recusa_ultimo_mal_formado(self):
         agora = time.time()
