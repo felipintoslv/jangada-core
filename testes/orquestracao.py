@@ -66,6 +66,33 @@ class Persistencia(unittest.TestCase):
                 self.estado.importar(plano)
             self.assertEqual(self.estado.listar(), [])
 
+    def test_dag_profundo_em_ordem_inversa_e_idempotente(self):
+        plano = [tarefa(f'T{i}', dependencias=[f'T{i-1}'] if i else [])
+                 for i in reversed(range(2000))]
+        self.estado.importar(plano)
+        self.estado.importar(plano)
+        self.assertEqual(len(self.estado.listar()), 2000)
+        self.assertEqual(self.estado.db.execute(
+            "SELECT count(*) FROM eventos WHERE evento='criada'").fetchone()[0], 2000)
+        self.assertEqual(self.estado.reservar()[0]['id'], 'T0')
+
+    def test_dag_profundo_invalido_preserva_estado_anterior(self):
+        self.estado.importar([tarefa('ANTIGA')])
+        for destino, mensagem in [('T1999', 'ciclo'), ('AUSENTE', 'inexistente')]:
+            plano = [tarefa(f'T{i}', dependencias=[f'T{i-1}'] if i else [destino])
+                     for i in reversed(range(2000))]
+            with self.subTest(destino=destino), self.assertRaisesRegex(ValueError, mensagem):
+                self.estado.importar(plano)
+            self.assertEqual([t['id'] for t in self.estado.listar()], ['ANTIGA'])
+            self.assertEqual(self.estado.db.execute('SELECT count(*) FROM eventos').fetchone()[0], 1)
+
+    def test_dag_com_dependencias_compartilhadas_nao_inventa_ciclo(self):
+        plano = [tarefa('FIM', dependencias=['A', 'B']), tarefa('A', dependencias=['BASE']),
+                 tarefa('B', dependencias=['BASE']), tarefa('BASE')]
+        self.estado.importar(plano)
+        self.assertEqual(len(self.estado.listar()), 4)
+        self.assertEqual(self.estado.reservar()[0]['id'], 'BASE')
+
     def test_prioridades_ordenam_tarefas_prontas(self):
         self.estado.importar([tarefa('B', prioridade='background'), tarefa('N'),
                              tarefa('L', prioridade='low'), tarefa('H', prioridade='high'),

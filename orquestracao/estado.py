@@ -328,23 +328,27 @@ class Estado:
                 raise ValueError('atividade inexistente')
             existentes = {r['id']: json.loads(r['especificacao']) for r in self.db.execute('SELECT * FROM tarefas')}
             mapa = existentes | {t['id']: t for t in tarefas}
-            visitados, caminho = set(), set()
-
-            def visitar(identificador):
-                if identificador in caminho:
-                    raise ValueError('ciclo nas dependências')
-                if identificador in visitados:
-                    return
-                if identificador not in mapa:
-                    raise ValueError(f'dependência inexistente: {identificador}')
-                caminho.add(identificador)
-                for dep in mapa[identificador].get('dependencias', []):
-                    visitar(dep)
-                caminho.remove(identificador)
-                visitados.add(identificador)
-
+            visitados = set()
             for identificador in mapa:
-                visitar(identificador)
+                if identificador in visitados:
+                    continue
+                # A pilha explícita evita o limite de recursão em planos longos.
+                caminho = {identificador}
+                pilha = [(identificador, iter(mapa[identificador].get('dependencias', [])))]
+                while pilha:
+                    atual, dependencias = pilha[-1]
+                    dep = next(dependencias, None)
+                    if dep is None:
+                        pilha.pop()
+                        caminho.remove(atual)
+                        visitados.add(atual)
+                    elif dep in caminho:
+                        raise ValueError('ciclo nas dependências')
+                    elif dep not in mapa:
+                        raise ValueError(f'dependência inexistente: {dep}')
+                    elif dep not in visitados:
+                        caminho.add(dep)
+                        pilha.append((dep, iter(mapa[dep].get('dependencias', []))))
             agora = time.time()
             for tarefa in tarefas:
                 anterior = existentes.get(tarefa['id'])
