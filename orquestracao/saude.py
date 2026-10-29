@@ -6,15 +6,19 @@ import math
 import os
 import pathlib
 import subprocess
+import sys
 import time
 import urllib.request
 
-from estado import IDENTIFICADOR, serializar
+from tarefas import IDENTIFICADOR, serializar
 from executor import CAPACIDADES
 from cota_codex import consultar, percentual
-from nucleo.consultas import listar_provedores
 from prazos import restante
 from processos import Processo
+
+# A resolução do núcleo não depende de importar Estado antes deste módulo.
+sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
+from nucleo.consultas import listar_provedores  # noqa: E402
 
 ESTADOS = {'AVAILABLE', 'DEGRADED', 'UNKNOWN', 'UNAVAILABLE', 'COOLDOWN',
            'QUOTA_LOW', 'QUOTA_EXHAUSTED', 'AUTH_ERROR', 'RATE_LIMITED', 'NETWORK_ERROR'}

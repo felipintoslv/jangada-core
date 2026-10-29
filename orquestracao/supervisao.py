@@ -12,6 +12,7 @@ from deterministico import objeto_sem_repeticoes, constante_invalida
 from confianca import codificar, exigir_controlador
 from prazos import restante
 from processos import Processo
+from tarefas import intermediaria, amostravel, elegivel_supervisao as elegivel
 
 CRITERIOS = {'fidelidade', 'completude', 'extrapolacoes'}
 REMOTOS = {'agy', 'codex-economico'}
@@ -33,21 +34,6 @@ class ResultadoSupervisao(dict):
 
     def confere(self, tarefa, relatorio):
         return self.comprovante == self.resumo(tarefa, relatorio)
-
-
-def intermediaria(tarefa):
-    return (tarefa.get('intermediaria') is True
-            and tarefa.get('risco') == 1 and tarefa.get('qualidade') in {'low', 'medium'}
-            and tarefa.get('papel') == 'leitor'
-            and tarefa.get('capacidade') in {'leitura_documental', 'resumo_curto', 'analise_documental'})
-
-
-def elegivel(tarefa):
-    return tarefa.get('supervisao_automatica') is True and intermediaria(tarefa)
-
-
-def amostravel(tarefa):
-    return tarefa.get('amostragem') is True and intermediaria(tarefa)
 
 
 def parecer_valido(texto, tarefa, relatorio):

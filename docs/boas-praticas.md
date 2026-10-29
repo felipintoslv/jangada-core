@@ -84,6 +84,20 @@ no Codex com destino `local`, ela fica na própria sessão.
   falha que se ignora de propósito leva `|| true` e um comentário que diga
   por quê.
 
+## Contratos das tarefas
+
+`orquestracao/tarefas.py` reúne estados, campos, serialização, elegibilidade de
+supervisão e amostragem, prioridades e validação de dependências. Essas regras
+não acessam disco, banco ou provedores. `orquestracao/estado.py` cuida da
+persistência e das transações; `orquestracao/supervisao.py` executa e confere
+pareceres usando as mesmas regras de elegibilidade.
+
+Os nomes públicos antigos continuam disponíveis em `estado` e `supervisao`.
+Novos consumidores de regras usam `tarefas` diretamente. Evite duplicar as
+condições de elegibilidade em executores. `testes/regras-tarefas.py` confere
+os contratos e a independência das regras; os testes da fila continuam
+conferindo atomicidade, concorrência e recuperação com SQLite real.
+
 ## Testes
 
 - Cada correção vem com um teste que falha no código antigo. Confira isso
