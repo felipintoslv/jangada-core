@@ -31,6 +31,7 @@ pathlib.Path(os.environ['REGISTRO_TESTE']).write_text(json.dumps({'args': args, 
     'JANGADA_DELEGAR_IMPEDIMENTOS']}}))
 modo = os.environ.get('MODO_TESTE', 'ok')
 if modo == 'demorado':
+    pathlib.Path(os.environ['REGISTRO_TESTE'] + '.delegado').write_text(str(os.getpid()))
     filho = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)'])
     pathlib.Path(os.environ['REGISTRO_TESTE'] + '.filho').write_text(str(filho.pid))
     time.sleep(10)
@@ -68,6 +69,13 @@ print(json.dumps({'destino': 'agy' if modo == 'cota' else 'local', 'modelo': 'qw
     'artefato': '/arquivo/que/nao/deve/ser/lido'}))
 sys.exit(4 if modo == 'cota' else 0)
 '''
+
+
+def processo_vivo(pid):
+    try:
+        return pathlib.Path(f'/proc/{pid}/stat').read_text().split(') ', 1)[1][0] != 'Z'
+    except FileNotFoundError:
+        return False
 
 
 class Execucao(unittest.TestCase):
@@ -603,6 +611,65 @@ class Execucao(unittest.TestCase):
         fila = json.loads(comando('jangada-fila', '--json').stdout)['tarefas']
         self.assertEqual([t['status'] for t in fila], ['REVIEW_REQUIRED'] * 3 + ['QUEUED'] * 2)
         self.assertEqual([t['tentativas'] for t in fila], [1, 1, 1, 0, 0])
+
+    def test_interrupcao_na_preparacao_nao_deixa_reserva_ativa(self):
+        self.estado.importar([self.tarefa()])
+        with patch('executor.conferir_fontes', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            executar(self.estado, self.projeto, self.raiz)
+        self.assertEqual(self.estado.listar()[0]['status'], 'REVISION_REQUIRED')
+        self.assertFalse(self.registro.exists())
+
+
+    def test_cli_sequencial_encerrado_interrompe_delegado_e_descendente(self):
+        shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')
+        shutil.copytree(RAIZ / 'nucleo', self.raiz / 'nucleo')
+        plano = self.projeto / 'plano.json'
+        plano.write_text(json.dumps([self.tarefa()]))
+        ambiente = dict(os.environ, JANGADA_CORE_PATH=str(self.raiz),
+                        XDG_STATE_HOME=str(self.pasta / 'state-cli'),
+                        XDG_CONFIG_HOME=str(self.pasta / 'config-cli'), MODO_TESTE='demorado')
+        comum = dict(cwd=self.projeto, env=ambiente, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for sinal in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            with self.subTest(sinal=sinal):
+                caso = dict(comum, env=dict(ambiente, XDG_STATE_HOME=str(self.pasta / f'state-{sinal}')))
+                importacao = subprocess.run([str(RAIZ / 'bin/jangada-fila'), '--importar', str(plano)],
+                                            timeout=30, **caso)
+                self.assertEqual(importacao.returncode, 0, importacao.stderr)
+                marca = pathlib.Path(str(self.registro) + '.filho')
+                marca.unlink(missing_ok=True)
+                delegado = None
+                processo = subprocess.Popen([str(RAIZ / 'bin/jangada-executar'), '--perfil', 'offline'],
+                                            start_new_session=True, **caso)
+                try:
+                    inicio = time.monotonic()
+                    while not marca.exists() and time.monotonic() - inicio < 5:
+                        time.sleep(0.02)
+                    self.assertTrue(marca.exists(), 'delegado não iniciou')
+                    delegado = int(pathlib.Path(str(self.registro) + '.delegado').read_text())
+                    descendente = int(marca.read_text())
+                    processo.send_signal(sinal)
+                    processo.wait(timeout=5)
+                    self.assertEqual(processo.returncode, 130)
+                    processo.communicate(timeout=5)
+                    for pid in (delegado, descendente):
+                        self.assertFalse(processo_vivo(pid), f'processo {pid} ainda está executando')
+                    fila = subprocess.run([str(RAIZ / 'bin/jangada-fila'), '--json'], timeout=30, **caso)
+                    self.assertEqual(fila.returncode, 0, fila.stderr)
+                    tarefas = json.loads(fila.stdout)['tarefas']
+                    encerradas = [t for t in tarefas if t['status'] == 'REVISION_REQUIRED']
+                    self.assertNotIn('RUNNING', {t['status'] for t in tarefas})
+                    self.assertTrue(encerradas)
+                    self.assertTrue(all(t['resultado']['metricas']['chamadas'] is None for t in encerradas))
+                finally:
+                    if delegado is not None:
+                        try:
+                            os.killpg(delegado, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    if processo.poll() is None:
+                        processo.kill()
+                    processo.communicate(timeout=5)
+
 
     def test_cli_paralelo_encerrado_interrompe_os_processos_filhos(self):
         shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')

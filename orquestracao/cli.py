@@ -24,6 +24,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from nucleo.roteamento import decidir, MODOS
 
 
+def interromper_execucao(*_):
+    # O delegado tem sessão própria; o sinal deve passar pela limpeza do
+    # executor também no modo sequencial, antes de o controlador sair.
+    raise KeyboardInterrupt
+
+
 def especificacoes(caminho, projeto):
     tarefas = json.loads(pathlib.Path(caminho).read_text(encoding='utf-8'))
     if not isinstance(tarefas, list):
@@ -65,13 +71,8 @@ def executar_em_paralelo(args, projeto):
                                                                 ('--supervisionar', args.supervisionar),
                                                                 ('--amostrar', args.amostrar)) if ativa)]
     partes = [args.limite // args.paralelo + (i < args.limite % args.paralelo) for i in range(args.paralelo)]
-    def interromper(*_):
-        raise KeyboardInterrupt
-
     # Sessão própria: o Ctrl+C do terminal chega só a este processo, que o repassa uma vez a cada filho.
     # Término e fechamento do terminal seguem o mesmo caminho, para não deixar filhos chamando provedores.
-    for sinal in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sinal, interromper)
     processos = []
     leitores = concurrent.futures.ThreadPoolExecutor(len(partes))
     try:
@@ -338,6 +339,8 @@ def main():
 
 
 if __name__ == '__main__':
+    for sinal in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sinal, interromper_execucao)
     try:
         main()
     except KeyboardInterrupt:

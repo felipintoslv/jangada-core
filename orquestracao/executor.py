@@ -324,6 +324,11 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
                 if revisao['decisao'] == 'REVISE':
                     return encerrar('REVISION_REQUIRED', 'supervisor identificou erro no relatório', texto)
             return encerrar('REVIEW_REQUIRED', 'formato conferido; conteúdo aguarda revisão', texto)
+    except KeyboardInterrupt:
+        atual = estado.db.execute('SELECT status,dono FROM tarefas WHERE id=?', (identificador,)).fetchone()
+        if atual['status'] == 'RUNNING' and atual['dono'] == dono:
+            encerrar('REVISION_REQUIRED', 'execução interrompida; conferir antes de repetir', texto)
+        raise
     except (OSError, UnicodeError, ValueError, KeyError, subprocess.SubprocessError) as erro:
         return encerrar('REVISION_REQUIRED', str(erro), texto)
 

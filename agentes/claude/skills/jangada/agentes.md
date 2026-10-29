@@ -6,6 +6,11 @@ Os comandos de agentes moram em `bin/`, os perfis e o protocolo em
 
 ## Consulta da fila
 
+O delegado do executor roda numa sessão de processos própria. SIGTERM e SIGHUP
+precisam passar pela mesma limpeza de Ctrl+C também na execução sequencial;
+encerrar somente o controlador deixa o delegado vivo. Confira os descendentes
+e o estado persistido, além do código de saída do controlador.
+
 SQLite em `mode=ro` ainda pode criar arquivos WAL/SHM na origem.
 O núcleo consulta uma cópia temporária estável do banco e do WAL.
 Não omita o WAL: ele pode conter transações confirmadas que ainda não

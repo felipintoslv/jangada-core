@@ -1084,7 +1084,10 @@ O perfil da sessão continua limitando o envio à nuvem.
 
 O comando registra cada ciclo e o encerramento em linhas JSON na saída.
 Uma trava impede dois acompanhamentos simultâneos do mesmo projeto.
-Ao pressionar Ctrl+C, nenhuma outra tarefa é iniciada. Uma execução
+Ao pressionar Ctrl+C, ou receber SIGTERM ou SIGHUP, nenhuma outra tarefa é iniciada.
+O executor sequencial, assim como o paralelo, encerra o grupo do delegado
+antes de sair. Isso não cobre SIGKILL nem desligamento da máquina.
+Uma execução
 interrompida permanece pendente de conferência, com consumo desconhecido.
 Tarefas aprovadas, pausadas ou em revisão não são retomadas automaticamente.
 Quando só restam dependências de revisão ou tarefas sem adaptador, o
