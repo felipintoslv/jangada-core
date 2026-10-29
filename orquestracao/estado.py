@@ -366,7 +366,7 @@ class Estado:
     def consumo(self, identificador):
         return consumo_tarefa(self.db, identificador)
 
-    def reservar(self, duracao=660):
+    def reservar(self, duracao=660, *, validar=None):
         if not isinstance(duracao, (int, float)) or not math.isfinite(duracao) or duracao <= 0:
             raise ValueError('duração da reserva inválida')
         with self.transacao():
@@ -408,6 +408,8 @@ class Estado:
                 if estados[tarefa['id']] != 'QUEUED' or any(estados[dep] != 'COMPLETED' for dep in spec.get('dependencias', [])):
                     continue
                 self.validar_revisao(spec)
+                if validar is not None:
+                    validar(spec)
                 try:
                     limite = self.limite_projeto(spec)
                 except ValueError as erro:

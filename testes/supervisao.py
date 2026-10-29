@@ -142,6 +142,28 @@ class Supervisao(unittest.TestCase):
         self.assertEqual([c['fase'] for c in self.chamadas()], ['autor', 'revisao'])
         self.assertEqual(self.estado.reservar()[0]['id'], 'T2')
 
+    def test_politica_independente_recusa_opcoes_sem_revisao_antes_de_chamar_autor(self):
+        cadastrar(self.estado, self.projeto, {'provedores': ['ollama', 'agy'],
+                  'revisao_minima': {'1': {'independente': True}}})
+        self.estado.importar([self.tarefa()])
+        for opcoes in ({'supervisao_automatica': False, 'permitir_remoto': True},
+                       {'supervisao_automatica': True, 'permitir_remoto': False},
+                       {'supervisao_automatica': True, 'permitir_remoto': True, 'perfil': 'offline'}):
+            with self.subTest(opcoes=opcoes), self.assertRaisesRegex(ValueError, 'revisão independente'):
+                executar(self.estado, self.projeto, self.raiz, **opcoes)
+            self.assertFalse(self.log.exists())
+            self.assertEqual(self.estado.listar()[0]['tentativas'], 0)
+        self.assertEqual(self.rodar()[0]['status'], 'COMPLETED')
+
+    def test_politica_dependente_de_codex_recusa_execucao_sem_permissao(self):
+        cadastrar(self.estado, self.projeto, {'provedores': ['agy', 'codex'],
+                  'revisao_minima': {'1': {'independente': True}}})
+        self.estado.importar([self.tarefa(permitir_codex=True)])
+        with self.assertRaisesRegex(ValueError, 'revisão independente'):
+            self.rodar()
+        self.assertFalse(self.log.exists())
+        self.assertEqual(self.estado.listar()[0]['tentativas'], 0)
+
     def test_sem_opcao_explicita_nao_supervisiona(self):
         self.estado.importar([self.tarefa()])
         resultado = executar(self.estado, self.projeto, self.raiz, permitir_remoto=True)[0]

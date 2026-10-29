@@ -646,7 +646,9 @@ verdadeiros e ao menos duas chamadas. Esse fluxo não aceita `criterios_aceite`
 manuais nem `amostragem`. Se a dupla depender de Codex, a tarefa também precisa
 de `permitir_codex`. As permissões de execução e a opção de supervisão ainda
 precisam ser fornecidas ao executor; cota, modelo configurado e disponibilidade
-podem deixar a tarefa aguardando supervisão para retomada posterior.
+podem deixar a tarefa aguardando supervisão para retomada posterior. Opções
+de execução que desabilitam essa revisão são recusadas antes de reservar
+a tarefa ou chamar o autor.
 
 Cadastro ou mudança de política confere tarefas pendentes, e a importação
 recusa planos incompatíveis sem inserção parcial. Registros antigos continuam

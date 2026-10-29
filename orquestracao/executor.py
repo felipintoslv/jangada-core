@@ -18,6 +18,7 @@ from metricas_projeto import amostragem
 from supervisao import (amostravel, elegivel as elegivel_supervisao, supervisionar,
                         pendente as supervisao_pendente, candidatos as supervisores)
 from prazos import restante
+from projetos import ler_projeto, executor_permitido
 
 CAPACIDADES = {'leitura_documental', 'resumo_curto', 'analise_documental'}
 PERFIS = {'balanced', 'quality', 'offline'}
@@ -123,7 +124,20 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
                  amostrar=False, prazo=None):
     if restante(prazo, 1) <= 0:
         return None
-    reserva = estado.reservar()
+
+    def validar_revisao_execucao(tarefa):
+        politica = (ler_projeto(estado.pasta) or {}).get('politica', {})
+        regra = politica.get('revisao_minima', {}).get(str(tarefa['risco']), {})
+        if not regra.get('independente'):
+            return
+        destinos = [d for d in ('local', 'agy', 'codex-economico')
+                    if (d != 'codex-economico' or (permitir_codex and tarefa.get('permitir_codex')))
+                    and executor_permitido({'politica': politica}, d)]
+        if not supervisao_automatica or not permitir_remoto or perfil == 'offline' or len(destinos) < 2:
+            raise ValueError('revisão independente exige execução com supervisão automática, permissão '
+                             'remota e dois provedores autorizados; habilite Codex se a dupla depender dele')
+
+    reserva = estado.reservar(validar=validar_revisao_execucao)
     if reserva is None:
         return None
     tarefa, dono = reserva
