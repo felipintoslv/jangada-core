@@ -711,10 +711,18 @@ class Cotas(unittest.TestCase):
                               ('gemini-4-argon-x', 'gemini-argon-wtu')):
             self.assertEqual(grupos(documento)[grupo]['percentual'], float(cota_da_base(modelo, arquivo)))
 
-    def test_status_e_doctor_imprimem_o_mesmo_da_base(self):
+    def test_status_preserva_base_e_doctor_corrige_aviso_do_agy(self):
         status, doctor = gerar_base(RAIZ)
         self.assertEqual(status, json.loads(STATUS_BASE.read_text()))
-        self.assertEqual(doctor, json.loads(DOCTOR_BASE.read_text()))
+        esperado = json.loads(DOCTOR_BASE.read_text())
+        # Preserva a referência histórica. A única mudança intencional é o
+        # reconhecimento de coordenador no registro válido do agy.
+        agy = next(v for v in esperado['saida']['verificacoes'] if v['id'] == 'registro.agy')
+        self.assertEqual(agy['estado'], 'aviso')
+        agy.update(estado='ok', detalhe='Registro válido, com precedência da configuração do usuário; arquivo não executado.')
+        esperado['saida']['resumo']['aviso'] -= 1
+        esperado['saida']['resumo']['ok'] += 1
+        self.assertEqual(doctor, esperado)
 
     def test_gravacao_interrompida_nao_deixa_json_truncado(self):
         with tempfile.TemporaryDirectory() as pasta:
