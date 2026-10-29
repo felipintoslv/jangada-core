@@ -18,6 +18,7 @@ RAIZ = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from cota_codex import consultar, percentual
 from estado import Estado
+from processos import Processo
 from saude import Saude
 
 
@@ -142,7 +143,7 @@ sys.stdin.read()
                       {'tokens': {'access_token': 'invalido', 'id_token': 'identidade'}}):
             with self.subTest(dados=dados):
                 self.auth.write_text(json.dumps(dados))
-                with patch('cota_codex.subprocess.Popen') as iniciar, self.assertRaises(ValueError):
+                with patch('cota_codex.Processo') as iniciar, self.assertRaises(ValueError):
                     consultar(self.estado.pasta)
                 iniciar.assert_not_called()
 
@@ -221,7 +222,7 @@ sys.stdin.read()
 
     def test_prazo_e_interrupcao_encerram_o_grupo_e_removem_credenciais(self):
         self.programa('import time\ntime.sleep(60)\n')
-        iniciar = subprocess.Popen
+        iniciar = Processo
         filhos = []
 
         def capturar(*args, **kwargs):
@@ -229,7 +230,7 @@ sys.stdin.read()
             filhos.append(processo)
             return processo
 
-        with patch('cota_codex.subprocess.Popen', side_effect=capturar):
+        with patch('cota_codex.Processo', side_effect=capturar):
             with patch('cota_codex.time.monotonic', side_effect=[0, 11]), self.assertRaises(TimeoutError):
                 consultar(self.estado.pasta)
             with patch('cota_codex.select.select', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
@@ -239,20 +240,20 @@ sys.stdin.read()
 
     def test_prazo_global_interrompe_metadados_e_remove_credenciais(self):
         self.programa('import time\ntime.sleep(60)\n')
-        iniciar = subprocess.Popen
+        iniciar = Processo
         filhos = []
         def capturar(*args, **kwargs):
             processo = iniciar(*args, **kwargs)
             filhos.append(processo)
             return processo
         inicio = time.monotonic()
-        with patch('cota_codex.subprocess.Popen', side_effect=capturar), self.assertRaises(TimeoutError):
+        with patch('cota_codex.Processo', side_effect=capturar), self.assertRaises(TimeoutError):
             consultar(self.estado.pasta, prazo=inicio + 0.2)
         self.assertLess(time.monotonic() - inicio, 2)
         self.assertTrue(filhos)
         self.assertTrue(all(p.poll() is not None for p in filhos))
         self.assertEqual(list(self.estado.pasta.glob('.cota-codex-*')), [])
-        with patch('cota_codex.subprocess.Popen') as processo, self.assertRaises(TimeoutError):
+        with patch('cota_codex.Processo') as processo, self.assertRaises(TimeoutError):
             consultar(self.estado.pasta, prazo=inicio - 1)
         processo.assert_not_called()
 
@@ -260,7 +261,7 @@ sys.stdin.read()
         self.programa('import sys\nsys.exit(1)\n')
         with self.assertRaises(ValueError):
             consultar(self.estado.pasta)
-        with patch('cota_codex.subprocess.Popen', side_effect=OSError), self.assertRaises(OSError):
+        with patch('cota_codex.Processo', side_effect=OSError), self.assertRaises(OSError):
             consultar(self.estado.pasta)
         self.assertEqual(list(self.estado.pasta.glob('.cota-codex-*')), [])
 
