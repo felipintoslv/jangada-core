@@ -39,7 +39,13 @@ EOF
 cat >"$tmp/bin/tmux" <<'EOF'
 #!/usr/bin/env bash
 case " $* " in
-  *" has-session "*) [[ -e "$FALSO_DIR/sessao-viva" ]]; exit ;;
+  *" has-session "*)
+    if [[ "${FALSO_TMUX_TARDIO:-0}" == 1 && ! -e "$FALSO_DIR/primeira-consulta" ]]; then
+      touch "$FALSO_DIR/primeira-consulta"
+      exit 1
+    fi
+    [[ -e "$FALSO_DIR/sessao-viva" ]]; exit ;;
+  *" attach "*) touch "$FALSO_DIR/tmux.anexou" ;;
 esac
 exit 0
 EOF
@@ -69,6 +75,7 @@ git -C "$tmp/outro" worktree add -q -b agente/x "$tmp/outro-wt"
 
 # Roda um comando do jangada no ambiente falso, sem terminal.
 rodar() {
+  rm -f "$tmp/tmux.anexou"
   env -u JANGADA_ISOLADO -u JANGADA_SESSAO -u JANGADA_DELEGAR -u JANGADA_VALIDAR_REVISOR \
     -u JANGADA_AGY_SETTINGS -u TMUX -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" \
@@ -346,7 +353,7 @@ conferir "caso 13: registro protegido sem agy não recebe o fluxo na restauraç�
 
 # Caso 14: projetos homônimos. Duas raízes com o mesmo nome de pasta e a
 # mesma tarefa dão o mesmo identificador de sessão; a chamada feita pelo
-# segundo projeto anexa à sessão do primeiro sem criar worktree, sem preparar
+# segundo projeto deve recusar o anexo sem criar worktree, sem preparar
 # e sem levar confiança a pasta nenhuma. A raiz e o worktree da sessão aberta
 # vêm do registro protegido.
 raiz_b="$tmp/homonimo/app"
@@ -377,12 +384,15 @@ touch "$tmp/sessao-viva"
 duas_raizes
 copia_protegida agy codex
 abrir_b --nome t1
+conferir "caso 14: homônimo sai com erro" test "$?" = 2
+conferir "caso 14: homônimo não anexa a sessão alheia" test ! -e "$tmp/tmux.anexou"
 conferir "caso 14: chamada do homônimo é recusada com a pasta da sessão aberta" \
   grep -qF "a sessão app--t1 já existe e é de outra pasta (raiz $raiz, worktree $wts/t1)" "$tmp/saida"
 conferir "caso 14: chamada do homônimo não sincroniza nada" so_as_raizes
 conferir "caso 14: chamada do homônimo não cria worktree, não copia e não prepara" sem_preparo_b
 conferir "caso 14: o worktree da sessão aberta fica como estava" intacto
 abrir --nome t1
+conferir "caso 14: o mesmo projeto continua anexando a sessão" test -e "$tmp/tmux.anexou"
 conferir "caso 14: a chamada do projeto da sessão sincroniza o worktree dela" \
   jqok -e --arg a "$raiz" --arg b "$raiz_b" --arg w "$wts/t1" '.trustedWorkspaces == [$a, $b, $w]' "$conf_agy"
 
@@ -393,6 +403,8 @@ registro app--h1 "$raiz" "$wts/h1"
 git -C "$raiz" worktree remove --force "$wts/h1"
 duas_raizes
 abrir_b --nome h1
+conferir "caso 14: homônimo com worktree ausente sai com erro" test "$?" = 2
+conferir "caso 14: homônimo com worktree ausente não anexa" test ! -e "$tmp/tmux.anexou"
 conferir "caso 14: o homônimo não cria worktree no caminho da sessão alheia" test ! -e "$wts/h1"
 conferir "caso 14: sem cópia, sem preparação e sem ramo no homônimo" sem_preparo_b
 conferir "caso 14: nada é confiado" so_as_raizes
@@ -420,10 +432,16 @@ git -C "$raiz_b" branch -qD copia/h1
 registro app "$raiz" ""
 vazio
 abrir_b --direto
+conferir "caso 14: homônimo direto sai com erro" test "$?" = 2
+conferir "caso 14: homônimo direto não anexa" test ! -e "$tmp/tmux.anexou"
 conferir "caso 14: sessão direta do homônimo é recusada" \
   grep -qF "a sessão app já existe e é de outra pasta (raiz $raiz)" "$tmp/saida"
 conferir "caso 14: sessão direta do homônimo não recebe a conferência da raiz dele" \
   bash -c '! grep -q "não confia na raiz" "$1" && [ "$2" = "[]" ]' _ "$tmp/saida" "$(confiaveis)"
+rm -f "$tmp/primeira-consulta"
+FALSO_TMUX_TARDIO=1 abrir_b --direto
+conferir "caso 14: sessão alheia que aparece na segunda consulta é recusada" test "$?" = 2
+conferir "caso 14: sessão alheia tardia não é anexada" test ! -e "$tmp/tmux.anexou"
 registro app--t1 "$raiz" ""
 abrir --nome t1
 conferir "caso 14: chamada com worktree não vale para registro sem worktree" \

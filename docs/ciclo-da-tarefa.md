@@ -192,6 +192,12 @@ e [M2.0](coordenacao-central/05-plano-incremental.md#fase-2-coordenador-mínimo-
 
 ## Abertura da sessão
 
+Se uma sessão com o mesmo nome pertencer a outra raiz ou outro worktree,
+o comando recusa com código 2 antes de anexar. Isso inclui projetos homônimos.
+Registro protegido ausente ou inválido e worktree registrado que desapareceu
+também recusam o anexo. A sessão existente é preservada.
+Uma sessão que apareça durante a abertura passa pela mesma conferência.
+
 ```mermaid
 flowchart TD
     A[jangada-agente] --> B[projeto: --projeto ou<br>seletor com zoxide e JANGADA_PROJETOS]

@@ -509,5 +509,12 @@ conferir "recusa orienta conferir política e usar fila controlada" \
   grep -q 'confira a política e o orçamento. Use a fila' "$tmp/recusa-orcamento"
 FALSO_TMUX_EXISTENTE=1 rodar "$repo_jangada/bin/jangada-agente" --agente codex \
   --projeto "$tmp/pasta-anexar" --direto >"$tmp/anexar" 2>&1
+conferir "sessão existente sem identidade protegida recusa anexo" [ "$?" = 2 ]
+mkdir -p "$tmp/state/jangada/revisoes"
+jq -n --arg raiz "$tmp/pasta-anexar" \
+  '{sessao:"pasta-anexar",raiz:$raiz,agente:"codex",delegar:"local",revisor:"claude"}' \
+  >"$tmp/state/jangada/revisoes/pasta-anexar.json"
+FALSO_TMUX_EXISTENTE=1 rodar "$repo_jangada/bin/jangada-agente" --agente codex \
+  --projeto "$tmp/pasta-anexar" --direto >"$tmp/anexar" 2>&1
 conferir "sessão existente reanexa sem conferir orçamento de nova sessão" [ "$?" = 0 ]
 ((falhas == 0))

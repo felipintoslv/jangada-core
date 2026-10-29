@@ -101,6 +101,11 @@ conferir "--janela com tarefa: exec do terminal com o próprio comando" \
   registro "jangada-terminal $(pid) [--classe] [org.jangada.agente] [-e] [$repo_jangada/bin/jangada-agente] [--nome] [x] [--direto]"
 mkdir -p "$tmp/proj"
 touch "$tmp/sessoes/=proj"
+# O anexo exige a identidade da sessão, mesmo neste ensaio de interface.
+mkdir -p "$tmp/state/jangada/revisoes"
+jq -n --arg raiz "$tmp/proj" \
+  '{sessao:"proj",agente:"true",raiz:$raiz,delegar:"local",revisor:"codex"}' \
+  >"$tmp/state/jangada/revisoes/proj.json"
 grafico TMUX=teste "$tmp/com-pid" "$repo_jangada/bin/jangada-agente" --projeto "$tmp/proj" --agente true </dev/null
 conferir "sessão que já existe, dentro de outro tmux: exec do terminal com o attach" \
   registro "jangada-terminal $(pid) [--classe] [org.jangada.agente] [-e] ${tmux_args/=s1/=proj}"

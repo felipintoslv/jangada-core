@@ -19,6 +19,12 @@ ou erro explícito, sem apresentar uma consulta incompleta como sucesso.
 
 ## Consulta de sessões
 
+Um aviso de que a sessão pertence a outra raiz não impede o anexo por si só:
+o lançador precisa sair antes do attach. Teste também a ausência dessa chamada,
+inclusive com projetos homônimos e sessões diretas.
+Se a sessão aparecer entre as duas consultas do lançador, ela também precisa
+passar pela conferência da raiz antes do anexo.
+
 O `tmux list-sessions` traz também sessões alheias ao jangada. Nomes com
 espaços ou acentos não devem derrubar a consulta: são ignorados com aviso.
 Filtre nomes reservados a pareceres e contextos antes de abrir o registro,
