@@ -309,6 +309,29 @@ class Diagnostico(unittest.TestCase):
         self.assertNotIn('SEGREDO_SENTINELA', doctor.texto(dados))
         self.assertIn('pastas.migracoes', [i['id'] for i in dados['verificacoes']])
 
+    def test_registro_agy_instalado_aceita_funcao_coordenador(self):
+        self.d.registro()
+        agy = self.item({'verificacoes': self.d.itens}, 'registro.agy')
+        self.assertEqual(agy['estado'], 'ok', agy['detalhe'])
+
+    def test_registro_tem_mesmas_funcoes_que_catalogo_do_core(self):
+        extra = self.d.config / 'provedores/extra.conf'
+        extra.parent.mkdir(parents=True)
+        for tipo, funcoes in [('cli', 'coordenador'), ('cli', 'principal coordenador revisor delegacao'),
+                              ('ollama', 'delegacao'), ('ollama', 'coordenador'),
+                              ('ollama', 'principal'), ('cli', 'coordenador desconhecido'),
+                              ('cli', '')]:
+            with self.subTest(tipo=tipo, funcoes=funcoes):
+                extra.write_text(f'TIPO={tipo}\nFUNCOES={funcoes}\n')
+                self.d.itens.clear()
+                self.d.registro()
+                resultado = subprocess.run([str(RAIZ / 'bin/jangada-config'), '--provedores-json'],
+                                           capture_output=True, text=True, timeout=10)
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+                aceito = any(p['id'] == 'extra' for p in json.loads(resultado.stdout))
+                item = self.item({'verificacoes': self.d.itens}, 'registro.extra')
+                self.assertEqual(item['estado'] == 'ok', aceito)
+
     def test_migracoes_e_registro_adicional(self):
         (self.core / 'migrations/202610180000-teste.sh').write_text('exit 99\n')
         self.assertEqual(self.d.migracoes()[0], 'aviso')

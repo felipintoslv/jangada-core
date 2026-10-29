@@ -517,8 +517,8 @@ class Doctor:
                     if sep:
                         valores[k] = v
                 tipo, funcoes = valores.get('TIPO'), valores.get('FUNCOES', '')
-                if (tipo not in {'cli', 'ollama'} or not re.fullmatch(r'(?:(?:principal|revisor|delegacao)(?: |$))+', funcoes)
-                        or (tipo != 'cli' and 'principal' in funcoes.split())
+                if (tipo not in {'cli', 'ollama'} or not re.fullmatch(r'(?:(?:principal|coordenador|revisor|delegacao)(?: |$))+', funcoes)
+                        or (tipo != 'cli' and {'principal', 'coordenador'} & set(funcoes.split()))
                         or not re.fullmatch(r'(?:--?[a-z][a-z0-9-]*)?', valores.get('PROTOCOLO_ARG', ''))
                         or not re.fullmatch('[A-Za-z0-9_.:-]*', valores.get('MODELO_REVISOR', ''))
                         or not re.fullmatch('[0-9]*', valores.get('RESERVA', ''))):
