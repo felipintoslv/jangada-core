@@ -810,8 +810,9 @@ Ela não autoriza envio: cada tarefa ainda precisa de `permitir_remoto: true`.
   quatro processos.
 - Ctrl+C, término (`SIGTERM`) e fechamento do terminal (`SIGHUP`) são
   repassados uma vez a cada processo, que encerra a tarefa em curso como na
-  execução em sequência. `SIGKILL` no comando deixa os processos rodando
-  até o fim da tarefa em curso.
+  execução em sequência. Se o comando recebe `SIGKILL`, vigias locais detectam
+  o fechamento do canal privado do controlador e encerram os descendentes,
+  inclusive clientes que abriram outra sessão ou grupo de processos.
 - Se um processo falha, o comando imprime os resultados dos demais e sai
   com código 2. Consulte `jangada-fila` antes de repetir.
 
@@ -1108,10 +1109,34 @@ O perfil da sessão continua limitando o envio à nuvem.
 O comando registra cada ciclo e o encerramento em linhas JSON na saída.
 Uma trava impede dois acompanhamentos simultâneos do mesmo projeto.
 Ao pressionar Ctrl+C, ou receber SIGTERM ou SIGHUP, nenhuma outra tarefa é iniciada.
-O executor sequencial, assim como o paralelo, encerra o grupo do delegado
-antes de sair. Isso não cobre SIGKILL nem desligamento da máquina.
-Uma execução
-interrompida permanece pendente de conferência, com consumo desconhecido.
+O executor sequencial, assim como o paralelo, encerra seus descendentes
+antes de sair. Um vigia local também trata a morte forçada do controlador:
+tenta SIGTERM para permitir a limpeza de temporários e, após até dois segundos,
+força o encerramento dos filhos restantes. A coleta usa vínculos de parentesco
+mantidos pelo kernel Linux, sem usar PIDs vindos de registros graváveis.
+O vigia exige Linux com `/proc` e suporte a subreaper; falha ao iniciar o cliente
+se não consegue habilitar essa proteção. Não instala serviço de monitoramento.
+
+Reservas automáticas têm uma trava mantida pelo controlador. Ao abrir a fila
+com `jangada-fila`, ou iniciar outro executor, o Core confere essas travas
+e trata reservas abandonadas, inclusive depois de um reinício da máquina.
+Também trata reservas legadas cujo prazo já venceu. Essa recuperação é uma
+transação própria e não depende de conseguir reservar outra tarefa.
+A tarefa e a execução interrompidas passam para `REVISION_REQUIRED`, com
+consumo desconhecido. O prazo, o dono e o comprometimento da reserva são
+encerrados, sem aprovar relatórios, converter consumo em zero ou repetir
+a tarefa. A recuperação é idempotente e preserva artefatos já registrados.
+Consultas somente leitura pelo núcleo não fazem essa recuperação.
+
+Reservas interativas de `jangada-task assumir` continuam válidas após o comando
+terminar e são regidas pelo prazo; sua vida não corresponde à do comando curto.
+Reservas automáticas anteriores a essa proteção também dependem do prazo.
+O desligamento da máquina encerra os processos pelo sistema operacional;
+a recuperação do estado ocorre na próxima abertura da fila. Os testes simulam
+falhas de processo e transações SQLite interrompidas, não perda física de energia.
+Se o próprio vigia for encerrado à força, a coleta de descendentes não é garantida.
+Arquivos temporários deixados pelo controlador morto são preservados para
+conferência; não há remoção automática de diretórios a partir do estado.
 Tarefas aprovadas, pausadas ou em revisão não são retomadas automaticamente.
 Quando só restam dependências de revisão ou tarefas sem adaptador, o
 acompanhamento encerra. Não aprova relatórios nem instala serviços.

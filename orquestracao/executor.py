@@ -1,13 +1,11 @@
 """Executa leitura delimitada e preserva saídas sem aprová-las."""
 
-import contextlib
 import hashlib
 import importlib.util
 import json
 import math
 import os
 import pathlib
-import signal
 import stat
 import subprocess
 import tempfile
@@ -19,6 +17,7 @@ from supervisao import (amostravel, elegivel as elegivel_supervisao, supervision
                         pendente as supervisao_pendente, candidatos as supervisores)
 from prazos import restante
 from projetos import ler_projeto, executor_permitido
+from processos import Processo
 
 CAPACIDADES = {'leitura_documental', 'resumo_curto', 'analise_documental'}
 PERFIS = {'balanced', 'quality', 'offline'}
@@ -65,9 +64,9 @@ def contexto_principal(estado, identificador, projeto):
     return tarefa, dependencias
 
 
-def assumir_principal(estado, identificador, projeto, executor, modelo=None):
+def assumir_principal(estado, identificador, projeto, executor, modelo=None, *, monitorar=False):
     tarefa, dependencias = contexto_principal(estado, identificador, projeto)
-    _, dono, prazo = estado.reservar_principal(identificador, executor, modelo)
+    _, dono, prazo = estado.reservar_principal(identificador, executor, modelo, monitorar=monitorar)
     execucao = estado.db.execute('SELECT id FROM execucoes WHERE dono=?', (dono,)).fetchone()['id']
     return {'tarefa': tarefa, 'dependencias': dependencias, 'dono': dono, 'prazo': prazo,
             'execucao': execucao,
@@ -248,7 +247,7 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
             if espera <= 0:
                 return encerrar('WAITING_PROVIDER', 'prazo do acompanhamento atingido antes da execução')
             ambiente['JANGADA_DELEGAR_TEMPO_TOTAL'] = str(math.ceil(espera))
-            processo = subprocess.Popen(argumentos, cwd=projeto, env=ambiente,
+            processo = Processo(argumentos, cwd=projeto, env=ambiente,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         text=True, encoding='utf-8', start_new_session=True)
             resultado['execucao_iniciada'] = True
@@ -257,8 +256,7 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
                 bruto, erro = processo.communicate(timeout=restante(prazo, tempo))
             except (subprocess.TimeoutExpired, KeyboardInterrupt) as interrupcao:
                 resultado['metricas'] = {'chamadas': None, 'segundos': math.ceil(time.monotonic() - inicio)}
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(processo.pid, signal.SIGKILL)
+                processo.encerrar()
                 processo.communicate()
                 encerramento = encerrar('REVISION_REQUIRED', 'executor interrompido; consumo de chamadas desconhecido')
                 if isinstance(interrupcao, KeyboardInterrupt):
@@ -266,8 +264,7 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
                 return encerramento
             except (OSError, UnicodeError):
                 resultado['metricas'] = {'chamadas': None, 'segundos': math.ceil(time.monotonic() - inicio)}
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(processo.pid, signal.SIGKILL)
+                processo.encerrar()
                 processo.wait()
                 raise
             resultado['metricas'] = {'chamadas': None, 'segundos': math.ceil(time.monotonic() - inicio)}

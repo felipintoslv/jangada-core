@@ -396,13 +396,13 @@ class Execucao(unittest.TestCase):
 
     def test_interrupcao_nao_inicia_proxima_tarefa(self):
         self.estado.importar([self.tarefa(), self.tarefa('T2')])
-        with patch('executor.subprocess.Popen') as fabrica, patch('executor.os.killpg') as matar:
+        with patch('executor.Processo') as fabrica:
             processo = fabrica.return_value
             processo.pid = 42
             processo.communicate.side_effect = [KeyboardInterrupt(), ('', '')]
             with self.assertRaises(KeyboardInterrupt):
                 self.rodar(limite=2)
-            matar.assert_called_once()
+            processo.encerrar.assert_called_once()
             fabrica.assert_called_once()
         self.assertEqual([t['status'] for t in self.estado.listar()], ['REVISION_REQUIRED', 'QUEUED'])
         self.assertIsNone(self.estado.consumo('T1')['chamadas'])

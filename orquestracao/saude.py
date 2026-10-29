@@ -1,12 +1,10 @@
 """Disponibilidade compartilhada entre projetos, sem autorizar execução."""
 
-import contextlib
 import json
 import http.client
 import math
 import os
 import pathlib
-import signal
 import subprocess
 import time
 import urllib.request
@@ -16,15 +14,15 @@ from executor import CAPACIDADES
 from cota_codex import consultar, percentual
 from nucleo.consultas import listar_provedores
 from prazos import restante
+from processos import Processo
 
 ESTADOS = {'AVAILABLE', 'DEGRADED', 'UNKNOWN', 'UNAVAILABLE', 'COOLDOWN',
            'QUOTA_LOW', 'QUOTA_EXHAUSTED', 'AUTH_ERROR', 'RATE_LIMITED', 'NETWORK_ERROR'}
 
 
 def consultar_uso(comando, *, timeout, cwd, env):
-    # Interromper subprocess.run mataria só o timeout, deixando o cliente
-    # e seus descendentes vivos. A consulta inteira tem um grupo próprio.
-    processo = subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    # O vigia recolhe também filhos do timeout em outros grupos de processos.
+    processo = Processo(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 stdin=subprocess.DEVNULL, text=True, cwd=cwd, env=env,
                                 start_new_session=True)
     try:
@@ -33,8 +31,7 @@ def consultar_uso(comando, *, timeout, cwd, env):
             raise subprocess.CalledProcessError(processo.returncode, comando, output=saida, stderr=erro)
         return subprocess.CompletedProcess(comando, processo.returncode, saida, erro)
     finally:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(processo.pid, signal.SIGKILL)
+        processo.encerrar()
         processo.communicate()
 
 

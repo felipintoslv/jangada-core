@@ -17,6 +17,21 @@ gravação do estado podem terminar depois do prazo, sem iniciar outra tarefa.
 Uma consulta do agy também precisa de grupo próprio: interromper apenas o
 programa timeout pode deixar o cliente e seus filhos vivos.
 
+GNU timeout e clientes podem criar outro grupo ou sessão: matar apenas o grupo
+do lançador não garante a coleta. O vigia Linux em `orquestracao/processos.py`
+usa subreaper para receber descendentes órfãos e um pipe privado que fecha com
+a morte do controlador. A coleta usa filhos reais do kernel, nunca PIDs de
+metadados. Preserve a tentativa de SIGTERM antes da coleta forçada, pois o
+executor Codex precisa limpar credenciais temporárias. O vigia roda com Python
+`-I`: sem isso, um `PYTHONPATH` recebido pode carregar módulos do projeto fora
+do isolamento. Teste também morte por SIGKILL, cliente em outra sessão e
+preservação de processos vizinhos.
+
+A existência de um arquivo de reserva não prova que há controlador vivo.
+Confira flock; não use PID gravado nem idade do arquivo. Reservas interativas
+de `assumir` não pertencem à vida do comando curto. Recuperação da fila tem
+transação própria: uma recusa ao reservar outra tarefa não pode desfazê-la.
+
 SQLite em `mode=ro` ainda pode criar arquivos WAL/SHM na origem.
 O núcleo consulta uma cópia temporária estável do banco e do WAL.
 Não omita o WAL: ele pode conter transações confirmadas que ainda não

@@ -39,7 +39,8 @@ class Economico(unittest.TestCase):
                      'orquestracao/saude.py', 'orquestracao/acompanhamento.py',
                      'orquestracao/deterministico.py', 'orquestracao/metricas_projeto.py',
                      'orquestracao/supervisao.py', 'orquestracao/principal.py',
-                     'orquestracao/projetos.py', 'orquestracao/confianca.py', 'orquestracao/prazos.py'):
+                     'orquestracao/projetos.py', 'orquestracao/confianca.py', 'orquestracao/prazos.py',
+                     'orquestracao/reservas.py', 'orquestracao/processos.py'):
             shutil.copy2(RAIZ / nome, self.raiz / nome)
         self.audit = self.pasta / 'execucao.json'
         self.fonte = self.pasta / 'fonte.md'
@@ -331,7 +332,8 @@ if modo == 'duplicado':
     def test_principal_interrupcao_limpa_credenciais_e_exige_revisao(self):
         estado, saude = self.preparar_principal()
         self.stub_worker('demorado',modelo='modelo-principal-teste')
-        criar=subprocess.Popen
+        from processos import Processo
+        criar=Processo
 
         def interromper(*args,**kwargs):
             processo=criar(*args,**kwargs)
@@ -354,7 +356,7 @@ if modo == 'duplicado':
             processo.communicate=comunicacao
             return processo
 
-        with patch('principal.subprocess.Popen',side_effect=interromper):
+        with patch('principal.Processo',side_effect=interromper):
             with self.assertRaises(KeyboardInterrupt):
                 self.principal(estado,saude)
         self.assertEqual(estado.listar()[0]['status'],'REVISION_REQUIRED')

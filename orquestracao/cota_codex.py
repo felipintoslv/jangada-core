@@ -13,6 +13,7 @@ import stat
 import subprocess
 import tempfile
 import time
+from processos import Processo
 
 
 def janelas(dados, agora):
@@ -114,7 +115,7 @@ def consultar(pasta, grupo_proprio=True, prazo=None):
     if prazo is not None and time.monotonic() >= prazo:
         raise TimeoutError('prazo da consulta de metadados atingido')
     with sinais_codex(), ambiente_codex(pasta) as (temporario, ambiente):
-        processo = subprocess.Popen(['codex', '--no-daemon', '-c',
+        processo = Processo(['codex', '--no-daemon', '-c',
                                      'log_dir=' + json.dumps(str(pathlib.Path(temporario) / 'log')),
                                      'app-server', '--stdio'], cwd=temporario, env=ambiente,
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -158,13 +159,6 @@ def consultar(pasta, grupo_proprio=True, prazo=None):
             enviar({'method': 'initialized', 'params': {}})
             return solicitar(2, 'account/rateLimits/read', {})
         finally:
-            try:
-                if grupo_proprio:
-                    os.killpg(processo.pid, signal.SIGKILL)
-                else:
-                    processo.kill()
-            except ProcessLookupError:
-                pass
-            processo.wait(timeout=5)
+            processo.encerrar()
             processo.stdin.close()
             processo.stdout.close()

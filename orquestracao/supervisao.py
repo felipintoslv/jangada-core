@@ -1,18 +1,17 @@
 """Supervisiona relatórios intermediários, sem aprovar entregas finais."""
 
-import contextlib
 import hashlib
 import json
 import math
 import os
 import pathlib
 import re
-import signal
 import subprocess
 
 from deterministico import objeto_sem_repeticoes, constante_invalida
 from confianca import codificar, exigir_controlador
 from prazos import restante
+from processos import Processo
 
 CRITERIOS = {'fidelidade', 'completude', 'extrapolacoes'}
 REMOTOS = {'agy', 'codex-economico'}
@@ -166,7 +165,7 @@ def supervisionar(tarefa, relatorio, fontes, arquivo_autor, pasta, raiz, projeto
     argumentos += ['--arquivos', *fontes, str(arquivo_autor), '--', 'supervisor', pedido]
     ambiente = dict(ambiente, JANGADA_DELEGAR_TEMPO_TOTAL=str(math.ceil(tempo)), JANGADA_DELEGAR_CHAMADAS_MAX=str(saldo))
     try:
-        processo = subprocess.Popen(argumentos, cwd=projeto, env=ambiente, stdout=subprocess.PIPE,
+        processo = Processo(argumentos, cwd=projeto, env=ambiente, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True, encoding='utf-8', start_new_session=True)
     except OSError as erro:
         resultado['motivo'] = str(erro)
@@ -207,8 +206,7 @@ def supervisionar(tarefa, relatorio, fontes, arquivo_autor, pasta, raiz, projeto
     except (OSError, UnicodeError, ValueError, TypeError, RecursionError, subprocess.SubprocessError) as erro:
         resultado['motivo'] = str(erro)
     finally:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(processo.pid, signal.SIGKILL)
+        processo.encerrar()
         processo.wait()
         processo.stdout.close()
         processo.stderr.close()

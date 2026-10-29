@@ -19,6 +19,7 @@ from projetos import (ler_projeto, especificacao_atual, provedor_de, trava_proje
                       executor_permitido, exigir_revisao_suportada)
 from supervisao import amostravel, aprovacao_valida, elegivel as elegivel_supervisao, pendente as supervisao_pendente
 from confianca import exigir_controlador, autorizar_conclusao, conferir_conclusao, auditar_recusa
+from reservas import Reservas
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from nucleo.consultas import consumo_tarefa, listar_tarefas  # noqa: E402
@@ -142,6 +143,7 @@ class Estado:
             except FileExistsError:
                 pass
             self.db = sqlite3.connect(self.pasta / 'tarefas.sqlite', timeout=30, isolation_level=None)
+            self.reservas = Reservas(self.pasta)
             self.db.row_factory = sqlite3.Row
             self.db.execute('PRAGMA journal_mode=WAL')
             self.db.execute('PRAGMA foreign_keys=ON')
@@ -174,28 +176,65 @@ class Estado:
                 );
                 CREATE INDEX IF NOT EXISTS execucoes_tarefa ON execucoes(tarefa, inicio);
             ''')
+            self.recuperar()
 
         except BaseException:
+            if hasattr(self, 'db'):
+                self.db.close()
+            if hasattr(self, 'reservas'):
+                self.reservas.fechar()
             self.trava.__exit__(None, None, None)
             raise
 
     def fechar(self):
-        self.db.close()
-        self.trava.__exit__(None, None, None)
+        try:
+            self.db.close()
+        finally:
+            self.reservas.fechar()
+            self.trava.__exit__(None, None, None)
 
     @contextlib.contextmanager
     def transacao(self):
         self.db.execute('BEGIN IMMEDIATE')
+        anteriores = set(self.reservas.fds)
         try:
             yield
             self.db.execute('COMMIT')
         except BaseException:
             self.db.execute('ROLLBACK')
+            for dono in set(self.reservas.fds) - anteriores:
+                self.reservas.liberar(dono, remover=True)
             raise
+        else:
+            for dono in tuple(self.reservas.fds):
+                if not self.db.execute("SELECT 1 FROM tarefas WHERE dono=? AND status='RUNNING'", (dono,)).fetchone():
+                    self.reservas.liberar(dono, remover=True)
+
+    def recuperar(self):
+        """Encerra reservas abandonadas, sem repetir tarefas nem supor consumo."""
+        with self.transacao():
+            agora = time.time()
+            for tarefa in self.db.execute("SELECT * FROM tarefas WHERE status='RUNNING'").fetchall():
+                evento = self.db.execute("SELECT dados FROM eventos WHERE tarefa=? AND evento='reservada' ORDER BY seq DESC LIMIT 1",
+                                         (tarefa['id'],)).fetchone()
+                reserva = json.loads(evento['dados']) if evento else {}
+                abandonada = (reserva.get('reserva_monitorada') is True
+                              and reserva.get('dono') == tarefa['dono']
+                              and not self.reservas.ativa(tarefa['dono']))
+                if not abandonada and (tarefa['prazo'] is None or tarefa['prazo'] > agora):
+                    continue
+                motivo = 'controlador encerrado; consumo desconhecido; conferir antes de repetir' if abandonada else 'executor interrompido; conferir antes de repetir'
+                self.db.execute('UPDATE tarefas SET status=?,dono=NULL,prazo=NULL,motivo=?,atualizado=? WHERE id=?',
+                                ('REVISION_REQUIRED', motivo, agora, tarefa['id']))
+                self.evento(tarefa['id'], 'reserva_expirada', {'dono': tarefa['dono'],
+                            'motivo': motivo, 'controlador_encerrado': abandonada})
 
     def evento(self, tarefa, evento, dados):
         dados = dict(dados)
         if evento == 'reservada':
+            if dados.get('modo') != 'sessao_principal' or dados.get('reserva_monitorada'):
+                self.reservas.segurar(dados['dono'])
+                dados['reserva_monitorada'] = True
             spec = json.loads(self.db.execute('SELECT especificacao FROM tarefas WHERE id=?', (tarefa,)).fetchone()[0])
             dados['execucao'] = 'exe-' + uuid.uuid4().hex[:16]
             self.db.execute('''INSERT INTO execucoes
@@ -369,12 +408,9 @@ class Estado:
     def reservar(self, duracao=660, *, validar=None):
         if not isinstance(duracao, (int, float)) or not math.isfinite(duracao) or duracao <= 0:
             raise ValueError('duração da reserva inválida')
+        self.recuperar()
         with self.transacao():
             agora = time.time()
-            for antiga in self.db.execute('SELECT * FROM tarefas WHERE status=? AND prazo<=?', ('RUNNING', agora)).fetchall():
-                self.db.execute('UPDATE tarefas SET status=?,dono=NULL,prazo=NULL,motivo=?,atualizado=? WHERE id=?',
-                                ('REVISION_REQUIRED', 'executor interrompido; conferir antes de repetir', agora, antiga['id']))
-                self.evento(antiga['id'], 'reserva_expirada', {'dono': antiga['dono']})
             # Só a fila é lida por inteiro: o histórico entra pelo estado, sem
             # interpretar especificação nem resultado sob a transação de escrita.
             estados = {r['id']: conferir_conclusao(self.pasta, dict(r))['status']
@@ -430,7 +466,7 @@ class Estado:
                 return spec, dono
         return None
 
-    def reservar_principal(self, identificador, executor, modelo=None):
+    def reservar_principal(self, identificador, executor, modelo=None, *, monitorar=False):
         if executor not in ('claude', 'codex') or (modelo is not None and (
             not isinstance(modelo, str) or not modelo.strip() or len(modelo) > 128
         )):
@@ -459,7 +495,8 @@ class Estado:
             self.db.execute('UPDATE tarefas SET status=?,tentativas=tentativas+1,dono=?,prazo=?,atualizado=? WHERE id=?',
                             ('RUNNING', dono, agora + tempo, agora, identificador))
             self.evento(identificador, 'reservada', {'dono': dono, 'modo': 'sessao_principal',
-                        'executor': executor, 'modelo': modelo, 'inicio': agora})
+                        'executor': executor, 'modelo': modelo, 'inicio': agora,
+                        'reserva_monitorada': monitorar})
             return spec, dono, agora + tempo
 
     def reservar_supervisao(self, identificador):

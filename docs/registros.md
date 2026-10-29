@@ -43,6 +43,21 @@ registram hash do artefato, identidades e critérios no evento `revisada`.
 Campos não medidos são nulos. Esses registros são observações; não
 substituem a marca protegida que autoriza integração.
 
+Reservas automáticas da fila registram `reserva_monitorada: true` no evento
+`reservada`. Uma trava privada em `reservas/DONO`, ao lado de `tarefas.sqlite`,
+fica aberta no controlador e não é repassada ao cliente. O arquivo não contém
+PID nem comando. Travas de execuções finalizadas são removidas; uma trava
+abandonada pode permanecer após falha e não comprova atividade por existir.
+O Core verifica a trava do sistema operacional. Não segue links simbólicos
+nem usa nomes de dono fora do formato admitido.
+
+A recuperação reaproveita o evento `reserva_expirada`; acrescenta `motivo`
+e `controlador_encerrado`, indicando se a perda da trava foi detectada antes
+do prazo. A tarefa e a execução ficam em `REVISION_REQUIRED`, com `chamadas`
+nulas. Consumo desconhecido continua bloqueando orçamento automático.
+Não há conclusão, repetição ou aprovação automática. Registros sem marca de
+monitoramento, incluindo reservas interativas, seguem o prazo anterior.
+
 - **Caminho:** `$JANGADA_ESTADO/validar.jsonl`.
 - **Quem escreve:** `bin/jangada-validar`, função `registrar` (linhas 80 a
   103). Chamada em quatro pontos: limite de rodadas (linha 346), reprovação

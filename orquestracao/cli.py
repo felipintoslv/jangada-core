@@ -19,6 +19,7 @@ from metricas_projeto import identidade, ler_precos, resumir
 from saude import Saude, retomar
 from principal import executar_principal
 from projetos import cadastrar, chave
+from processos import Processo
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from nucleo.roteamento import decidir, MODOS
@@ -77,7 +78,7 @@ def executar_em_paralelo(args, projeto):
     leitores = concurrent.futures.ThreadPoolExecutor(len(partes))
     try:
         for parte in partes:
-            processos.append(subprocess.Popen([*comando, '--limite', str(parte)], stdout=subprocess.PIPE, text=True,
+            processos.append(Processo([*comando, '--limite', str(parte)], stdout=subprocess.PIPE, text=True,
                                               start_new_session=True))
         saidas = list(leitores.map(lambda processo: processo.communicate()[0], processos))
     except KeyboardInterrupt:

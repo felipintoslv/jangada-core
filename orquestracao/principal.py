@@ -1,6 +1,5 @@
 """Executa análise principal documental, sem ferramentas ou aprovação final."""
 
-import contextlib
 import fcntl
 import importlib.util
 import json
@@ -8,26 +7,20 @@ import math
 import os
 import pathlib
 import re
-import signal
 import stat
 import subprocess
 import sys
 import time
 
 from executor import assumir_principal, contexto_principal
+from processos import Processo
 
 CAPACIDADES = {'analise_documental', 'sintese', 'revisao_critica'}
 
 
 def parar_processo(processo):
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(processo.pid, signal.SIGTERM)
     try:
-        processo.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(processo.pid, signal.SIGKILL)
-        processo.wait(timeout=5)
+        processo.encerrar()
     finally:
         for canal in (processo.stdin, processo.stdout, processo.stderr):
             if canal is not None:
@@ -60,7 +53,7 @@ def executar_principal(estado, identificador, projeto, raiz, saude, permitir_rem
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError('Codex já possui uma execução documental ativa') from None
-        reserva = assumir_principal(estado, identificador, projeto, 'codex', modelo)
+        reserva = assumir_principal(estado, identificador, projeto, 'codex', modelo, monitorar=True)
         dono = reserva['dono']
         tempo = max(1, math.floor(reserva['prazo'] - time.time()))
         resultado = {'executor': 'codex-principal', 'modo': 'principal_automatico', 'modelo': modelo,
@@ -91,7 +84,7 @@ def executar_principal(estado, identificador, projeto, raiz, saude, permitir_rem
                             JANGADA_EXECUCAO=reserva['execucao'])
             argumentos = [sys.executable, str(raiz / 'delegacao/codex.py'), '--pasta', str(estado.pasta),
                           '--papel', 'principal', '--tempo', str(tempo), *fontes]
-            processo = subprocess.Popen(argumentos, cwd=projeto, env=ambiente, stdin=subprocess.PIPE,
+            processo = Processo(argumentos, cwd=projeto, env=ambiente, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         text=True, encoding='utf-8', start_new_session=True)
             resultado.update(execucao_iniciada=True, metricas={'chamadas': None, 'segundos': 0})
