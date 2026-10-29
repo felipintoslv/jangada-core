@@ -612,9 +612,9 @@ e validações podem apontar para a execução; esse vínculo não é aprovaçã
 Uma política pode conter:
 
 ```json
-{"dados":"local","provedores":["ollama"],
+{"dados":"remoto_permitido","provedores":["ollama","agy"],
  "orcamento":{"chamadas":8,"periodo_segundos":86400},
- "revisao_minima":{"3":{"independente":true,"contexto":"repositorio"}}}
+ "revisao_minima":{"1":{"independente":true,"contexto":"diff"}}}
 ```
 
 As reservas comprometem o saldo de chamadas na mesma transação SQLite.
@@ -636,9 +636,25 @@ orçamento e novas reservas continuam bloqueados até o fim da janela contada
 do encerramento: `periodo_segundos`, ou 86.400 segundos quando omitido.
 As mensagens de recusa indicam o comando e a espera necessária.
 
-Quando a política exige revisão independente, o parecer identifica provedor
-e modelo diferentes do autor. Parecer humano sem identidade registra
-independência desconhecida e não atende essa exigência.
+Revisão independente na fila está implementada somente para intermediários
+de risco 1, com contexto `diff`, no fluxo de supervisão automática. O parecer
+precisa de execução comprovada, com provedor e modelo diferentes do autor.
+O cadastro recusa exigências para outros riscos, contexto `repositorio` ou
+políticas sem dois provedores autorizados, incluindo um revisor remoto.
+A tarefa precisa de `intermediaria`, `supervisao_automatica` e `permitir_remoto`
+verdadeiros e ao menos duas chamadas. Esse fluxo não aceita `criterios_aceite`
+manuais nem `amostragem`. Se a dupla depender de Codex, a tarefa também precisa
+de `permitir_codex`. As permissões de execução e a opção de supervisão ainda
+precisam ser fornecidas ao executor; cota, modelo configurado e disponibilidade
+podem deixar a tarefa aguardando supervisão para retomada posterior.
+
+Cadastro ou mudança de política confere tarefas pendentes, e a importação
+recusa planos incompatíveis sem inserção parcial. Registros antigos continuam
+legíveis, mas combinações incompatíveis são recusadas antes de reservar outra
+execução. Parecer humano sem identidade registra independência desconhecida
+e não atende essa exigência. Informar o nome de um modelo no comando de revisão
+também não comprova execução. A revisão independente geral de tarefas de maior
+risco ou com contexto do repositório ainda precisa ser implementada.
 Um teto `custo_estimado` também recusa execuções de modelos: os executores
 atuais não fornecem limite de consumo comprovável antes da chamada.
 Conferências determinísticas locais continuam possíveis, sem consumir chamadas.

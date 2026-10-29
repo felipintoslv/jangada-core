@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'orquestracao'))
 sys.path.insert(0, str(REPO))
 from estado import Estado
-from projetos import cadastrar, chave
+from projetos import cadastrar, chave, gravar_json
 from confianca import arquivar, guardar, registrar_inicio
 from nucleo.consultas import consultar
 
@@ -309,7 +309,9 @@ else:
         self.assertEqual(self.fila.listar()[0]['status'], 'REVIEW_REQUIRED')
 
     def test_D_sem_revisao_independente_nao_aprova(self):
-        cadastrar(self.fila, self.projeto, {'revisao_minima': {'2': {'independente': True}}})
+        registro = cadastrar(self.fila, self.projeto)
+        registro['politica'] = {'revisao_minima': {'2': {'independente': True}}}
+        gravar_json(self.pasta / 'projeto.json', registro)
         with self.assertRaises(ValueError):
             self.fila.revisar('T1', 'opinião de humano', True)
         self.assertEqual(self.fila.listar()[0]['status'], 'REVIEW_REQUIRED')
@@ -323,11 +325,15 @@ else:
         self.assertEqual(len(list((self.pasta / 'recusas').glob('*.json'))), 3)
 
     def test_D_reprovacao_manual_nao_finge_independencia(self):
-        cadastrar(self.fila, self.projeto, {'revisao_minima': {'2': {'independente': True}}})
+        registro = cadastrar(self.fila, self.projeto)
+        registro['politica'] = {'revisao_minima': {'2': {'independente': True}}}
+        gravar_json(self.pasta / 'projeto.json', registro)
         self.fila.revisar('T1', 'Erro identificado por operador', False)
         self.assertEqual(self.fila.listar()[0]['status'], 'REVISION_REQUIRED')
         self.fila.alterar('T1', 'repetir')
-        self.assertIsNotNone(self.fila.reservar())
+        with self.assertRaisesRegex(ValueError, 'revisão independente'):
+            self.fila.reservar()
+        self.assertEqual(self.fila.listar()[0]['status'], 'QUEUED')
 
     def test_H_alias_de_arquivo_recusado_antes_de_criar_pastas(self):
         externo = self.raiz / 'externo-sintetico'

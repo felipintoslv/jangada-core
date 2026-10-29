@@ -20,6 +20,7 @@ from metricas_projeto import resumir
 from supervisao import parecer_valido, aprovacao_valida
 from acompanhamento import acompanhar
 from saude import Saude
+from projetos import cadastrar
 
 SIMULADO = '''#!/usr/bin/env python3
 import hashlib,json,os,pathlib,sys,time
@@ -131,6 +132,15 @@ class Supervisao(unittest.TestCase):
         self.assertEqual(metricas['supervisoes_aprovadas'], 1)
         self.assertEqual(metricas['revisoes_aprovadas'], 0)
         self.assertEqual(metricas['desempenho'], [])
+
+    def test_politica_independente_conclui_com_execucao_comprovada(self):
+        cadastrar(self.estado, self.projeto, {'provedores': ['ollama', 'agy'],
+                  'revisao_minima': {'1': {'independente': True, 'contexto': 'diff'}}})
+        self.estado.importar([self.tarefa(), self.tarefa('T2', dependencias=['T1'])])
+        resultado = self.rodar()[0]
+        self.assertEqual(resultado['status'], 'COMPLETED')
+        self.assertEqual([c['fase'] for c in self.chamadas()], ['autor', 'revisao'])
+        self.assertEqual(self.estado.reservar()[0]['id'], 'T2')
 
     def test_sem_opcao_explicita_nao_supervisiona(self):
         self.estado.importar([self.tarefa()])

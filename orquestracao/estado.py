@@ -15,7 +15,8 @@ import uuid
 
 from deterministico import conferir as conferir_deterministica
 from metricas_projeto import amostragem, identidade
-from projetos import ler_projeto, especificacao_atual, provedor_de, trava_projetos, executor_permitido
+from projetos import (ler_projeto, especificacao_atual, provedor_de, trava_projetos,
+                      executor_permitido, exigir_revisao_suportada)
 from supervisao import amostravel, aprovacao_valida, elegivel as elegivel_supervisao, pendente as supervisao_pendente
 from confianca import exigir_controlador, autorizar_conclusao, conferir_conclusao, auditar_recusa
 
@@ -248,6 +249,26 @@ class Estado:
     def permite_executor(self, executor):
         return executor_permitido(ler_projeto(self.pasta), executor)
 
+    def validar_revisao(self, tarefa, politica=None):
+        if politica is None:
+            politica = (ler_projeto(self.pasta) or {}).get('politica', {})
+        regra = politica.get('revisao_minima', {}).get(str(tarefa['risco']), {})
+        if not regra.get('independente'):
+            return
+        exigir_revisao_suportada(politica)
+        if (not elegivel_supervisao(tarefa) or not tarefa.get('permitir_remoto')
+                or tarefa.get('criterios_aceite') or tarefa.get('amostragem')
+                or tarefa.get('max_chamadas', 8) < 2):
+            raise ValueError(f'tarefa {tarefa["id"]}: revisão independente exige intermediário com '
+                             'supervisão automática, permissão remota e ao menos duas chamadas; '
+                             'critérios de aceite manuais e amostragem não são suportados nesse fluxo')
+        destinos = [d for d in ('local', 'agy', 'codex-economico')
+                    if (d != 'codex-economico' or tarefa.get('permitir_codex'))
+                    and executor_permitido({'politica': politica}, d)]
+        if len(destinos) < 2:
+            raise ValueError(f'tarefa {tarefa["id"]}: revisão independente sem dois provedores '
+                             'autorizados pela política e pela tarefa')
+
     def impedimentos_politica(self):
         return [dict(destino=d, motivo='política do projeto impede este provedor', motivo_codigo='provedor_pausado')
                 for d in ('local', 'agy', 'codex-economico') if not self.permite_executor(d)]
@@ -299,6 +320,9 @@ class Estado:
         if len({t['id'] for t in tarefas}) != len(tarefas):
             raise ValueError('identificadores repetidos no plano')
         with self.transacao():
+            politica = (ler_projeto(self.pasta) or {}).get('politica', {})
+            for tarefa in tarefas:
+                self.validar_revisao(tarefa, politica)
             atividades = {r['id'] for r in self.db.execute('SELECT id FROM atividades')}
             if any(t.get('atividade') is not None and t['atividade'] not in atividades for t in tarefas):
                 raise ValueError('atividade inexistente')
@@ -379,6 +403,7 @@ class Estado:
                 spec = tarefa['especificacao']
                 if estados[tarefa['id']] != 'QUEUED' or any(estados[dep] != 'COMPLETED' for dep in spec.get('dependencias', [])):
                     continue
+                self.validar_revisao(spec)
                 try:
                     limite = self.limite_projeto(spec)
                 except ValueError as erro:
@@ -412,6 +437,7 @@ class Estado:
             if not tarefa or tarefa['status'] not in {'QUEUED', 'WAITING_PROVIDER', 'WAITING_REVIEWER'}:
                 raise ValueError('tarefa não está disponível para o agente principal')
             spec = tarefa['especificacao']
+            self.validar_revisao(spec)
             if spec['risco'] == 4 or not (spec['risco'] == 3 or spec['qualidade'] in {'high', 'critical'}):
                 raise ValueError('reserva principal exige alta qualidade ou risco 3; risco 4 não é permitido')
             if any(mapa[dep]['status'] != 'COMPLETED' for dep in spec.get('dependencias', [])):
@@ -436,6 +462,7 @@ class Estado:
             if not item or not supervisao_pendente(item):
                 raise ValueError('tarefa não aguarda supervisão automática')
             spec = item['especificacao']
+            self.validar_revisao(spec)
             consumo = self.consumo(identificador)
             if self.limite_projeto(spec) == 0:
                 raise ValueError('orçamento do projeto esgotado')

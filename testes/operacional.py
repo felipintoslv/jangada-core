@@ -19,7 +19,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 sys.path.insert(0, str(RAIZ / 'orquestracao'))
 from estado import Estado
-from projetos import cadastrar, chave, ler_projeto, reassociar
+from projetos import cadastrar, chave, gravar_json, ler_projeto, reassociar
 from executor import contexto_principal, executar_uma
 from nucleo.consultas import consultar, catalogos
 from nucleo.acoes import executar as acao
@@ -115,8 +115,12 @@ class Operacional(unittest.TestCase):
         self.assertEqual(ler_projeto(self.pasta)['politica'], {})
 
     def test_politica_de_revisao_exige_identidade_e_nao_inventa_independencia(self):
-        cadastrar(self.estado, self.projeto, {'revisao_minima': {'1': {'independente': True}}})
+        cadastrar(self.estado, self.projeto)
         self.entregar()
+        # Registro legado: continua legível, sem liberar aprovação humana.
+        registro = ler_projeto(self.pasta)
+        registro['politica'] = {'revisao_minima': {'1': {'independente': True}}}
+        gravar_json(self.pasta / 'projeto.json', registro)
         with patch.dict(os.environ, {'JANGADA_ISOLADO': ''}):
             with self.assertRaisesRegex(ValueError, 'identificados'):
                 self.estado.revisar('T1', 'parecer', True)
@@ -124,6 +128,62 @@ class Operacional(unittest.TestCase):
             self.estado.revisar('T1', 'parecer', True)
         registro = json.loads(self.estado.db.execute("SELECT dados FROM eventos WHERE evento='revisada'").fetchone()[0])
         self.assertIsNone(registro['independente'])
+
+    def test_cadastro_recusa_revisao_sem_caminho_implementado(self):
+        cadastrar(self.estado, self.projeto)
+        politicas = [
+            {'revisao_minima': {str(r): {'independente': True}}} for r in (0, 2, 3, 4)
+        ] + [
+            {'revisao_minima': {'1': {'independente': True, 'contexto': 'repositorio'}}},
+            {'dados': 'local', 'revisao_minima': {'1': {'independente': True}}},
+            {'provedores': ['agy'], 'revisao_minima': {'1': {'independente': True}}},
+        ]
+        for politica in politicas:
+            with self.subTest(politica=politica), self.assertRaisesRegex(ValueError, 'revisão independente'):
+                cadastrar(self.estado, self.projeto, politica)
+            self.assertEqual(ler_projeto(self.pasta)['politica'], {})
+
+    def test_importacao_recusa_tarefa_incompativel_sem_inserir_parcialmente(self):
+        cadastrar(self.estado, self.projeto, {'revisao_minima': {'1': {'independente': True}}})
+        valida = dict(intermediaria=True, supervisao_automatica=True, permitir_remoto=True)
+        for campos in ({'intermediaria': False, 'supervisao_automatica': False},
+                       {'permitir_remoto': False}, {'criterios_aceite': ['Conferir']},
+                       {'amostragem': True}, {'max_chamadas': 1}):
+            with self.subTest(campos=campos), self.assertRaisesRegex(ValueError, 'revisão independente'):
+                self.estado.importar([self.tarefa('VALIDA', **valida),
+                                     self.tarefa('INVALIDA', **(valida | campos))])
+            self.assertEqual(self.estado.listar(), [])
+        self.estado.importar([self.tarefa(**valida)])
+        self.assertIsNotNone(self.estado.reservar())
+
+    def test_mudar_politica_recusa_tarefas_pendentes_incompativeis(self):
+        cadastrar(self.estado, self.projeto)
+        self.estado.importar([self.tarefa()])
+        with self.assertRaisesRegex(ValueError, 'revisão independente'):
+            cadastrar(self.estado, self.projeto, {'revisao_minima': {'1': {'independente': True}}})
+        self.assertEqual(ler_projeto(self.pasta)['politica'], {})
+        self.assertEqual(self.estado.listar()[0]['status'], 'QUEUED')
+
+    def test_legado_incompativel_nao_reserva_nem_consume_tentativa(self):
+        cadastrar(self.estado, self.projeto)
+        self.estado.importar([self.tarefa(risco=3, qualidade='high')])
+        registro = ler_projeto(self.pasta)
+        registro['politica'] = {'revisao_minima': {'3': {'independente': True}}}
+        gravar_json(self.pasta / 'projeto.json', registro)
+        for reservar in (self.estado.reservar,
+                         lambda: self.estado.reservar_principal('T1', 'codex')):
+            with self.assertRaisesRegex(ValueError, 'revisão independente'):
+                reservar()
+            self.assertEqual(self.estado.listar()[0]['tentativas'], 0)
+            self.assertEqual(self.estado.db.execute('SELECT count(*) FROM execucoes').fetchone()[0], 0)
+
+    def test_revisao_com_codex_exige_autorizacao_da_tarefa(self):
+        cadastrar(self.estado, self.projeto, {'provedores': ['agy', 'codex'],
+                  'revisao_minima': {'1': {'independente': True}}})
+        campos = dict(intermediaria=True, supervisao_automatica=True, permitir_remoto=True)
+        with self.assertRaisesRegex(ValueError, 'revisão independente'):
+            self.estado.importar([self.tarefa(**campos)])
+        self.estado.importar([self.tarefa(**campos, permitir_codex=True)])
 
     def test_cli_sessao_confere_aborta_e_encerra_sem_concluir_tarefa(self):
         self.estado.importar([self.tarefa()])

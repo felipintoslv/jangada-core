@@ -110,6 +110,8 @@ def trava_projetos(raiz, exclusiva=False):
 def cadastrar(estado, caminho, politica=None):
     caminho = str(Path(caminho).resolve(strict=True))
     politica_valida(politica if politica is not None else {})
+    if politica is not None:
+        exigir_revisao_suportada(politica)
     with estado.transacao():
         existente = ler_projeto(estado.pasta)
         dados = existente or dict(id=chave(caminho), caminho=caminho,
@@ -124,6 +126,8 @@ def cadastrar(estado, caminho, politica=None):
                                  'use jangada-projeto --projeto PASTA sessao-encerrar NOME fora do isolamento')
             if 'chamadas' in politica.get('orcamento', {}):
                 estado.chamadas_usadas(politica['orcamento'])
+            for tarefa in estado.db.execute("SELECT especificacao FROM tarefas WHERE status NOT IN ('COMPLETED','FAILED','CANCELLED')"):
+                estado.validar_revisao(json.loads(tarefa['especificacao']), politica)
             dados['politica'] = politica
         gravar_json(estado.pasta / 'projeto.json', dados)
     return dados
@@ -163,6 +167,23 @@ def executor_permitido(projeto, executor):
     provedor = provedor_de(executor)
     return (('provedores' not in politica or provedor in politica['provedores'])
             and (politica.get('dados') != 'local' or provedor == 'ollama'))
+
+
+def exigir_revisao_suportada(politica):
+    """Admissão de novas políticas; registros antigos continuam legíveis."""
+    independentes = {risco: regra for risco, regra in politica.get('revisao_minima', {}).items()
+                     if regra.get('independente')}
+    if not independentes:
+        return
+    if any(risco != '1' or regra.get('contexto', 'diff') != 'diff'
+           for risco, regra in independentes.items()):
+        raise ValueError('revisão independente implementada somente para intermediários de risco 1 '
+                         'com contexto diff; revisão geral do repositório ainda não está disponível')
+    destinos = [d for d in ('local', 'agy', 'codex-economico')
+                if executor_permitido({'politica': politica}, d)]
+    if len(destinos) < 2 or not {'agy', 'codex-economico'} & set(destinos):
+        raise ValueError('revisão independente exige autorização para dois provedores distintos, '
+                         'incluindo um revisor remoto')
 
 
 def reassociar(raiz, antigo, novo):
