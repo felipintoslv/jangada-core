@@ -52,20 +52,24 @@ def acompanhar(estado, projeto, raiz, config, saude, perfil='balanced', limite=1
                                                    perfil, permitir_remoto, permitir_codex))
             if candidatos and time.monotonic() >= proxima_sonda:
                 proxima_sonda = time.monotonic() + 60
-                saude.atualizar('agy' in candidatos)
-                if 'codex-economico' in candidatos:
-                    saude.atualizar_codex(True)
+                saude.atualizar('agy' in candidatos, prazo=prazo)
+                if 'codex-economico' in candidatos and time.monotonic() < prazo:
+                    saude.atualizar_codex(True, prazo=prazo)
+            if time.monotonic() >= prazo:
+                break
             retomadas = retomar(estado, saude, raiz, config, perfil, permitir_remoto, permitir_codex)
             if time.monotonic() >= prazo:
                 break
             resultados = executar(estado, projeto, raiz, perfil, 1, permitir_remoto, saude, permitir_codex,
-                                  supervisao_automatica, amostrar)
+                                  supervisao_automatica, amostrar, prazo=prazo)
             ciclos += 1
             iniciou = any(r.get('execucao_iniciada', r['metricas']['chamadas'] != 0) for r in resultados)
             execucoes += int(iniciou)
             if emitir is not None:
                 emitir({'evento': 'ciclo', 'ciclo': ciclos, 'execucoes': execucoes,
                         'retomadas': retomadas, 'resultados': resultados})
+            if time.monotonic() >= prazo:
+                break
             if execucoes >= limite:
                 motivo = 'limite_atingido'
                 break

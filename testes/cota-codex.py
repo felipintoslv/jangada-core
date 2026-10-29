@@ -237,6 +237,25 @@ sys.stdin.read()
         self.assertTrue(all(p.poll() is not None for p in filhos))
         self.assertEqual(list(self.estado.pasta.glob('.cota-codex-*')), [])
 
+    def test_prazo_global_interrompe_metadados_e_remove_credenciais(self):
+        self.programa('import time\ntime.sleep(60)\n')
+        iniciar = subprocess.Popen
+        filhos = []
+        def capturar(*args, **kwargs):
+            processo = iniciar(*args, **kwargs)
+            filhos.append(processo)
+            return processo
+        inicio = time.monotonic()
+        with patch('cota_codex.subprocess.Popen', side_effect=capturar), self.assertRaises(TimeoutError):
+            consultar(self.estado.pasta, prazo=inicio + 0.2)
+        self.assertLess(time.monotonic() - inicio, 2)
+        self.assertTrue(filhos)
+        self.assertTrue(all(p.poll() is not None for p in filhos))
+        self.assertEqual(list(self.estado.pasta.glob('.cota-codex-*')), [])
+        with patch('cota_codex.subprocess.Popen') as processo, self.assertRaises(TimeoutError):
+            consultar(self.estado.pasta, prazo=inicio - 1)
+        processo.assert_not_called()
+
     def test_encerramento_prematuro_e_falha_de_inicio_nao_deixam_credenciais(self):
         self.programa('import sys\nsys.exit(1)\n')
         with self.assertRaises(ValueError):

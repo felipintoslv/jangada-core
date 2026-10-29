@@ -3,6 +3,7 @@
 import contextlib
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -11,6 +12,7 @@ import subprocess
 
 from deterministico import objeto_sem_repeticoes, constante_invalida
 from confianca import codificar, exigir_controlador
+from prazos import restante
 
 CRITERIOS = {'fidelidade', 'completude', 'extrapolacoes'}
 REMOTOS = {'agy', 'codex-economico'}
@@ -130,7 +132,7 @@ def pendente(item):
 
 def supervisionar(tarefa, relatorio, fontes, arquivo_autor, pasta, raiz, projeto, ambiente,
                  tempo, saldo, autor, permitir_remoto, permitir_codex, perfil, saude, contar, validar,
-                 modelo_autor=None):
+                 modelo_autor=None, prazo=None):
     exigir_controlador()
     resultado = ResultadoSupervisao(habilitada=True, executor=None, chamadas=0, decisao='ESCALATE',
                  motivo='', texto='', delegacao=None, aguardando=False, referencias_conferidas=False,
@@ -138,6 +140,7 @@ def supervisionar(tarefa, relatorio, fontes, arquivo_autor, pasta, raiz, projeto
     destinos = candidatos(tarefa, autor, perfil, permitir_remoto, permitir_codex)
     impedidos = {i['destino'] for i in saude.impedimentos()} if saude is not None else set()
     destinos = [c for c in destinos if c not in impedidos]
+    tempo = restante(prazo, tempo)
     if not destinos or tempo <= 0 or saldo <= 0:
         resultado['motivo'] = 'nenhum supervisor independente disponível dentro do orçamento'
         resultado['aguardando'] = True
@@ -161,7 +164,7 @@ def supervisionar(tarefa, relatorio, fontes, arquivo_autor, pasta, raiz, projeto
     if destino == 'codex-economico':
         argumentos.append('--permitir-codex')
     argumentos += ['--arquivos', *fontes, str(arquivo_autor), '--', 'supervisor', pedido]
-    ambiente = dict(ambiente, JANGADA_DELEGAR_TEMPO_TOTAL=str(tempo), JANGADA_DELEGAR_CHAMADAS_MAX=str(saldo))
+    ambiente = dict(ambiente, JANGADA_DELEGAR_TEMPO_TOTAL=str(math.ceil(tempo)), JANGADA_DELEGAR_CHAMADAS_MAX=str(saldo))
     try:
         processo = subprocess.Popen(argumentos, cwd=projeto, env=ambiente, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True, encoding='utf-8', start_new_session=True)
@@ -171,7 +174,7 @@ def supervisionar(tarefa, relatorio, fontes, arquivo_autor, pasta, raiz, projeto
         return resultado
     resultado['chamadas'] = None
     try:
-        bruto, _ = processo.communicate(timeout=tempo)
+        bruto, _ = processo.communicate(timeout=restante(prazo, tempo))
         registro = json.loads(bruto)
         if not isinstance(registro, dict):
             raise ValueError('supervisor não devolveu registro estruturado')

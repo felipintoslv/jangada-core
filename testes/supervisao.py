@@ -9,7 +9,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
@@ -184,13 +184,13 @@ class Supervisao(unittest.TestCase):
         self.estado.importar([self.tarefa()])
         with patch.dict(os.environ, MODO_SUPERVISAO='quota'):
             self.assertEqual(self.rodar(saude=saude)[0]['status'], 'REVIEW_REQUIRED')
-        def atualizar(remoto):
+        def atualizar(remoto, prazo=None):
             self.assertTrue(remoto)
             saude.observar('agy', 'AVAILABLE', 'quota simulada retornou', cota=100)
         with patch.object(saude, 'atualizar', side_effect=atualizar) as sonda:
             resultado = acompanhar(self.estado, self.projeto, self.raiz, self.pasta / 'config', saude,
                                   limite=1, duracao=60, permitir_remoto=True, supervisao_automatica=True)
-        sonda.assert_called_once_with(True)
+        sonda.assert_called_once_with(True, prazo=ANY)
         self.assertEqual(resultado['estados'], {'COMPLETED':1})
         self.assertEqual([c['fase'] for c in self.chamadas()], ['autor', 'revisao', 'revisao'])
 

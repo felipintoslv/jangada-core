@@ -17,6 +17,7 @@ from deterministico import CAPACIDADE as CAPACIDADE_DETERMINISTICA, conferir, cr
 from metricas_projeto import amostragem
 from supervisao import (amostravel, elegivel as elegivel_supervisao, supervisionar,
                         pendente as supervisao_pendente, candidatos as supervisores)
+from prazos import restante
 
 CAPACIDADES = {'leitura_documental', 'resumo_curto', 'analise_documental'}
 PERFIS = {'balanced', 'quality', 'offline'}
@@ -119,7 +120,9 @@ def entregar_principal(estado, identificador, dono, projeto, raiz, arquivo):
 
 
 def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir_codex=False, supervisao_automatica=False,
-                 amostrar=False):
+                 amostrar=False, prazo=None):
+    if restante(prazo, 1) <= 0:
+        return None
     reserva = estado.reservar()
     if reserva is None:
         return None
@@ -161,6 +164,8 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
                 estado.ler_artefato(mapa[dependencia]['artefato'])
             texto = conferir(tarefa)
             resultado['metricas']['segundos'] = math.ceil(time.monotonic() - inicio)
+            if restante(prazo, 1) <= 0:
+                return encerrar('REVISION_REQUIRED', 'prazo do acompanhamento atingido durante a conferência', texto)
             if resultado['metricas']['segundos'] > tempo:
                 return encerrar('FAILED', 'conferência excedeu o tempo da tarefa')
             return encerrar('REVIEW_REQUIRED' if tarefa.get('criterios_aceite') else 'COMPLETED',
@@ -225,13 +230,17 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
             saida = pathlib.Path(pasta) / 'relatorio.md'
             argumentos[1:1] = ['--arquivo', str(saida)]
             inicio = time.monotonic()
+            espera = restante(prazo, tempo)
+            if espera <= 0:
+                return encerrar('WAITING_PROVIDER', 'prazo do acompanhamento atingido antes da execução')
+            ambiente['JANGADA_DELEGAR_TEMPO_TOTAL'] = str(math.ceil(espera))
             processo = subprocess.Popen(argumentos, cwd=projeto, env=ambiente,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         text=True, encoding='utf-8', start_new_session=True)
             resultado['execucao_iniciada'] = True
             resultado['metricas']['chamadas'] = None
             try:
-                bruto, erro = processo.communicate(timeout=tempo)
+                bruto, erro = processo.communicate(timeout=restante(prazo, tempo))
             except (subprocess.TimeoutExpired, KeyboardInterrupt) as interrupcao:
                 resultado['metricas'] = {'chamadas': None, 'segundos': math.ceil(time.monotonic() - inicio)}
                 with contextlib.suppress(ProcessLookupError):
@@ -294,10 +303,10 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
             if supervisao_automatica and elegivel_supervisao(tarefa):
                 try:
                     revisao = supervisionar(tarefa, texto, fontes, saida, pasta, raiz, projeto, ambiente,
-                                            tempo - math.ceil(time.monotonic() - inicio), saldo - quantidade,
+                                            restante(prazo, tempo - math.ceil(time.monotonic() - inicio)), saldo - quantidade,
                                             registro.get('destino'), permitir_remoto, permitir_codex,
                                             perfil, saude, chamadas, verificador.verificar,
-                                            modelo_autor=registro.get('modelo'))
+                                            modelo_autor=registro.get('modelo'), prazo=prazo)
                 except KeyboardInterrupt:
                     resultado['metricas'] = {'chamadas': None, 'segundos': math.ceil(time.monotonic() - inicio)}
                     encerrar('REVISION_REQUIRED', 'supervisor interrompido; consumo desconhecido', texto)
@@ -334,25 +343,30 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
 
 
 def executar(estado, projeto, raiz, perfil='balanced', limite=1, permitir_remoto=False, saude=None, permitir_codex=False,
-             supervisao_automatica=False, amostrar=False):
+             supervisao_automatica=False, amostrar=False, prazo=None):
     if perfil not in PERFIS or type(limite) is not int or not 1 <= limite <= 1000:
         raise ValueError('perfil ou limite de tarefas inválido')
     resultados = []
     for _ in range(limite):
-        resultado = retomar_supervisao(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir_codex) if supervisao_automatica else None
+        if restante(prazo, 1) <= 0:
+            break
+        resultado = retomar_supervisao(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir_codex,
+                                      prazo=prazo) if supervisao_automatica else None
         if resultado is None:
             resultado = executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir_codex,
-                                     supervisao_automatica, amostrar)
+                                     supervisao_automatica, amostrar, prazo=prazo)
         if resultado is None:
             break
         resultados.append(resultado)
     return resultados
 
 
-def retomar_supervisao(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir_codex):
+def retomar_supervisao(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir_codex, prazo=None):
     from saude import orcamento_disponivel
 
     for item in estado.listar():
+        if restante(prazo, 1) <= 0:
+            return None
         if not supervisao_pendente(item) or not orcamento_disponivel(estado, item):
             continue
         anterior = item['resultado']['delegacao']
@@ -400,9 +414,9 @@ def retomar_supervisao(estado, projeto, raiz, perfil, permitir_remoto, saude, pe
                 resultado['metricas']['chamadas'] = None
                 resultado['execucao_iniciada'] = True
                 revisao = supervisionar(tarefa, texto, fontes, arquivo, pasta, raiz, projeto, ambiente,
-                                        tempo - math.ceil(time.monotonic() - inicio), saldo, anterior.get('destino'),
+                                        restante(prazo, tempo - math.ceil(time.monotonic() - inicio)), saldo, anterior.get('destino'),
                                         permitir_remoto, permitir_codex, perfil, saude, chamadas, gate.verificar,
-                                        modelo_autor=anterior.get('modelo'))
+                                        modelo_autor=anterior.get('modelo'), prazo=prazo)
             resultado['supervisao'] = revisao
             resultado['metricas']['chamadas'] = revisao['chamadas']
             resultado['execucao_iniciada'] = revisao['chamadas'] != 0

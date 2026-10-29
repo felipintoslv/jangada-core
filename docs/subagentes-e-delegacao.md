@@ -1070,8 +1070,13 @@ com intervalo de 60 segundos e limite de 100 execuções. `--duracao` aceita
 1 a 86400 segundos, `--intervalo` aceita 1 a 3600 e `--limite` aceita 1 a 1000.
 Sem `--acompanhar`, o comando mantém a passagem única e o limite padrão de uma tarefa.
 
-O prazo impede iniciar novas tarefas; uma tarefa já iniciada conserva seu
-próprio orçamento de tempo. Cada execução com chamadas consome uma posição
+O prazo impede iniciar novas tarefas e limita a espera pelo delegado,
+pelo supervisor e pelas consultas de disponibilidade ao tempo global restante.
+Vale sempre o menor entre esse tempo e o orçamento próprio da tarefa.
+O encerramento dos processos e a gravação do estado podem levar tempo adicional.
+A consulta de cota do agy encerra também seu grupo de processos ao ser interrompida.
+Uma conferência determinística em andamento termina sua leitura local antes
+de registrar o prazo atingido e exigir revisão. Cada execução com chamadas consome uma posição
 do limite, inclusive uma falha. Conferências determinísticas iniciadas
 também consomem posição, mesmo sem chamadas a modelos. Uma recusa antes
 da execução não consome posição. Consumo desconhecido exige revisão antes de repetir.

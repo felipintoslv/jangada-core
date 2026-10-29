@@ -349,7 +349,7 @@ class Execucao(unittest.TestCase):
         def dormir(segundos):
             agora[0] += segundos
 
-        def atualizar(remoto):
+        def atualizar(remoto, prazo=None):
             self.assertFalse(remoto)
             os.environ['MODO_TESTE'] = 'ok'
             saude.observar('local', 'AVAILABLE', 'simulado')
@@ -612,6 +612,14 @@ class Execucao(unittest.TestCase):
         self.assertEqual([t['status'] for t in fila], ['REVIEW_REQUIRED'] * 3 + ['QUEUED'] * 2)
         self.assertEqual([t['tentativas'] for t in fila], [1, 1, 1, 0, 0])
 
+    def test_prazo_vencido_nao_reserva_nem_chama_delegado(self):
+        self.estado.importar([self.tarefa()])
+        resultados = executar(self.estado, self.projeto, self.raiz, prazo=time.monotonic() - 1)
+        self.assertEqual(resultados, [])
+        self.assertEqual(self.estado.listar()[0]['status'], 'QUEUED')
+        self.assertEqual(self.estado.listar()[0]['tentativas'], 0)
+        self.assertFalse(self.registro.exists())
+
     def test_interrupcao_na_preparacao_nao_deixa_reserva_ativa(self):
         self.estado.importar([self.tarefa()])
         with patch('executor.conferir_fontes', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
@@ -619,6 +627,36 @@ class Execucao(unittest.TestCase):
         self.assertEqual(self.estado.listar()[0]['status'], 'REVISION_REQUIRED')
         self.assertFalse(self.registro.exists())
 
+    def test_acompanhamento_limita_delegado_ativo_e_preserva_proxima_tarefa(self):
+        config = self.pasta / 'config-acompanhamento'
+        config.mkdir()
+        (config / 'delegacao.json').write_text(json.dumps({'leitura_documental': ['local']}))
+        global_estado = Estado(self.pasta / 'global-acompanhamento')
+        self.addCleanup(global_estado.fechar)
+        saude = Saude(global_estado)
+        self.estado.importar([self.tarefa(), self.tarefa('T2')])
+        with patch.dict(os.environ, MODO_TESTE='demorado'):
+            inicio = time.monotonic()
+            try:
+                fim = acompanhar(self.estado, self.projeto, self.raiz, config, saude,
+                                  perfil='offline', duracao=1)
+            finally:
+                marca = pathlib.Path(str(self.registro) + '.delegado')
+                if marca.exists():
+                    try:
+                        os.killpg(int(marca.read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+        self.assertLess(time.monotonic() - inicio, 4)
+        self.assertEqual(fim['motivo'], 'prazo_atingido')
+        self.assertEqual(fim['execucoes'], 1)
+        tarefas = {t['id']: t for t in self.estado.listar()}
+        self.assertEqual(tarefas['T1']['status'], 'REVISION_REQUIRED')
+        self.assertIsNone(tarefas['T1']['resultado']['metricas']['chamadas'])
+        self.assertEqual(tarefas['T2']['status'], 'QUEUED')
+        for sufixo in ('.delegado', '.filho'):
+            pid = int(pathlib.Path(str(self.registro) + sufixo).read_text())
+            self.assertFalse(processo_vivo(pid))
 
     def test_cli_sequencial_encerrado_interrompe_delegado_e_descendente(self):
         shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')
@@ -669,7 +707,6 @@ class Execucao(unittest.TestCase):
                     if processo.poll() is None:
                         processo.kill()
                     processo.communicate(timeout=5)
-
 
     def test_cli_paralelo_encerrado_interrompe_os_processos_filhos(self):
         shutil.copytree(RAIZ / 'orquestracao', self.raiz / 'orquestracao')

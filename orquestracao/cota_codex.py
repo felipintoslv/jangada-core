@@ -110,7 +110,9 @@ def ambiente_codex(pasta):
         yield temporario, ambiente
 
 
-def consultar(pasta, grupo_proprio=True):
+def consultar(pasta, grupo_proprio=True, prazo=None):
+    if prazo is not None and time.monotonic() >= prazo:
+        raise TimeoutError('prazo da consulta de metadados atingido')
     with sinais_codex(), ambiente_codex(pasta) as (temporario, ambiente):
         processo = subprocess.Popen(['codex', '--no-daemon', '-c',
                                      'log_dir=' + json.dumps(str(pathlib.Path(temporario) / 'log')),
@@ -118,6 +120,8 @@ def consultar(pasta, grupo_proprio=True):
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.DEVNULL, start_new_session=grupo_proprio)
         limite = time.monotonic() + 10
+        if prazo is not None:
+            limite = min(limite, prazo)
         buffer, tamanho = b'', 0
 
         def enviar(mensagem):

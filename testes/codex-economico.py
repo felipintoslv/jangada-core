@@ -39,7 +39,7 @@ class Economico(unittest.TestCase):
                      'orquestracao/saude.py', 'orquestracao/acompanhamento.py',
                      'orquestracao/deterministico.py', 'orquestracao/metricas_projeto.py',
                      'orquestracao/supervisao.py', 'orquestracao/principal.py',
-                     'orquestracao/projetos.py', 'orquestracao/confianca.py'):
+                     'orquestracao/projetos.py', 'orquestracao/confianca.py', 'orquestracao/prazos.py'):
             shutil.copy2(RAIZ / nome, self.raiz / nome)
         self.audit = self.pasta / 'execucao.json'
         self.fonte = self.pasta / 'fonte.md'

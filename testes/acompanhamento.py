@@ -51,7 +51,7 @@ class Acompanhamento(unittest.TestCase):
     def dormir(self, segundos):
         self.agora += segundos
 
-    def executor(self, estado, *args):
+    def executor(self, estado, *args, prazo=None):
         reserva = estado.reservar()
         if reserva is None:
             return []
@@ -72,7 +72,7 @@ class Acompanhamento(unittest.TestCase):
 
     def test_cota_retorna_sem_consumir_limite_na_recusa(self):
         self.importar()
-        def atualizar(remoto):
+        def atualizar(remoto, prazo=None):
             self.assertFalse(remoto)
             self.saude.observar('local', 'AVAILABLE' if self.agora >= 120 else 'QUOTA_LOW', 'simulado')
         with patch.object(self.saude, 'atualizar', side_effect=atualizar) as sonda:
@@ -93,6 +93,26 @@ class Acompanhamento(unittest.TestCase):
         self.assertEqual(self.agora, 65)
         self.assertEqual(sonda.call_count, 2)
         self.assertEqual(fim['execucoes'], 0)
+
+    def test_sonda_que_esgota_prazo_nao_inicia_execucao_nem_segunda_sonda(self):
+        self.importar(permitir_remoto=True, permitir_codex=True)
+        self.aguardar()
+        (self.config / 'delegacao.json').write_text(json.dumps({'leitura_documental': ['agy', 'codex-economico']}))
+        def sonda(remoto, prazo=None):
+            self.assertTrue(remoto)
+            self.assertEqual(prazo, 1)
+            self.agora = 1
+        with patch.dict(os.environ, JANGADA_DELEGAR='agy'), \
+                patch.object(self.saude, 'atualizar', side_effect=sonda), \
+                patch.object(self.saude, 'atualizar_codex') as codex, \
+                patch('acompanhamento.time.monotonic', side_effect=lambda: self.agora), \
+                patch('acompanhamento.executar') as executor:
+            fim = acompanhar(self.estado, self.pasta, RAIZ, self.config, self.saude, duracao=1,
+                              permitir_remoto=True, permitir_codex=True)
+        codex.assert_not_called()
+        executor.assert_not_called()
+        self.assertEqual(fim['motivo'], 'prazo_atingido')
+        self.assertEqual(self.estado.listar()[0]['status'], 'WAITING_QUOTA')
 
     def test_limite_cumulativo_e_tarefas_restantes(self):
         for i in range(3):

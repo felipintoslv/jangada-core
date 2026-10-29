@@ -5,9 +5,11 @@ import json
 import http.client
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -34,6 +36,103 @@ class Disponibilidade(unittest.TestCase):
                                    JANGADA_DELEGAR='local', JANGADA_LOCAL_MODELO='qwen3:4b')
         self.ambiente.start()
         self.addCleanup(self.ambiente.stop)
+
+    def test_prazo_global_limita_sonda_local_sem_registrar_falha_do_provedor(self):
+        agora = [100]
+        self.saude.observar('local', 'AVAILABLE', 'observação anterior')
+        def esgotar(url, timeout):
+            self.assertEqual(timeout, 1)
+            agora[0] = 101
+            raise TimeoutError('prazo global')
+        with patch('saude.time.monotonic', side_effect=lambda: agora[0]), \
+                patch('saude.urllib.request.urlopen', side_effect=esgotar), \
+                patch('saude.consultar_uso') as nuvem:
+            self.saude.atualizar(True, prazo=101)
+        nuvem.assert_not_called()
+        local = next(p for p in self.saude.listar() if p['id'] == 'local')
+        self.assertEqual(local['status'], 'AVAILABLE')
+        self.assertEqual(local['motivo'], 'observação anterior')
+
+    def test_prazo_global_interrompe_sonda_remota_sem_descendente_vivo(self):
+        binarios = self.pasta / 'bin'
+        binarios.mkdir()
+        marca = self.pasta / 'agy.pid'
+        programa = binarios / 'agy'
+        programa.write_text('#!/usr/bin/env python3\nimport os, pathlib, time\n'
+                            f'pathlib.Path({str(marca)!r}).write_text(str(os.getpid()))\n'
+                            'time.sleep(30)\n')
+        programa.chmod(0o700)
+        self.saude.observar('agy', 'AVAILABLE', 'observação anterior', cota=80)
+        with patch.dict(os.environ, JANGADA_DELEGAR='agy', PATH=str(binarios) + os.pathsep + os.environ['PATH']), \
+                patch('saude.urllib.request.urlopen', side_effect=OSError()):
+            inicio = time.monotonic()
+            self.saude.atualizar(True, prazo=inicio + 0.3)
+        self.assertLess(time.monotonic() - inicio, 2)
+        self.assertTrue(marca.exists())
+        pid = int(marca.read_text())
+        caminho = pathlib.Path(f'/proc/{pid}/stat')
+        try:
+            situacao = caminho.read_text().split(') ', 1)[1][0]
+        except FileNotFoundError:
+            situacao = 'Z'
+        self.assertEqual(situacao, 'Z')
+        agy = next(p for p in self.saude.listar() if p['id'] == 'agy')
+        self.assertEqual(agy['status'], 'AVAILABLE')
+        self.assertEqual(agy['motivo'], 'observação anterior')
+
+    def test_interrupcao_da_sonda_remota_encerra_grupo_inteiro(self):
+        binarios = self.pasta / 'bin-interrupcao'
+        binarios.mkdir()
+        marca = self.pasta / 'sonda.json'
+        programa = binarios / 'agy'
+        programa.write_text('#!/usr/bin/env python3\nimport json, os, pathlib, subprocess, sys, time\n'
+                            'filho = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])\n'
+                            f'pathlib.Path({str(marca)!r}).write_text(json.dumps('
+                            '{"pid": os.getpid(), "filho": filho.pid, "grupo": os.getpgrp()}))\n'
+                            'time.sleep(30)\n')
+        programa.chmod(0o700)
+        comunicar = subprocess.Popen.communicate
+        interrompido = [False]
+        dados = {}
+        def interromper(processo, *args, **kwargs):
+            if not interrompido[0]:
+                interrompido[0] = True
+                limite = time.monotonic() + 3
+                while time.monotonic() < limite:
+                    try:
+                        dados.update(json.loads(marca.read_text()))
+                        break
+                    except (FileNotFoundError, ValueError):
+                        time.sleep(0.01)
+                self.assertTrue(dados, 'sonda simulada não iniciou')
+                raise KeyboardInterrupt
+            return comunicar(processo, *args, **kwargs)
+        try:
+            with patch.dict(os.environ, JANGADA_DELEGAR='agy', PATH=str(binarios) + os.pathsep + os.environ['PATH']), \
+                    patch('saude.urllib.request.urlopen', side_effect=OSError()), \
+                    patch('saude.subprocess.Popen.communicate', new=interromper), \
+                    self.assertRaises(KeyboardInterrupt):
+                self.saude.atualizar(True)
+            for pid in (dados['pid'], dados['filho']):
+                try:
+                    situacao = pathlib.Path(f'/proc/{pid}/stat').read_text().split(') ', 1)[1][0]
+                except FileNotFoundError:
+                    situacao = 'Z'
+                self.assertEqual(situacao, 'Z', f'processo {pid} sobreviveu à consulta')
+        finally:
+            if dados and dados['grupo'] != os.getpgrp():
+                try:
+                    os.killpg(dados['grupo'], signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_prazo_vencido_nao_consulta_provedores(self):
+        with patch('saude.time.monotonic', return_value=100), \
+                patch('saude.urllib.request.urlopen') as local, patch('saude.consultar') as codex:
+            self.saude.atualizar(True, prazo=99)
+            self.saude.atualizar_codex(True, prazo=99)
+        local.assert_not_called()
+        codex.assert_not_called()
 
     def dados_cota(self, valor):
         return {'command': {'data': {'groups': [{'buckets': [{'id': 'gemini-5h', 'remaining_fraction': valor}]}]}}}
@@ -109,7 +208,7 @@ class Disponibilidade(unittest.TestCase):
         self.cache.write_text(json.dumps(self.dados_cota(0.5)))
         resposta = MagicMock()
         resposta.__enter__.return_value.read.return_value = b'{"models":[{"name":"qwen3:4b"}]}'
-        with patch('saude.urllib.request.urlopen', return_value=resposta), patch('saude.subprocess.run') as nuvem:
+        with patch('saude.urllib.request.urlopen', return_value=resposta), patch('saude.consultar_uso') as nuvem:
             self.saude.atualizar()
             nuvem.assert_not_called()
         self.assertEqual([p['status'] for p in self.saude.listar()], ['AVAILABLE', 'AVAILABLE'])
@@ -134,7 +233,7 @@ class Disponibilidade(unittest.TestCase):
                 self.cache.write_text(json.dumps(self.dados_cota(valor)))
                 agora = __import__('time').time()
                 os.utime(self.cache, (agora - idade, agora - idade))
-                with patch('saude.urllib.request.urlopen', side_effect=OSError()), patch('saude.subprocess.run') as nuvem:
+                with patch('saude.urllib.request.urlopen', side_effect=OSError()), patch('saude.consultar_uso') as nuvem:
                     self.saude.atualizar(permitir_remoto=True)
                     nuvem.assert_not_called()
                 self.assertEqual(self.saude.listar()[0]['status'], 'UNKNOWN')
@@ -169,7 +268,7 @@ class Disponibilidade(unittest.TestCase):
 
     def test_consulta_de_metadados_exige_permissao_e_nao_le_fontes(self):
         with patch.dict(os.environ, JANGADA_DELEGAR='agy'):
-            with patch('saude.urllib.request.urlopen', side_effect=OSError()), patch('saude.subprocess.run') as consultar:
+            with patch('saude.urllib.request.urlopen', side_effect=OSError()), patch('saude.consultar_uso') as consultar:
                 consultar.return_value.stdout = json.dumps(self.dados_cota(0.6))
                 self.saude.atualizar(permitir_remoto=True)
                 self.assertEqual(consultar.call_count, 1)

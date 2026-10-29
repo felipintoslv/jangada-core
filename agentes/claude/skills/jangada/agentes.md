@@ -11,6 +11,12 @@ precisam passar pela mesma limpeza de Ctrl+C também na execução sequencial;
 encerrar somente o controlador deixa o delegado vivo. Confira os descendentes
 e o estado persistido, além do código de saída do controlador.
 
+O prazo de acompanhamento usa relógio monotônico e chega às esperas do autor,
+supervisor e sondagens. Não reinicie a janela a cada etapa. A limpeza e a
+gravação do estado podem terminar depois do prazo, sem iniciar outra tarefa.
+Uma consulta do agy também precisa de grupo próprio: interromper apenas o
+programa timeout pode deixar o cliente e seus filhos vivos.
+
 SQLite em `mode=ro` ainda pode criar arquivos WAL/SHM na origem.
 O núcleo consulta uma cópia temporária estável do banco e do WAL.
 Não omita o WAL: ele pode conter transações confirmadas que ainda não
