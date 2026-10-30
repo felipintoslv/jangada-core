@@ -150,6 +150,10 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
             self.addCleanup(shutil.rmtree, estado, ignore_errors=True)
             self.env.update(JANGADA_ESTADO=str(estado / "jangada"), XDG_STATE_HOME=str(estado))
         base = Path(self.env["JANGADA_ESTADO"]) / "contas"
+        # A cota falsa e o contador de consultas ficam fora da conta: desde os
+        # dados por sessão, só o login e o settings.json dela entram na caixa.
+        # A pasta agentes do estado é gravável dentro do isolamento de agente.
+        self.uso = Path(self.env["JANGADA_ESTADO"]) / "agentes/falso-uso"
         for i, saldo in enumerate(saldos, 1):
             pasta = base / f"conta{i}"
             pasta.mkdir(parents=True)
@@ -160,22 +164,25 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
             buckets = [{"id": "gemini-weekly", "remaining_fraction": saldo}]
             if i == 1:
                 buckets.append({"id": "gemini-argon-wtu-weekly", "remaining_fraction": 0.6})
-            (pasta / "usage.json").write_text(json.dumps({"command": {"data": {"groups": [{"buckets": buckets}]}}}))
-            contas.append({"nome": f"conta{i}", "pasta": str(pasta), "argon": i == 1})
+            uso = self.uso / f"conta{i}"
+            uso.mkdir(parents=True)
+            (uso / "usage.json").write_text(json.dumps({"command": {"data": {"groups": [{"buckets": buckets}]}}}))
+            contas.append({"nome": f"conta{i}", "pasta": str(pasta), "argon": i == 1, "uso": str(uso)})
         catalogo = base / "agy.json"
         catalogo.write_text(json.dumps(contas))
         self.script("agy", r'''import json,os,sys
 from pathlib import Path
 cli=Path.home()/".gemini/antigravity-cli"
+uso=Path(os.environ.get("FALSO_USO") or "/nao-existe")
 for origem in filter(None, os.environ.get("CONTAS_ORIGENS", "").split(":")):
  assert not (Path(origem)/"segredo").exists(), "origem de conta visível: "+origem
 if sys.argv[1:]==["agents"]:
  print("explorador\nimplementador\nleitor\npesquisador"); sys.exit()
-if "/usage" in sys.argv:
- with (cli/"consultas").open("a") as arq: arq.write("usage\n")
- print((cli/"usage.json").read_text()); sys.exit()
 conta=(cli/"antigravity-oauth-token").read_text()
-if not (cli/"usage.json").exists():
+if "/usage" in sys.argv:
+ with (uso/conta/"consultas").open("a") as arq: arq.write("usage\n")
+ print((uso/conta/"usage.json").read_text()); sys.exit()
+if not (uso/conta/"usage.json").exists():
  try: (cli/"antigravity-oauth-token").write_text("alterado")
  except OSError: pass
  else: raise AssertionError("login gravável no executor privado")
@@ -183,8 +190,9 @@ if not (cli/"usage.json").exists():
 print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identidade="+conta}))
 ''')
         self.env["CONTAS_ORIGENS"] = ":".join(c["pasta"] for c in contas)
+        self.env["FALSO_USO"] = str(self.uso)
         # O ambiente mínimo do isolamento só deixa passar o nome pedido.
-        self.env["JANGADA_ISOLAR_AMBIENTE_MANTER"] = "CONTAS_ORIGENS"
+        self.env["JANGADA_ISOLAR_AMBIENTE_MANTER"] = "CONTAS_ORIGENS:FALSO_USO"
         return contas, catalogo
 
     def delegar_conta(self, *args, sucesso=True):
@@ -199,7 +207,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
         self.assertEqual(resultado["conta"], "conta2")
         self.assertEqual(resultado["cota_antes"], 80)
         for c in contas:
-            n = len((Path(c["pasta"]) / "consultas").read_text().splitlines())
+            n = len((Path(c["uso"]) / "consultas").read_text().splitlines())
             self.assertEqual(n, 2 if c["nome"] == "conta2" else 1)
         resultado = json.loads(self.chamar("explorador", "Leia", "--destino", "agy", "--permitir-remoto",
             "--modelo", "gemini-4-argon-high", "--json").stdout)
@@ -217,12 +225,12 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
         (pasta / "settings.json").write_text('{"trustedWorkspaces": []}')
         cache = Path(self.env["XDG_CACHE_HOME"]) / "jangada/agy-usage-conta2.json"
         cache.parent.mkdir(parents=True)
-        cache.write_bytes((pasta / "usage.json").read_bytes())
+        cache.write_bytes((Path(contas[1]["uso"]) / "usage.json").read_bytes())
         resultado = json.loads(self.delegar_conta().stdout)
         self.assertEqual(resultado["conta"], "conta1")
         self.assertEqual(resultado["cota_antes"], 40)
         self.assertTrue(all(c["conta"] == "conta1" for c in resultado["cotas_modelos"]))
-        self.assertFalse((pasta / "consultas").exists())
+        self.assertFalse((Path(contas[1]["uso"]) / "consultas").exists())
         for c in contas:
             (Path(c["pasta"]) / "settings.json").write_text('{"trustedWorkspaces": []}')
         erro = self.delegar_conta(sucesso=False)
@@ -260,9 +268,9 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
         contas, _ = self.contas()
         cache = Path(self.env["XDG_CACHE_HOME"]) / "jangada/agy-usage-conta1.json"
         cache.parent.mkdir(parents=True)
-        cache.write_bytes((Path(contas[0]["pasta"]) / "usage.json").read_bytes())
+        cache.write_bytes((Path(contas[0]["uso"]) / "usage.json").read_bytes())
         os.utime(cache, (0, 0))
-        (Path(contas[0]["pasta"]) / "usage.json").write_text("{}")
+        (Path(contas[0]["uso"]) / "usage.json").write_text("{}")
         resultado = json.loads(self.delegar_conta("--conta", "conta1", sucesso=False).stdout)
         self.assertIsNone(resultado["cota_antes"])
         self.assertEqual(resultado["motivo_codigo"], "cota_desconhecida")
@@ -272,14 +280,19 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
         contas, _ = self.contas()
         self.env["JANGADA_ISOLAR_ESCRITA"] = contas[0]["pasta"]
         codigo = ("from pathlib import Path; import os; cli=Path.home()/'.gemini/antigravity-cli'; "
-                  "assert (cli/'segredo').read_text()=='conta2'; "
+                  "assert (cli/'antigravity-oauth-token').read_text()=='conta2'; "
+                  "assert not (cli/'segredo').exists(); "
                   "assert all(not (Path(p)/'segredo').exists() for p in os.environ['CONTAS_ORIGENS'].split(':')); "
                   "(cli/'gravado').write_text('ok')")
         p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--provedor", "agy", "--conta", "conta2", "--", "python3", "-c", codigo],
                            cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertEqual((Path(contas[1]["pasta"]) / "gravado").read_text(), "ok")
-        self.assertFalse((Path(contas[0]["pasta"]) / "gravado").exists())
+        # Desde os dados por sessão, o que o agente grava fica na pasta da
+        # sessão, e nenhuma conta muda.
+        sessao = Path(self.env["JANGADA_ESTADO"]) / "provedores/agy-conta2/sintetica"
+        self.assertEqual((sessao / "gravado").read_text(), "ok")
+        for c in contas:
+            self.assertFalse((Path(c["pasta"]) / "gravado").exists(), c["nome"])
         # O isolamento cria o bin vazio na conta, que fica no estado do jangada.
         self.assertEqual(list((Path(contas[1]["pasta"]) / "bin").iterdir()), [])
 
@@ -299,7 +312,8 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(p.stdout.strip(), "sem-antigo")
         self.assertEqual(list((origem / "bin").iterdir()), [])
-        self.assertEqual((origem / "gravado").read_text(), "ok")
+        self.assertFalse((origem / "gravado").exists())
+        self.assertEqual((Path(self.env["JANGADA_ESTADO"]) / "provedores/agy-conta2/sintetica/gravado").read_text(), "ok")
         # Com bin na conta: o conteúdo aparece na caixa e a origem fica intacta.
         (origem / "bin/antigo").write_text("velho")
         p = subprocess.run(comando, cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
@@ -317,7 +331,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
         contas, _ = self.contas((0.4, 0.95))
         cache = Path(self.env["XDG_CACHE_HOME"]) / "jangada/agy-usage-conta2.json"
         cache.parent.mkdir(parents=True)
-        cache.write_bytes((Path(contas[1]["pasta"]) / "usage.json").read_bytes())
+        cache.write_bytes((Path(contas[1]["uso"]) / "usage.json").read_bytes())
         # O caminho do cache fica visível, mas não autoriza escolher a outra conta.
         self.env["JANGADA_ISOLAR_CASA_LER"] = self.env["XDG_CACHE_HOME"]
         self.env["JANGADA_ISOLAR_ESCRITA"] = self.env["XDG_CACHE_HOME"]
@@ -340,7 +354,7 @@ assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
         p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--provedor", "agy", "--conta", "conta1", "--", "python3", "-c", codigo],
                            cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=25)
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertFalse((Path(contas[1]["pasta"]) / "consultas").exists())
+        self.assertFalse((Path(contas[1]["uso"]) / "consultas").exists())
 
     def test_login_privado_recusa_links_sem_ler_credencial(self):
         origem, destino = self.tmp / "origem", self.tmp / "destino"
@@ -457,7 +471,7 @@ assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
     def test_recusa_anterior_a_selecao_nao_registra_conta(self):
         self.contas()
         estado = Path(self.env["JANGADA_ESTADO"]) / "agentes"
-        estado.mkdir(parents=True)
+        estado.mkdir(parents=True, exist_ok=True)
         with (estado / ".agy-execucao.lock").open("w") as arq:
             fcntl.flock(arq, fcntl.LOCK_EX | fcntl.LOCK_NB)
             resultado = json.loads(self.delegar_conta(sucesso=False).stdout)
@@ -574,6 +588,28 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
         marca = "--setenv\nJANGADA_ISOLADO\n"
         self.assertEqual(base.count(marca), 1)
         esperado = base.replace(marca, "--setenv\nJANGADA_ISOLAR_CONCEDIDOS\nagy claude codex\n" + marca)
+        # Dados por sessão dos provedores (30/10/2026), sem variável de volta:
+        # a pasta do agy sai dos graváveis e vem da sessão, com o bin por cima;
+        # as pastas de dados do Claude vêm da sessão; provedores/ e codex/ do
+        # estado ficam ocultos.
+        ref = "${TMP}/estado/jangada/provedores"
+        cli = "${TMP}/casa/.gemini/antigravity-cli"
+        trocas = [
+            (f"--bind\n{cli}\n{cli}\n", ""),
+            (f"--ro-bind\n{cli}/bin\n{cli}/bin\n", ""),
+            ("--tmpfs\n${TMP}/casa/.claude/ide\n", "--tmpfs\n${TMP}/casa/.claude/ide\n" + "".join(
+                f"--bind\n{ref}/claude/sintetica/{n}\n${{TMP}}/casa/.claude/{n}\n"
+                for n in ("agent-memory", "file-history", "history.jsonl", "jobs", "logs",
+                          "paste-cache", "plans", "projects", "sessions", "todos"))),
+            ("--tmpfs\n${TMP}/estado/jangada/integracoes\n",
+             f"--tmpfs\n${{TMP}}/estado/jangada/integracoes\n--tmpfs\n{ref}\n--tmpfs\n${{TMP}}/estado/jangada/codex\n"),
+            ("--ro-bind\n/dev/null\n/tmp/.jangada-sem-autoridade\n",
+             f"--ro-bind\n/dev/null\n/tmp/.jangada-sem-autoridade\n--bind\n{ref}/agy-principal/sintetica\n{cli}\n"
+             f"--ro-bind\n{cli}/bin\n{cli}/bin\n"),
+        ]
+        for antes, depois in trocas:
+            self.assertEqual(esperado.count(antes), 1, antes)
+            esperado = esperado.replace(antes, depois)
         transicao = dict(JANGADA_ISOLAR_CASA="inteira", JANGADA_ISOLAR_AMBIENTE="herdado",
                          JANGADA_ISOLAR_KEYRING="servico", JANGADA_ISOLAR_PROVEDORES="claude:codex")
         self.assertEqual(self.argumentos_sem_catalogo(extra=transicao), esperado)

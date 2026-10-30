@@ -222,11 +222,12 @@ class Provedores(unittest.TestCase):
         self.assertIsNone(rc["arquivos"]["agy"])
         self.assertIsNone(ra["arquivos"]["claude"])
         self.assertEqual(rc["arquivos"]["claude"], "falso-claude")
-        # Cada execução grava só na própria conta e lê de volta a própria marca.
-        m1 = (self.estado / "contas/conta1/marca").read_text()
-        m2 = (self.estado / "contas/conta2/marca").read_text()
-        self.assertEqual((ra["marca"], rb["marca"]), (m1, m2))
-        self.assertNotEqual(m1, m2)
+        # Desde os dados por sessão, cada execução grava numa pasta própria,
+        # efêmera sem JANGADA_SESSAO: a marca não chega à conta e não sobra.
+        self.assertNotEqual(ra["marca"], rb["marca"])
+        for conta in ("conta1", "conta2"):
+            self.assertFalse((self.estado / "contas" / conta / "marca").exists(), conta)
+        self.assertEqual(list((self.estado / "provedores").glob("*/efemera-*")), [])
         self.assertFalse((self.casa / ".gemini/antigravity-cli/marca").exists(), "a execução do claude gravou no agy")
 
     def test_aninhado_recusa_provedor_que_a_sessao_nao_recebeu(self):

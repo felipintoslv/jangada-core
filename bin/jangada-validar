@@ -468,7 +468,7 @@ command -v "$revisor" >/dev/null 2>&1 || { echo "jangada-validar: $revisor não 
 # O revisor grava o próprio login. Dentro da proteção do Codex essas pastas são
 # somente leitura e a rodada seria gasta sem parecer: para antes de contá-la.
 case "$revisor" in
-  claude) pasta_revisor="$HOME/.claude" ;;
+  claude) pasta_revisor="${CLAUDE_CONFIG_DIR:-$HOME/.claude}" ;;
   codex) pasta_revisor="${CODEX_HOME:-$HOME/.codex}" ;;
   agy) pasta_revisor="$HOME/.gemini" ;;
   *) pasta_revisor="" ;;

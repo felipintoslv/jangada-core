@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Consumo do Claude Code no bloco de 5 horas em andamento, lido dos registros
-# de conversa em ~/.claude/projects (sem rede, sem ccusage).
+# de conversa em ~/.claude/projects e nas pastas por sessão dos agentes
+# isolados, em $JANGADA_ESTADO/provedores/claude/*/projects (sem rede, sem
+# ccusage).
 #
 # Uso: jangada-consumo [--curto] [--json]
 #   --curto   uma linha, para a dica da barra
@@ -30,7 +32,14 @@ if [[ ! -s "$cache" ]] || [[ -n "$(find "$cache" -mmin +1 2>/dev/null)" ]]; then
   tmp="$(mktemp "$cache.XXXXXX")"
   # Só os arquivos mexidos nas últimas 10 horas: o bloco atual começou há no
   # máximo 5, e as 5 anteriores bastam para achar onde ele começa.
-  if find "$HOME/.claude/projects" -name '*.jsonl' -mmin -600 -print0 2>/dev/null \
+  # Com o pipefail, um caminho ausente faria o find falhar: só os que existem.
+  pastas=()
+  for p in "$HOME/.claude/projects" "$JANGADA_ESTADO"/provedores/claude/*/projects; do
+    [[ -d "$p" ]] && pastas+=("$p")
+  done
+  # Sem nenhuma, o find procuraria na pasta atual: falha como antes.
+  ((${#pastas[@]})) || pastas=("$HOME/.claude/projects")
+  if find "${pastas[@]}" -name '*.jsonl' -mmin -600 -print0 2>/dev/null \
       | python3 -c '
 import sys, json, datetime as dt
 agora = dt.datetime.now(dt.timezone.utc)

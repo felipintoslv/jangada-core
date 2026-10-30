@@ -155,6 +155,25 @@ contas_agy="$(jangada_contas_agy)" || exit 1
 if [[ -n "$conta_opt" ]]; then export JANGADA_AGY_CONTA="$conta_opt"; fi
 jangada_conta_agy || exit 1
 cli_agy="$HOME/.gemini/antigravity-cli"
+# Pasta do Claude: CLAUDE_CONFIG_DIR, se definida, senão ~/.claude. O agy
+# aceita variáveis que levam os dados para outra pasta, fora da montagem por
+# sessão abaixo; com elas o agy não abre, em vez de gravar onde não há
+# separação.
+claude_casa="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+if [[ "$claude_casa" != /* ]]; then
+  concedido claude && { echo "jangada-isolar: CLAUDE_CONFIG_DIR precisa ser um caminho absoluto" >&2; exit 1; }
+  claude_casa="$HOME/.claude"
+fi
+claude_casa="$(realpath -m -- "$claude_casa")"
+if concedido agy; then
+  for v in ANTIGRAVITY_GEMINI_DIR ANTIGRAVITY_APP_DATA_DIR ANTIGRAVITY_CONFIG_REL_DIR \
+           ANTIGRAVITY_EXECUTABLE_DATA_DIR GEMINI_DIR; do
+    [[ -z "${!v+x}" ]] || {
+      echo "jangada-isolar: $v definida; os dados do agy por sessão só valem na pasta padrão" >&2
+      exit 1
+    }
+  done
+fi
 conta_configurada=0
 [[ ! -e "$JANGADA_ESTADO/contas/agy.json" ]] || conta_configurada=1
 if ja_isolado && [[ -n "${JANGADA_AGY_CONTA_MONTADA:-}" && "$CONTA_AGY_NOME" != "$JANGADA_AGY_CONTA_MONTADA" ]]; then
@@ -463,20 +482,19 @@ os.execvp("bwrap", ["bwrap", *sys.argv[2:]])' "$dbus_sinc" "${args[@]}"
 fi
 
 gravavel "$pasta"
-# Do Claude, a pasta ~/.claude: conversas, login e sessões. O ~/.claude.json
-# (servidores MCP e confiança por projeto) fica somente leitura; ele é
-# gravado por rename, que um bind só do arquivo não aceita, e perdê-lo só
-# perde contadores. Do agy, a pasta do CLI; os hooks dele, em
-# ~/.gemini/config, ficam somente leitura. O login de cada conta está no
-# arquivo antigravity-oauth-token da própria pasta do CLI.
-# Numa instalação nova as pastas ainda não existem, e sem o bind o agente não
-# conseguiria criá-las.
-mkdir -p "$HOME/.claude" "$HOME/.cache" 2>/dev/null || true
+# Do Claude, a pasta ~/.claude (ou CLAUDE_CONFIG_DIR) fica gravável por causa
+# do login: o .credentials.json é regravado por rename, que um bind só do
+# arquivo não aceita. As conversas, a memória e o histórico dela vêm depois,
+# de uma pasta própria da sessão (dados_claude). O ~/.claude.json (servidores
+# MCP e confiança por projeto) fica somente leitura; perdê-lo só perde
+# contadores. A pasta do CLI do agy é montada mais abaixo (dados_agy).
+# Numa instalação nova a pasta ainda não existe, e sem o bind o agente não
+# conseguiria criá-la.
+mkdir -p "$claude_casa" "$HOME/.cache" 2>/dev/null || true
 if ((!conta_configurada)) && concedido agy; then
   command -v agy >/dev/null 2>&1 && { mkdir -p "$CONTA_AGY_PASTA" 2>/dev/null || true; }
 fi
-gravavel "$HOME/.claude"
-((conta_configurada)) || ! concedido agy || gravavel "$CONTA_AGY_PASTA"
+gravavel "$claude_casa"
 # O ~/.cache alimenta código que roda fora: clones do AUR que o yay compila
 # com sudo, cache de compilação do Go, rodas do pip, bytecode do nvim, a
 # atualização do Claude. O agente lê, e o que grava some no fim.
@@ -535,6 +553,61 @@ done
 
 # Daqui em diante, somente leitura por cima dos graváveis.
 
+# Dados por sessão dos provedores: conversas, memória e histórico do Claude e
+# do agy ficam em $JANGADA_ESTADO/provedores/<provedor>/<sessão>, pasta oculta
+# a todo isolamento; só a da própria sessão aparece, no lugar onde o cliente a
+# procura. Reabrir a mesma JANGADA_SESSAO retoma os mesmos dados. Sem sessão
+# válida, a pasta é efêmera: some quando este script sai, e depois de SIGKILL
+# só na próxima abertura, quando o processo dono já não existe. Nada do
+# histórico pessoal de fora é copiado. O jangada-delegar, que chama o agy sem
+# sessão e lê o log e a conversa depois que ele sai, passa uma chave própria em
+# JANGADA_ISOLAR_DADOS (delegacao-*), e ele mesmo apaga a pasta.
+dados_raiz="$JANGADA_ESTADO/provedores"
+dados_chave="${JANGADA_SESSAO:-}"
+dados_efemeros=()
+if ! [[ "$dados_chave" =~ ^[A-Za-z0-9_.-]+$ && "$dados_chave" != . && "$dados_chave" != .. ]] \
+   || [[ "$dados_chave" == efemera-* || "$dados_chave" == delegacao-* ]]; then
+  dados_chave="efemera-$$"
+fi
+if [[ -n "${JANGADA_ISOLAR_DADOS+x}" ]]; then
+  [[ -z "${JANGADA_SESSAO:-}" && "$JANGADA_ISOLAR_DADOS" =~ ^delegacao-[A-Za-z0-9_.-]+$ ]] || {
+    echo "jangada-isolar: JANGADA_ISOLAR_DADOS aceita só delegacao-* e sem JANGADA_SESSAO" >&2; exit 1
+  }
+  dados_chave="$JANGADA_ISOLAR_DADOS"
+fi
+dados_pasta() {
+  local raiz alvo
+  [[ ! -L "$dados_raiz" && ! -L "$dados_raiz/$1" && ! -L "$dados_raiz/$1/$dados_chave" ]] || return 1
+  (umask 077; mkdir -p "$dados_raiz/$1/$dados_chave") || return 1
+  raiz="$(realpath -e "$dados_raiz")" && alvo="$(realpath -e "$dados_raiz/$1/$dados_chave")" || return 1
+  [[ "$alvo" == "$raiz/$1/$dados_chave" ]] || return 1
+  printf '%s\n' "$alvo"
+}
+dados_limpar_mortos() {
+  local d pid
+  for d in "$dados_raiz"/*/efemera-*; do
+    [[ -d "$d" && ! -L "$d" ]] || continue
+    pid="${d##*/efemera-}"
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    kill -0 "$pid" 2>/dev/null || rm -rf -- "$d"
+  done
+}
+# Transição de 30/10/2026: diz se a pasta de dados ($1) ainda não existe e a
+# sessão já estava registrada numa pasta de sessão em JANGADA_WORKTREES, que
+# pertence a uma única sessão. Só então a conversa anterior dela é trazida.
+dados_transicao() {
+  [[ "$dados_chave" != efemera-* && ! -e "$dados_raiz/$1/$dados_chave" && ! -L "$dados_raiz/$1/$dados_chave" \
+     && -f "$JANGADA_ESTADO/agentes/$dados_chave.json" && ! -L "$JANGADA_ESTADO/agentes/$dados_chave.json" \
+     && "$pasta" == "$(realpath -m -- "$JANGADA_WORKTREES")"/* ]]
+}
+dados_abrir() {
+  local alvo
+  alvo="$(dados_pasta "$1")" || { echo "jangada-isolar: pasta de dados do provedor $1 inválida (link ou fora do estado)" >&2; exit 1; }
+  [[ "$dados_chave" != efemera-* ]] || dados_efemeros+=("$alvo")
+  dados_alvo="$alvo"
+}
+((aninhado)) || [[ "$perfil" != agente ]] || ! { concedido claude || concedido agy; } || dados_limpar_mortos
+
 # O Codex precisa gravar bancos, conversas e confiança dos hooks. Dentro do
 # bwrap a pasta global aponta para dados próprios da sessão, sem mudar o
 # CODEX_HOME nem deixar o agente gravar configurações usadas fora dele.
@@ -559,8 +632,9 @@ if [[ "$(basename -- "$1")" == jangada-codex ]] \
   [[ "$(dirname "$codex_alvo")" == "$codex_raiz" && "${codex_alvo##*/}" == "$codex_sessao" ]] || {
     echo "jangada-isolar: dados do Codex fora da pasta da sessão" >&2; exit 1
   }
+  # A pasta que reúne as sessões fica oculta (lista dos ocultos); só a desta
+  # sessão aparece, no lugar do CODEX_HOME.
   (umask 077; mkdir -p "$codex_alvo")
-  somente_leitura "$codex_estado"
   args+=(--bind "$codex_alvo" "$codex_casa")
   # Somente entradas conhecidas vêm da pasta global. Dados de execução
   # antigos da sessão ficam dentro do isolamento em toda restauração.
@@ -589,7 +663,7 @@ fi
 # que valeria na próxima sessão aberta fora do isolamento. O que falta é
 # criado vazio antes (um bind sobre caminho ausente deixaria no disco um
 # arquivo vazio, e um settings.json vazio não é JSON válido).
-c="$HOME/.claude"
+c="$claude_casa"
 for f in settings.json settings.local.json; do
   [[ -e "$c/$f" || -L "$c/$f" ]] || printf '{}\n' 2>/dev/null >"$c/$f" || true
 done
@@ -617,13 +691,69 @@ for d in shell-snapshots session-env ide; do
   mkdir -p "$c/$d" 2>/dev/null || true
   temporario "$c/$d"
 done
-# agy: os executáveis que ele chama (agentapi, webm_encoder). Ele regrava o
-# agentapi antes de cada comando, e somente leitura impediria todo comando.
-# Sem a pasta, o agente a criaria no disco pela pasta do CLI, gravável.
-if ((!conta_configurada)) && concedido agy; then
-  [[ -d "$CONTA_AGY_PASTA" ]] && { mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true; }
-  temporario "$cli_agy/bin" ro
-fi
+# O CLAUDE_CONFIG_DIR leva junto o .claude.json, que fica somente leitura
+# como o ~/.claude.json.
+[[ "$c" == "$HOME/.claude" ]] || somente_leitura "$c/.claude.json"
+# Conversas, memória (dentro de projects), histórico de prompts e demais
+# dados do Claude: cada pasta de primeiro nível que não é configuração, login
+# ou temporária vem da pasta da sessão, e o history.jsonl também (ele só
+# recebe acréscimos, que um bind de arquivo aceita). As pastas conhecidas são
+# criadas antes, para a primeira sessão não gravar nelas a céu aberto. Os
+# outros arquivos soltos (contadores, marcas do daemon) seguem compartilhados.
+# Um nome novo criado durante a sessão fica na pasta real até a próxima
+# abertura, quando passa a ser separado.
+dados_claude() {
+  local n p
+  for n in projects file-history sessions todos plans paste-cache jobs logs agent-memory; do
+    [[ -e "$c/$n" || -L "$c/$n" ]] || mkdir -p "$c/$n" 2>/dev/null || true
+  done
+  for n in projects history.jsonl file-history sessions todos plans agent-memory; do
+    [[ ! -L "$c/$n" ]] || {
+      echo "jangada-isolar: $c/$n é link; as conversas do Claude não seriam separadas por sessão" >&2
+      exit 1
+    }
+  done
+  local novo=0
+  dados_transicao claude && novo=1
+  dados_abrir claude
+  # Transição: uma sessão registrada antes de 30/10/2026 tem a conversa na
+  # pasta real, em projects/<pasta da sessão com cada caractere fora de
+  # [A-Za-z0-9] trocado por "-">. Na primeira abertura com dados por sessão,
+  # só essa pasta é copiada, para o --resume achar a conversa. Nada mais do
+  # histórico de fora é copiado.
+  if ((novo)); then
+    n="${pasta//[^A-Za-z0-9]/-}"
+    if ((${#n} <= 200)) && [[ -d "$c/projects/$n" && ! -L "$c/projects/$n" ]]; then
+      mkdir -p "$dados_alvo/projects"
+      cp -RP -- "$c/projects/$n" "$dados_alvo/projects/$n" || {
+        echo "jangada-isolar: falha ao trazer a conversa anterior da sessão $dados_chave" >&2; exit 1;
+      }
+    fi
+  fi
+  [[ -e "$c/history.jsonl" || -L "$c/history.jsonl" ]] || (umask 077; : >>"$c/history.jsonl") 2>/dev/null || true
+  for p in "$c"/* "$c"/.[!.]* "$c"/..?*; do
+    [[ -e "$p" || -L "$p" ]] || continue
+    n="${p##*/}"
+    case "$n" in
+      settings.json | settings.local.json | CLAUDE.md | commands | agents | skills | hooks | plugins \
+      | output-styles | backups | .credentials.json | .device-keys.json | .claude.json \
+      | .claude.json.backup | shell-snapshots | session-env | ide) continue ;;
+    esac
+    if [[ -L "$p" ]]; then
+      echo "jangada-isolar: $p é link e fica compartilhado entre sessões" >&2
+      continue
+    fi
+    [[ ! -L "$dados_alvo/$n" ]] || { echo "jangada-isolar: link em $dados_alvo/$n" >&2; exit 1; }
+    if [[ -d "$p" ]]; then
+      mkdir -p "$dados_alvo/$n"
+      args+=(--bind "$dados_alvo/$n" "$p")
+    elif [[ "$n" == history.jsonl && -f "$p" ]]; then
+      [[ -e "$dados_alvo/$n" ]] || (umask 077; : >"$dados_alvo/$n")
+      args+=(--bind "$dados_alvo/$n" "$p")
+    fi
+  done
+}
+[[ "$perfil" != agente ]] || ((aninhado)) || ! concedido claude || dados_claude
 # Clones do AUR, caso JANGADA_ISOLAR_ESCRITA tenha liberado o ~/.cache.
 somente_leitura "$HOME/.cache/yay"
 somente_leitura "$HOME/.cache/paru"
@@ -722,7 +852,7 @@ IFS=: read -ra ocultos_extra <<<"${JANGADA_ISOLAR_OCULTAR_EXTRA:-}"
 ocultos+=("${ocultos_extra[@]}")
 # Some o login de cada provedor não concedido. Fora do perfil de agente
 # ninguém fala com provedor, e somem os três.
-concedido claude || ocultos+=("$HOME/.claude" "$HOME/.claude.json" "$HOME/.config/claude")
+concedido claude || ocultos+=("$HOME/.claude" "$claude_casa" "$HOME/.claude.json" "$HOME/.config/claude")
 concedido codex || ocultos+=("$codex_casa")
 concedido agy || ocultos+=("$HOME/.gemini")
 # O token do antigo painel fica oculto sempre, com ou sem a lista acima: sem
@@ -738,10 +868,21 @@ ocultos+=("$JANGADA_ESTADO/revisoes")
 # As árvores entregues pelo agente (foto da revisão e cópia em que a suíte da
 # integração roda) ficam em pastas próprias, fora de revisoes/: trazem os
 # links versionados da entrega, que a conferência de revisoes/ recusa.
-for p in fotos integracoes; do
+# Os dados por sessão dos provedores (Claude, agy e Codex) também: cada
+# sessão recebe só a própria pasta, montada no lugar que o cliente usa.
+for p in fotos integracoes provedores codex; do
   (umask 077; mkdir -p "$JANGADA_ESTADO/$p" 2>/dev/null) || true
   ocultos+=("$JANGADA_ESTADO/$p")
 done
+# Do ~/.gemini, com o agy concedido, só a configuração (config, settings,
+# conta de instalação) fica visível. Somem as conversas e o histórico do
+# gemini-cli e do IDE (antigravity, tmp, history, projects.json) e o login do
+# gemini-cli, que o agy não usa.
+if concedido agy; then
+  for p in antigravity tmp history projects.json oauth_creds.json google_accounts.json; do
+    ocultos+=("$HOME/.gemini/$p")
+  done
+fi
 for p in "${ocultos[@]}"; do
   [[ -n "$p" ]] || continue
   [[ "$p" == /* ]] || p="$HOME/$p"
@@ -958,6 +1099,52 @@ while IFS= read -r v; do
     CLAUDECODE | CLAUDE_CODE_*) credenciais+=(--unsetenv "$v") ;;
   esac
 done < <(compgen -e)
+# agy: a pasta do CLI inteira vem da pasta da sessão (conversas, cérebro,
+# conhecimento, bancos de resumo e histórico), e por cima voltam, da pasta da
+# conta, só o login e a configuração. O antigravity-oauth-token é regravado no
+# lugar, e um bind do arquivo mantém a renovação valendo fora. O settings.json
+# é regravado por rename: a sessão recebe uma cópia nova a cada abertura, e o
+# que o agente muda nela não chega à conta. Agentes, embutidos e atualizador
+# aparecem como estão, e o que o agente grava neles some no fim. O bin é o
+# mesmo de antes: o agy regrava o agentapi antes de cada comando, e sem a
+# camada em memória o agente deixaria ali um executável que roda fora.
+dados_agy() {
+  local origem="$1" destino="$2" f novo=0 id
+  dados_transicao "agy-$CONTA_AGY_NOME" && novo=1
+  dados_abrir "agy-$CONTA_AGY_NOME"
+  # Transição: a conversa anterior da sessão (o id gravado pelo hook) vem da
+  # pasta da conta na primeira abertura, para o --conversation achá-la.
+  id=""
+  ((!novo)) || id="$(jq -r '.conversa // "" | strings' "$JANGADA_ESTADO/agentes/$dados_chave.json" 2>/dev/null)" || id=""
+  if [[ "$id" =~ ^[A-Za-z0-9-]{1,80}$ ]]; then
+    for f in "conversations/$id.db" "conversations/$id.db-wal" "conversations/$id.db-shm" \
+             "brain/$id" "annotations/$id.pbtxt" "implicit/$id.pb"; do
+      [[ -e "$origem/$f" && ! -L "$origem/$f" && ! -L "${origem}/${f%/*}" ]] || continue
+      mkdir -p "$dados_alvo/${f%/*}"
+      cp -RP -- "$origem/$f" "$dados_alvo/$f" || {
+        echo "jangada-isolar: falha ao trazer a conversa anterior do agy da sessão $dados_chave" >&2; exit 1;
+      }
+    done
+  fi
+  for f in antigravity-oauth-token installation_id settings.json agents builtin updater bin; do
+    [[ ! -L "$origem/$f" ]] || { echo "jangada-isolar: $f da conta $CONTA_AGY_NOME é link ($origem/$f)" >&2; exit 1; }
+    [[ ! -L "$dados_alvo/$f" ]] || { echo "jangada-isolar: link em $dados_alvo/$f" >&2; exit 1; }
+  done
+  args+=(--bind "$dados_alvo" "$destino")
+  [[ ! -f "$origem/antigravity-oauth-token" ]] \
+    || args+=(--bind "$origem/antigravity-oauth-token" "$destino/antigravity-oauth-token")
+  [[ ! -f "$origem/installation_id" ]] \
+    || args+=(--ro-bind "$origem/installation_id" "$destino/installation_id")
+  if [[ -f "$origem/settings.json" ]]; then
+    rm -f -- "$dados_alvo/settings.json"
+    (umask 077; cp -- "$origem/settings.json" "$dados_alvo/settings.json")
+  fi
+  for f in agents builtin updater; do
+    [[ ! -d "$origem/$f" ]] || { mkdir -p "$dados_alvo/$f"; temporario "$origem/$f" ro "$destino/$f"; }
+  done
+  mkdir -p "$origem/bin" "$dados_alvo/bin" 2>/dev/null || true
+  temporario "$origem/bin" ro "$destino/bin"
+}
 if ((conta_configurada)); then
   if [[ "$perfil" == agente ]] && concedido agy && [[ ! -d "$CONTA_AGY_PASTA" ]]; then
     echo "jangada-isolar: pasta da conta $CONTA_AGY_NOME indisponível" >&2; exit 1
@@ -969,18 +1156,14 @@ if ((conta_configurada)); then
   args+=(--tmpfs "$cli_agy")
   args+=(--ro-bind "$JANGADA_ESTADO/contas/agy.json" "$JANGADA_ESTADO/contas/agy.json")
   if [[ "$perfil" == agente ]] && concedido agy; then
-    args+=(--bind "$CONTA_AGY_PASTA" "$cli_agy"
-           --setenv JANGADA_AGY_CONTA "$CONTA_AGY_NOME"
+    args+=(--setenv JANGADA_AGY_CONTA "$CONTA_AGY_NOME"
            --setenv JANGADA_AGY_CONTA_MONTADA "$CONTA_AGY_NOME"
            --setenv JANGADA_AGY_PASTA "$cli_agy"
            --setenv JANGADA_AGY_SETTINGS "$cli_agy/settings.json")
-    # O catálogo só aceita a principal ou pastas do estado do jangada, onde o
-    # mkdir é permitido. Sem bin montado em memória, o agente deixaria ali um
-    # executável que o agy roda depois, fora do isolamento.
-    [[ ! -L "$CONTA_AGY_PASTA/bin" ]] || { echo "jangada-isolar: bin da conta $CONTA_AGY_NOME é link" >&2; exit 1; }
-    mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true
-    temporario "$CONTA_AGY_PASTA/bin" ro "$cli_agy/bin"
+    dados_agy "$CONTA_AGY_PASTA" "$cli_agy"
   fi
+elif [[ "$perfil" == agente ]] && concedido agy && [[ -d "$CONTA_AGY_PASTA" ]]; then
+  dados_agy "$CONTA_AGY_PASTA" "$CONTA_AGY_PASTA"
 fi
 args+=(--unsetenv TMUX --unsetenv TMUX_PANE --unsetenv SSH_AUTH_SOCK
        --unsetenv HYPRLAND_INSTANCE_SIGNATURE --unsetenv HYPRLAND_CMD
@@ -991,6 +1174,7 @@ args+=(--unsetenv TMUX --unsetenv TMUX_PANE --unsetenv SSH_AUTH_SOCK
 
 if ((mostrar)); then
   printf '%s\n' bwrap "${args[@]}"
+  ((!${#dados_efemeros[@]})) || rm -rf -- "${dados_efemeros[@]}"
   exit 0
 fi
 
@@ -1005,6 +1189,11 @@ limpar_monitor() {
     atendente_pid=""
   fi
   [[ -z "$atendente_pasta" ]] || rm -rf "$atendente_pasta"
+  # Dados efêmeros dos provedores: só depois que o bwrap saiu.
+  if ((${#dados_efemeros[@]})) && { [[ -z "$bwrap_pid" ]] || ! kill -0 "$bwrap_pid" 2>/dev/null; }; then
+    rm -rf -- "${dados_efemeros[@]}"
+    dados_efemeros=()
+  fi
   if [[ -n "$monitor_estado_pid" ]]; then
     kill "$monitor_estado_pid" 2>/dev/null || true
     wait "$monitor_estado_pid" 2>/dev/null || true
