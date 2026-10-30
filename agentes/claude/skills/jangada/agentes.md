@@ -654,9 +654,10 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
   arquivo visível dentro da caixa; renovação do login fica fora do executor.
 - MOD-02, 23/10/2026: adaptador de coordenação agy com modelo explícito
   `gemini-4-argon-high`, função `coordenador` separada de `principal` e mesma
-  skill. O aceite real continua bloqueado: o dono informou Argon com cota 0%,
-  renovando em `2026-10-24T00:02:15Z`. Não executar sem cota nem usar créditos.
-  Ensaios com falsos não comprovam paridade ou coexistência na conta.
+  skill. Em 23/10 o aceite real ficou bloqueado por cota Argon 0%; em
+  30/10/2026 a homologação real comprovou abertura, turnos, delegação agy de
+  dentro do coordenador, interrupção, saída e retomada. Não executar sem cota
+  nem usar créditos. A paridade de permissões continua sem prova.
 - A documentação local do cliente lista SessionStart, PreInvocation e Stop,
   mas não PermissionRequest. PreToolUse não comprova que apareceu uma pergunta;
   usá-lo para marcar toda ferramenta como espera inventaria estado. A observação
@@ -664,12 +665,12 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
 - Não segure `.agy-execucao.lock` durante a vida do coordenador ou enquanto
   espera filho: o delegador precisa dessa trava. O adaptador não a toma; os
   falsos conferem ausência de impasse, sem comprovar suporte remoto concorrente.
-  Antes do aceite, provar pai ocioso/delegando, dois filhos, interrupção,
-  saída abrupta e retomada em projeto sintético e estado separado.
+  Pai delegando, interrupção e retomada foram provados em 30/10/2026; faltam
+  dois filhos simultâneos e saída abrupta com filho em curso, sempre em
+  projeto sintético e estado separado.
 - O `/usage` distingue `gemini-argon-*` da cota Flash. O coordenador confere
-  somente Argon; o delegador antigo ainda mistura todo prefixo `gemini-`.
-  O apoio arquiteto previsto nesta tarefa ficou bloqueado por essa mistura;
-  não houve participação. Corrigir o delegador é escopo da MOD-03.
+  somente Argon; desde a MOD-03 o delegador também separa os grupos (antes
+  misturava todo prefixo `gemini-` e recusava Flash pela cota Argon).
 - Hooks agy roteiam atuação por `JANGADA_COORDENADOR` e `JANGADA_ATUACAO_ID`,
   sem criar registro nem reutilizar conversa global. Chamadas auxiliares usam
   `JANGADA_HOOK_DESLIGADO=1`; papel de apoio não atualiza coordenador. Stop só

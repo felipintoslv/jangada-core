@@ -83,14 +83,16 @@ global nem retirar confirmações do cliente. Instalação e troca da sessão at
 continuam ações do dono. A atualização do produto só prepara a ligação da skill
 e os hooks; não altera a instalação durante os testes.
 
-**Aceite real pendente da MOD-02:** os ensaios usam clientes falsos, tmux privado
+**Aceite real da MOD-02, situação em 23/10/2026:** os ensaios usam clientes falsos, tmux privado
 e estado separado. Em 23/10/2026 a consulta delimitada de `/usage` confirmou
 cota Argon de 0%, com renovação em `2026-10-24T00:02:15Z`. Nenhuma execução real Argon foi feita nessa condição.
 O bloqueio Flash por agrupamento de cota foi corrigido na MOD-03.
 O apoio arquiteto foi feito na retomada da MOD-02 após a renovação:
 uma chamada, sem mudança de produto.
 
-A paridade de permissões e coexistência ainda não está demonstrada. A documentação
+Em 30/10/2026 o coordenador Argon foi testado com o cliente real (ver a
+homologação abaixo), e a convivência com uma delegação agy foi comprovada.
+A paridade de permissões ainda não está demonstrada. A documentação
 do cliente não oferece `PermissionRequest`: o adaptador não inventa `aguardando`
 a partir de `PreToolUse`. A pergunta continua no terminal, sem observação fiel
 pelo Core. Isso bloqueia o aceite de paridade até uma solução verificável.
@@ -108,7 +110,7 @@ cliente não entregou `SessionStart` ao hook, e o registro só muda no primeiro
 turno. O cliente também não herda a confiança de pasta para subpastas.
 
 Homologação real de 30/10/2026 (Claude Code 2.1.314 e Codex 0.165.0, projeto
-sintético e estado separado), sobre o ramo com a correção da origem:
+sintético e estado separado), com a correção da origem que entrou em `2372bd1`:
 
 - Claude: abertura, trabalho, pedido de permissão (`aguardando`), conclusão,
   saída, retomada com a mesma `atuacao_id` e recusa de outro provedor com a
@@ -124,8 +126,8 @@ sintético e estado separado), sobre o ramo com a correção da origem:
 
 Na mesma data, com o agy 1.4.11 e o coordenador `gemini-4-argon-high`:
 
-- Abertura, trabalho e conclusão funcionaram depois de duas correções no
-  ramo: o catálogo do `agy models` traz id, tabulação e nome legível, e o
+- Abertura, trabalho e conclusão funcionaram depois de duas correções,
+  incluídas em `2372bd1`: o catálogo do `agy models` traz id, tabulação e nome legível, e o
   agy exporta `ANTIGRAVITY_APP_DATA_DIR` com a pasta padrão nos comandos que
   roda, o que fazia o `jangada-isolar` recusar toda delegação.
 - Uma delegação agy (`leitor`, Flash) feita de dentro do coordenador terminou
@@ -139,11 +141,12 @@ Na mesma data, com o agy 1.4.11 e o coordenador `gemini-4-argon-high`:
 
 A abertura não toma `.agy-execucao.lock`; tampouco os hooks a retêm até Stop.
 Os filhos continuam disputando a trava do delegador. Isso evita o impasse
-pai esperando filho, mas não comprova coexistência na mesma conta. A prova real
-exige projeto sintético, estado separado, cota disponível e teto previamente aprovado:
-Argon ocioso com Flash, Argon delegando, dois Flash concorrentes, interrupção
-com filho, saída abrupta, liberação e retomada. Cota baixa, resultado parcial
-e consumo desconhecido devem permanecer visíveis. Não interrompa sessões existentes.
+pai esperando filho. A homologação de 30/10/2026 comprovou Argon delegando,
+interrupção, liberação e retomada. Faltam dois Flash concorrentes, interrupção
+com filho em curso e saída abrupta; a prova exige projeto sintético, estado
+separado, cota disponível e teto previamente aprovado. Cota baixa, resultado
+parcial e consumo desconhecido devem permanecer visíveis. Não interrompa
+sessões existentes.
 
 Se a sessão tmux estiver viva com registro regular válido do mesmo projeto
 e provedor, o comando informa e foca a sessão atual. Outro provedor recebe

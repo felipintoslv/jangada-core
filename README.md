@@ -12,7 +12,7 @@ locais ficam no comando `jangada-indicadores`.
 
 Última versão: v1.0.0, de 18/10/2026, com tag publicada. O `main` seguiu com
 correções sem tag nova; `jangada-versao` mostra a distância (por exemplo,
-`1.0.0-87-gc874caa`). A [página da versão](docs/versao-1.0.0.md) separa o
+`1.0.0-92-g2372bd1`). A [página da versão](docs/versao-1.0.0.md) separa o
 estado atual, os limites conhecidos e o histórico do lançamento.
 
 ## Dependências

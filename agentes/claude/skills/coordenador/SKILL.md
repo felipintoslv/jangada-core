@@ -90,7 +90,7 @@ Passe comandos ao dono um por bloco e diga o que esperar antes do seguinte.
 ## Estado entre conversas
 
 Um coordenador por projeto; modelo forte: Claude `opus`, Codex `gpt-6-astra`, agy `gemini-4-argon-high`. Agy coordenador não libera autoria.
-Argon exige cota e aceite real de permissões/coexistência. Sem aceite, relate bloqueio; não segure trava agy enquanto espera filho.
+Argon exige cota Argon de pelo menos 20%. Testado com o cliente real em 30/10/2026, inclusive delegando a agy; o pedido de permissão não aparece como `aguardando`. Não segure trava agy enquanto espera filho.
 Atuação aberta persiste após resposta, interrupção, saída e reinício; não importe históricos globais.
 Retome pelo comando de abertura ou Retomar da Central: mesma identidade, mesmo ciclo aberto. Agy na Central depende da MOD-05.
 Exclua `.jangada/` em `.git/info/exclude`, sem editar `.gitignore`.

@@ -12,11 +12,11 @@ Conferido em 30/10/2026 por comandos `git` e `jangada-versao`:
   o commit `c1c417b` (18/10/2026), que tem assinatura válida. O
   `git ls-remote origin` mostra a tag e o commit dela no repositório
   publicado.
-- O `main` publicado e a cópia instalada estão em `c874caa`, 87 commits
-  depois da `v1.0.0`; ali o `jangada-versao` informa `1.0.0-87-gc874caa`.
-  As correções do ramo `fix/hooks-origem-20261030` vêm depois e ainda não
-  foram assinadas, publicadas nem instaladas. Não há tag posterior; essas
-  mudanças entram na próxima versão.
+- O `main` publicado e a cópia instalada estão em `2372bd1`, assinado, 92
+  commits depois da `v1.0.0` (`jangada-versao` informa `1.0.0-92-g2372bd1`).
+  Esse commit traz a correção da origem dos hooks e os dois ajustes do agy
+  achados na homologação real de 30/10/2026. Depois dele vêm só commits de
+  documentação. Não há tag posterior; essas mudanças entram na próxima versão.
 - As tags `v0.1.0` e `v0.2.0` só existem na cópia local.
 
 Este arquivo descreve a entrega de 18/10/2026. As seções abaixo de
@@ -36,17 +36,20 @@ data e não são atualizadas.
   pedido, o cliente não entregou `SessionStart` ao hook; o registro só muda
   no primeiro turno. Esc e `/exit` não chegam ao hook, e o registro fica em
   `trabalhando`. Roda uma execução agy por vez (trava de
-  execução). Na homologação real de 30/10/2026, no ramo
-  `fix/hooks-origem-20261030`, o coordenador `gemini-4-argon-high` abriu,
-  trabalhou e concluiu turnos, e uma delegação agy feita de dentro dele
-  terminou com código 0, sem mudar a identidade do registro do pai. Até
-  `c874caa` isso falhava por dois defeitos (formato do catálogo e variável
-  de pasta do agy), corrigidos no mesmo ramo. Dois filhos agy simultâneos e a
-  saída abrupta com filho em curso não foram testados com o cliente real.
+  execução). Na homologação real de 30/10/2026, o coordenador
+  `gemini-4-argon-high` abriu, trabalhou e concluiu turnos, e uma delegação
+  agy feita de dentro dele terminou com código 0, sem mudar a identidade do
+  registro do pai. Até `c874caa` isso falhava por dois defeitos (formato do
+  catálogo e variável de pasta do agy), corrigidos em `2372bd1`. Dois filhos
+  agy simultâneos e a saída abrupta com filho em curso não foram testados com
+  o cliente real.
+- Estado `trabalhando` sem turno: Claude interrompido com Esc, Codex com turno
+  encerrado por erro do provedor e agy com Esc, `/exit` ou pergunta de
+  permissão não chamam hook. O registro fica em `trabalhando` até o próximo
+  evento; confira a tela do tmux.
 - Origem dos hooks: até `c874caa`, os hooks Claude e Codex herdavam a origem
   da sessão e podiam alterar o registro de um coordenador de outro provedor.
-  A correção está no ramo `fix/hooks-origem-20261030`, ainda não assinada nem
-  instalada.
+  Corrigido em `2372bd1`, com regressão em `testes/coordenador.sh`.
 
 ## Histórico da entrega
 
