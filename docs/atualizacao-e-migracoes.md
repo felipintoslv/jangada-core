@@ -204,3 +204,23 @@ de reescrever a história dela (por exemplo, `reset` para trás seguido de
 `gc`) pode apagar um objeto que o clone ainda usa. Não há outra alternativa
 silenciosa: sem `jangada.raiz` no config, uma pasta com `.git` próprio não é
 aceita como sessão pelo `jangada-agente-fim`.
+
+### Dados por sessão dos provedores de 30/10/2026
+
+Conversas, histórico, memória e dados de execução do Claude e do agy
+passaram a ficar numa pasta de cada sessão, em `$JANGADA_ESTADO/provedores`
+(detalhes em [isolamento](isolamento.md), seção "Dados por sessão dos
+provedores"). Uma sessão não lê nem altera a conversa de outra, e reabrir a
+mesma sessão retoma a dela.
+
+A transição é explícita e restrita: uma sessão registrada antes da
+atualização recebe, na primeira abertura, a cópia só da própria conversa
+(do Claude, a pasta de `projects` da pasta da sessão; do agy, os arquivos do
+id em `.conversa`). O histórico global não é copiado, e as conversas antigas
+ficam onde estão, fora do alcance dos agentes. O `settings.json` do agy
+entra por cópia a cada abertura: o que o agy muda nele dentro da sessão não
+volta à conta.
+
+A migração `202610301400-avisar-dados-provedores.sh` não grava nada. Ela
+avisa da troca e de uma variável de caminho do agy definida, que passa a
+fazer o isolamento recusar o agy.

@@ -50,9 +50,10 @@ do mesmo jeito.
 |---|---|---|
 | `~/.claude/settings.json`, `~/.claude/skills`, `~/.claude/agents` | `install/50-agentes.sh` | hooks das sessões e links para as skills e os subagentes de `agentes/claude` |
 | `~/.claude` (`settings.local.json`, `CLAUDE.md`, `commands`, `hooks`, `plugins`, `output-styles`, `shell-snapshots`, `session-env`, `ide`) | `jangada-isolar` | criados vazios quando faltam, para o bind do isolamento |
+| `~/.claude` (`projects`, `file-history`, `sessions`, `todos`, `plans`, `paste-cache`, `jobs`, `logs`, `agent-memory`, `history.jsonl`), ou a pasta de `CLAUDE_CONFIG_DIR` | `jangada-isolar` | criados vazios quando faltam, para receber por cima os dados da sessão |
 | `~/.gemini/config` (`hooks.json`, `agents.json`, `skills`) | `install/50-agentes.sh` | hooks, subagentes e skills do agy |
 | `~/.codex/skills` (ou `skills` na pasta de `CODEX_HOME`) | `install/50-agentes.sh` | link para a skill `coordenador` |
-| `~/.gemini/antigravity-cli` (`settings.json`, `bin`) | `jangada-worktree-preparar`, `jangada-agente-fim`, `jangada-isolar` | confiança do agy no worktree e pasta bin para montar isolada; o original fica em `settings.json.jangada-orig` |
+| `~/.gemini/antigravity-cli` (`settings.json`, `bin`) | `jangada-worktree-preparar`, `jangada-agente-fim`, `jangada-isolar` | confiança do agy no worktree e pasta bin para montar isolada; o original fica em `settings.json.jangada-orig`; dentro do isolamento a pasta inteira vem dos dados da sessão |
 | `~/.local/bin` | `install/20-comandos.sh` | invólucros `jangada*` que chamam os comandos de `bin/`; arquivo alheio com o mesmo nome não é sobrescrito |
 | `~/.local/share/jangada-worktrees` | `jangada-agente` | worktrees das sessões de agente |
 | Repositórios em `JANGADA_PROJETOS` | `jangada-agente`, `jangada-agente-fim` | ramos `agente/*`, registro dos worktrees e a integração que o usuário confirma |

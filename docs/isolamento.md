@@ -49,9 +49,11 @@ o agente só conheça os dados do projeto:
 
 ## Limites conhecidos
 
-As conversas e a memória em `~/.claude/projects` continuam graváveis pelo
-agente, assim como o `settings.json` do agy em `~/.gemini/antigravity-cli`.
-Esse arquivo guarda permissões e pastas confiáveis.
+Desde 30/10/2026 conversas, memória e dados de execução do Claude e do agy
+ficam numa pasta própria de cada sessão (seção "Dados por sessão dos
+provedores"). O que continua compartilhado está listado lá: o login da
+conta concedida, os metadados de projetos do `~/.claude.json` (somente
+leitura) e os arquivos soltos da raiz do `~/.claude`.
 
 Um repositório aninhado criado no worktree e registrado no índice leva
 sua própria configuração. Um `git status` executado fora do isolamento
@@ -103,7 +105,7 @@ flowchart TD
     C -- não --> F[recusa, código 1]
     C -- sim --> D[base: / somente leitura,<br>/tmp e PID próprios]
     D --> E[sockets de /run ocultos,<br>XDG_RUNTIME_DIR vazio,<br>D-Bus pelo proxy filtrado]
-    E --> G[graváveis: pasta, ~/.claude,<br>agy, estado dos agentes,<br>JANGADA_ISOLAR_ESCRITA]
+    E --> G[graváveis: pasta, ~/.claude,<br>estado dos agentes,<br>JANGADA_ISOLAR_ESCRITA;<br>dados do Claude e do agy por sessão]
     G --> H[somente leitura por cima:<br>config do Claude, bin do agy,<br>config e hooks do git]
     H --> I[ocultos: .ssh, .gnupg,<br>chaves de nuvem, navegador,<br>keyring, cliphist]
     I --> J[remove TMUX, SSH_AUTH_SOCK,<br>HYPRLAND_*, WAYLAND_DISPLAY;<br>define JANGADA_ISOLADO=1]
@@ -119,8 +121,8 @@ ficar somente leitura dentro deles vem depois.
 | Base | `/` somente leitura, `/dev`, `/proc`, `/tmp` próprio, `--unshare-pid`, `--die-with-parent` | um `rm` no `/tmp` não apaga os temporários do sistema; o agente não vê nem mata os processos da sessão, e o que ele deixou rodando morre com ele |
 | `/run` | Docker, containerd, podman, tailscale, sshd local e D-Bus do sistema ocultos | esses sockets dão root ou mudam a máquina |
 | `XDG_RUNTIME_DIR` | pasta vazia; o D-Bus da sessão volta pelo `xdg-dbus-proxy`, que só deixa falar com `org.freedesktop.Notifications` e, com o agy instalado, `org.freedesktop.secrets` | some o socket do Hyprland (`hyprctl dispatch` rodaria comando fora), do Wayland, do gpg-agent e do systemd do usuário; o agy lê o login do keyring e os hooks avisam pelo `notify-send` |
-| Graváveis | pasta da tarefa, `~/.claude`, `~/.gemini/antigravity-cli`, `agentes/`, `validar.jsonl`, `eventos-agentes.jsonl` e `delegacoes.jsonl` do estado, e o que estiver em `JANGADA_ISOLAR_ESCRITA` | o resto do estado (barra, marcas das migrações) alimenta código que roda fora |
-| Camada temporária | `~/.cache`; do Claude, `shell-snapshots`, `session-env` e `ide`; do agy, `bin` | o agente lê o conteúdo de fora, e o que grava some no fim (sobreposição do bwrap; sem suporte, o agente recebe uma pasta vazia em memória, e o `bin` do agy, somente leitura). O agy regrava o `agentapi` antes de cada comando, e o que ele regrava dentro não roda fora |
+| Graváveis | pasta da tarefa, `~/.claude` (ou `CLAUDE_CONFIG_DIR`), `agentes/`, `validar.jsonl`, `eventos-agentes.jsonl` e `delegacoes.jsonl` do estado, e o que estiver em `JANGADA_ISOLAR_ESCRITA`; por cima, as pastas de dados do Claude e a pasta do agy vêm de `provedores/` do estado, uma por sessão | o resto do estado (barra, marcas das migrações) alimenta código que roda fora; uma sessão não lê a conversa de outra |
+| Camada temporária | `~/.cache`; do Claude, `shell-snapshots`, `session-env` e `ide`; do agy, `bin`, `agents`, `builtin` e `updater` | o agente lê o conteúdo de fora, e o que grava some no fim (sobreposição do bwrap; sem suporte, o agente recebe uma pasta vazia em memória, e o `bin` do agy, somente leitura). O agy regrava o `agentapi` antes de cada comando, e o que ele regrava dentro não roda fora |
 | Somente leitura | do Claude: `settings*.json`, `CLAUDE.md`, `commands`, `agents`, `skills`, `hooks`, `plugins`, scripts soltos; clones do AUR | tudo isso define comando ou instrução que valeria numa sessão aberta fora |
 | Git | a sessão é um clone próprio, com refs, índice e objetos novos dentro da pasta dela; os objetos da raiz entram pelo `objects/info/alternates`, somente leitura, e a raiz e as outras sessões não aparecem (na casa inteira, aparecem somente leitura); no clone e direto no repositório, `config`, `hooks`, `commondir`, `config.worktree`, `worktrees`, `modules` e o `alternates` ficam somente leitura; numa sessão antiga em worktree, o `.git` comum inteiro somente leitura, liberados `objects`, o gitdir do worktree e, das refs e dos `logs`, só a pasta do ramo da sessão (`refs/heads/agente`) e a das cópias do `reverter` (`refs/heads/backup`) | um agente não move o ramo de outro nem grava objeto na raiz ou noutra sessão; `core.fsmonitor`, hooks, `commondir` e um `alternates` trocado rodariam fora ou trariam objetos de fora no próximo `git status` |
 | Ocultos | `.ssh`, `.gnupg`, `.password-store`, `.aws`, `.azure`, `.kube`, `.docker`, `.netrc`, `.git-credentials`, `gh`, `rclone`, `gcloud`, `op`, `sops`, Bitwarden, `.vault-token`, `.pgpass`, `.my.cnf`, `.pypirc`, perfis de navegador e do Thunderbird, keyrings, kwallet e o banco do `cliphist`; `JANGADA_ISOLAR_OCULTAR` troca a lista. A pasta `painel-chave` do estado, com o token do `jangada-painel`, a `revisoes`, com as revisões feitas fora do isolamento, e as `fotos` e `integracoes`, com as árvores da entrega que o `jangada-validar` e o `--integrar` extraem fora dele, ficam ocultas sempre; das fotos, só a escolhida em `JANGADA_ISOLAR_FOTO` volta ao revisor, somente leitura | segredos e o histórico da área de transferência; o painel responde a quem alcança a porta, e o agente isolado alcança; a aprovação que o `--integrar` aceita não pode ser escrita pelo agente revisado; as árvores da entrega trazem os links versionados dela e por isso ficam fora de `revisoes`, onde o `jangada-isolar` recusa link |
@@ -249,6 +251,78 @@ isolamento que guarda as chaves e assina as chamadas) fecharia isso, mas
 depende de cada cliente aceitar um endereço de API próprio e fica fora do
 que o jangada faz hoje. Reduz o dano: usar login de assinatura em vez de
 chave de API com cobrança por uso.
+
+## Dados por sessão dos provedores
+
+Desde 30/10/2026 cada sessão de agente tem conversas, histórico, memória e
+dados de execução próprios. A pasta fica em
+`$JANGADA_ESTADO/provedores/<provedor>/<sessão>`, com permissão 0700, e
+`<provedor>` é `claude` ou `agy-<conta>` (`agy-principal` sem catálogo). A
+chave é o `JANGADA_SESSAO`; sem ele, a execução é efêmera
+(`efemera-<pid>`) e a pasta é apagada na saída. Se o processo morrer por
+SIGKILL, a pasta efêmera fica e é apagada na próxima abertura de agente,
+não antes. O `jangada-delegar` chama o agy sem sessão e lê o log e a
+conversa depois que ele sai; por isso passa `JANGADA_ISOLAR_DADOS` com uma
+chave `delegacao-*` própria de cada chamada, e apaga a pasta no fim. O
+`jangada-isolar` só aceita essa variável sem `JANGADA_SESSAO` e com esse
+prefixo, e uma sessão com nome `delegacao-*` ou `efemera-*` vira efêmera,
+para não cair na pasta de outra. Depois de SIGKILL no `jangada-delegar`, a
+pasta da chamada fica até ser apagada à mão. A pasta `provedores/` inteira fica oculta dentro de qualquer
+isolamento, assim como `codex/`, com as pastas do Codex por sessão.
+
+**Claude.** A pasta do Claude (`~/.claude` ou `CLAUDE_CONFIG_DIR`) continua
+gravável, porque o login (`.credentials.json`) é regravado por troca de
+arquivo na própria pasta. Por cima, cada pasta de primeiro nível que não é
+configuração, login ou temporária (`projects`, `file-history`, `sessions`,
+`todos`, `plans`, `paste-cache`, `jobs`, `logs`, `agent-memory` e qualquer
+outra que já exista) e o `history.jsonl` vêm da pasta da sessão. Se uma
+delas for link, o isolamento recusa abrir.
+
+**agy.** A pasta do CLI (`~/.gemini/antigravity-cli` ou a da conta) vem
+inteira da pasta da sessão. Voltam por cima: o token da conta, gravável
+para a renovação; o `installation_id`, somente leitura; uma cópia nova do
+`settings.json` a cada abertura; `agents`, `builtin`, `updater` e `bin` em
+camada temporária. Uma mudança do agy no `settings.json` (por exemplo,
+confiar numa pasta) vale só dentro da sessão. Os itens soltos do
+`~/.gemini` que guardam conversa ou login de outro cliente (`antigravity`,
+`tmp`, `history`, `projects.json`, `oauth_creds.json`,
+`google_accounts.json`) ficam ocultos.
+
+**Codex.** Já tinha pasta por sessão em `$JANGADA_ESTADO/codex`, com o
+`auth.json` somente leitura. A pasta da sessão é montada no lugar do
+`CODEX_HOME` (ou `~/.codex`), sem mudar a variável.
+
+**Caminhos alternativos.** `CLAUDE_CONFIG_DIR` é respeitado e precisa ser
+absoluto; relativo, com o Claude concedido, o isolamento recusa. As
+variáveis de caminho do agy (`ANTIGRAVITY_GEMINI_DIR`,
+`ANTIGRAVITY_APP_DATA_DIR`, `ANTIGRAVITY_CONFIG_REL_DIR`,
+`ANTIGRAVITY_EXECUTABLE_DATA_DIR`, `GEMINI_DIR`) são recusadas com o agy
+concedido, porque a separação por sessão só foi conferida na pasta padrão.
+
+**Restauração.** Abrir de novo a mesma sessão monta a mesma pasta, e o
+cliente retoma a própria conversa. Sessões registradas antes de 30/10/2026
+recebem, na primeira abertura, uma cópia da própria conversa: do Claude, a
+pasta de `projects` com o nome codificado da pasta da sessão; do agy, os
+arquivos do id gravado em `.conversa` no registro. O histórico global não é
+copiado, e as conversas antigas ficam onde estão.
+
+**O que continua compartilhado dentro da conta concedida:**
+
+- login do Claude (`.credentials.json`, `.device-keys.json`) e o token do agy
+  da conta; quem recebe o provedor recebe esse login, como antes;
+- o `auth.json` do Codex, somente leitura;
+- `~/.claude.json`, somente leitura, com metadados de todos os projetos
+  (última sessão, primeiro pedido, ferramentas liberadas, servidores MCP);
+- arquivos soltos da raiz do `~/.claude` (`stats-cache.json`, `daemon.*`,
+  `.last-*`);
+- uma pasta de primeiro nível criada pelo Claude durante a sessão fica
+  compartilhada até a próxima abertura, quando passa a vir da sessão.
+
+Caminho de projeto com mais de 200 caracteres não tem transição: o Claude
+encurta o nome com um hash que o jangada não reproduz. A conversa antiga
+fica onde está. A homologação com os clientes reais fica para depois; o
+`testes/dados-provedores.sh` usa um cliente fictício que grava e lê nos
+mesmos caminhos.
 
 ## Refs do git
 
@@ -497,6 +571,7 @@ e o processo de `inotifywait` são encerrados junto com o isolamento.
 | `testes/isolar.sh` | argumentos do bwrap (gravável, somente leitura, oculto, `/tmp`, marca), repositório direto, `JANGADA_AGENTE_ISOLAR=0`, variável sem marca não dispensa, recusa sem bwrap e um isolamento de verdade: gravação, commit, chave oculta, D-Bus restrito e PID próprio |
 | `testes/restaurar.sh` | comando gravado e `.isolar: false` ignorados, `JANGADA_AGENTE_ISOLAR=0` abre fora, campos inválidos recusados, perfil não desliga o isolamento, protocolo refeito sem seguir link, delegação passada ao isolamento |
 | `testes/isolar-provedores.py` | isolamento real com credenciais fictícias: cada provedor lê só o próprio login, comando comum não recebe nenhum, delegação concede só o destino, conta do agy só a escolhida, transição com aviso, execuções simultâneas separadas, sessão aninhada recusa provedor não concedido, modos inválidos recusados |
+| `testes/dados-provedores.sh` | isolamento real com cliente fictício: duas sessões simultâneas não veem conversa, histórico nem memória uma da outra, a restauração retoma a própria conversa, execução efêmera apagada, `CLAUDE_CONFIG_DIR` e `CODEX_HOME` alternativos, recusas (variável de caminho do agy, caminho relativo, pasta trocada por link), conta do catálogo, renovação do login chega a fora, transição copia só a conversa da própria sessão e só na primeira abertura |
 
 Dentro de uma sessão do agente, o `testes/isolar.sh` passa, mas pula o caso
 do D-Bus (o endereço do barramento não entra no teste) e a leitura da casa

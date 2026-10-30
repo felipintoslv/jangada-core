@@ -318,7 +318,7 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
 `JANGADA_ISOLADO=1` no ambiente. De dentro:
 
 - Grava só na pasta da tarefa (worktree, ou o repositório com `--direto`), em
-  `~/.claude`, `~/.gemini/antigravity-cli`, `~/.local/state/jangada/agentes`,
+  `~/.claude`, na pasta do agy (cópia da sessão), em `~/.local/state/jangada/agentes`,
   no `validar.jsonl`, no `eventos-agentes.jsonl`, no `delegacoes.jsonl` e no
   que estiver em `JANGADA_ISOLAR_ESCRITA`. O resto é somente leitura,
   inclusive `~/.claude.json`, `~/.local/share/claude`, `~/.gemini/config` e o
@@ -400,6 +400,17 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
   (um `bash`, um script) e precisa de login passa `--provedor NOME`; sem
   isso, o comando não recebe login nenhum. O `jangada-delegar` usa
   `--provedor agy`.
+- Conversas, histórico e memória do Claude e do agy são por sessão, em
+  `$JANGADA_ESTADO/provedores/<provedor>/<sessão>`, oculta de dentro. Não
+  procure a conversa de outra tarefa em `~/.claude/projects`: ela não está
+  lá. Sem `JANGADA_SESSAO`, a execução é efêmera e os dados somem na saída;
+  o `jangada-delegar` usa `JANGADA_ISOLAR_DADOS=delegacao-*` para ler o log e
+  a conversa do agy depois da chamada (agy falso de teste precisa criar a
+  pasta `log`, que começa vazia).
+  `CLAUDE_CONFIG_DIR` precisa ser absoluto; variável de caminho do agy
+  (`ANTIGRAVITY_*_DIR`, `GEMINI_DIR`) faz o isolamento recusar o agy. O login
+  do Claude é regravado por rename, por isso a pasta do Claude continua
+  gravável e só as pastas de dados vêm da sessão.
 - Nos testes, rode o `jangada-isolar` real com a entrada em `/dev/null`
   (`</dev/null`): stdin em cano ou soquete é recusado pela fronteira de
   confiança. Isolador falso de teste precisa aceitar `--conta`, `--delegar`
@@ -411,8 +422,8 @@ O isolamento fecha os caminhos conhecidos para rodar código fora do bwrap
 (estado executado na restauração, configuração do git, hooks do Claude,
 sockets do Hyprland e do sistema), mas não é uma barreira completa: o
 login dos provedores concedidos é legível e pode sair pela rede, o disco fora
-da pasta pessoal segue legível, `~/.claude/projects` e o
-`settings.json` do agy seguem graváveis, e repositórios aninhados no índice
+da pasta pessoal segue legível, os metadados de projetos do `~/.claude.json`
+seguem legíveis, e repositórios aninhados no índice
 só ficam protegidos quando o git de fora passa por `jangada_git_seguro`.
 `JANGADA_AGENTE_ISOLAR=0` e `--sem-isolar` não desligam mais: geram aviso e
 a sessão abre isolada. `JANGADA_ISOLAR_OCULTAR` substitui a lista de ocultos, e
@@ -732,8 +743,10 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
   gravável pelo agente) e relê o `settings.json` depois de gravar. A raiz
   nunca é gravada pelo jangada: fechar o agy sem responder não vale como
   autorização.
-  A pasta `~/.gemini/antigravity-cli` é gravável pelo agente isolado, e o
-  fim da sessão regrava o `settings.json` de fora do isolamento: se o arquivo
+  Dentro do isolamento o `settings.json` do agy é uma cópia nova a cada
+  abertura: a resposta à pergunta de confiança dada dentro vale só naquela
+  sessão, e a confiança que conta é a gravada fora. O fim da sessão regrava o
+  `settings.json` de fora do isolamento: se o arquivo
   virou link simbólico, o jangada não mexe nele, e a troca é por rename
   (`jangada_gravar_atomico`), que não segue link.
 - Para testar hooks sem tocar no estado real, mude `XDG_STATE_HOME`; o
