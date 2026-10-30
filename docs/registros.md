@@ -591,7 +591,9 @@ subagente tem `.db` próprio.
   SessionStart indica início; PreInvocation indica trabalho; Stop só muda o registro
   com `fullyIdle=true` booleano. Campo ausente, inválido ou falso não comprova
   ociosidade. `terminationReason=USER_CANCELED` informa turno interrompido
-  sem fechar a atuação. O agy não fornece a última resposta nesse evento. Stop,
+  sem fechar a atuação. O agy não fornece a última resposta nesse evento.
+  Na homologação real de 30/10/2026 (agy 1.4.11), Esc interrompeu o turno sem
+  entregar Stop ao hook: o registro ficou em `trabalhando`. Stop,
   Interrupt, SessionEnd e saída do processo não encerram o ciclo.
   Registro legado ainda sem identidade aceita hooks sem identidade;
   após a migração, hooks antigos são ignorados. Na mesma pasta, `codex-hooks-confianca.json`

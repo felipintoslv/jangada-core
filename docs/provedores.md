@@ -44,7 +44,7 @@ provedor fora das listas.
 | Provedor | Tipo | Funções | Observação |
 |---|---|---|---|
 | `claude` | `cli` | principal, revisor | Protocolo por `--append-system-prompt`; revisa com `sonnet`; primeira reserva |
-| `agy` | `cli` | coordenador, revisor, delegacao | Adaptador Argon com aceite real pendente; delegação padrão; segunda reserva da revisão |
+| `agy` | `cli` | coordenador, revisor, delegacao | Adaptador Argon testado com o cliente real em 30/10/2026, sem observação de pedido de permissão; delegação padrão; segunda reserva da revisão |
 | `codex` | `cli` | principal, revisor | Protocolo pelo `jangada-codex`; terceira reserva |
 | `ollama` | `ollama` | delegacao | Delegação somente por escolha explícita |
 

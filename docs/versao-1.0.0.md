@@ -12,10 +12,11 @@ Conferido em 30/10/2026 por comandos `git` e `jangada-versao`:
   o commit `c1c417b` (18/10/2026), que tem assinatura válida. O
   `git ls-remote origin` mostra a tag e o commit dela no repositório
   publicado.
-- O `main` local, o `main` publicado e a cópia instalada estão em `c874caa`,
-  87 commits depois da `v1.0.0`. O `jangada-versao` informa
-  `1.0.0-87-gc874caa`. Não há tag posterior; essas mudanças entram na
-  próxima versão.
+- O `main` publicado e a cópia instalada estão em `c874caa`, 87 commits
+  depois da `v1.0.0`; ali o `jangada-versao` informa `1.0.0-87-gc874caa`.
+  As correções do ramo `fix/hooks-origem-20261030` vêm depois e ainda não
+  foram assinadas, publicadas nem instaladas. Não há tag posterior; essas
+  mudanças entram na próxima versão.
 - As tags `v0.1.0` e `v0.2.0` só existem na cópia local.
 
 Este arquivo descreve a entrega de 18/10/2026. As seções abaixo de
@@ -33,10 +34,15 @@ data e não são atualizadas.
 - Adaptador agy (versão 1.4.11 conferida): não há evento de pedido de
   permissão, então o coordenador agy nunca fica em `aguardando`. Aberto sem
   pedido, o cliente não entregou `SessionStart` ao hook; o registro só muda
-  no primeiro turno. Roda uma execução agy por vez (trava de execução). O
-  uso do modelo `gemini-4-argon-high` como coordenador não teve aceite real,
-  e a convivência de coordenador agy com delegação agy no mesmo momento não
-  foi comprovada.
+  no primeiro turno. Esc e `/exit` não chegam ao hook, e o registro fica em
+  `trabalhando`. Roda uma execução agy por vez (trava de
+  execução). Na homologação real de 30/10/2026, no ramo
+  `fix/hooks-origem-20261030`, o coordenador `gemini-4-argon-high` abriu,
+  trabalhou e concluiu turnos, e uma delegação agy feita de dentro dele
+  terminou com código 0, sem mudar a identidade do registro do pai. Até
+  `c874caa` isso falhava por dois defeitos (formato do catálogo e variável
+  de pasta do agy), corrigidos no mesmo ramo. Dois filhos agy simultâneos e a
+  saída abrupta com filho em curso não foram testados com o cliente real.
 - Origem dos hooks: até `c874caa`, os hooks Claude e Codex herdavam a origem
   da sessão e podiam alterar o registro de um coordenador de outro provedor.
   A correção está no ramo `fix/hooks-origem-20261030`, ainda não assinada nem

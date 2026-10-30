@@ -67,7 +67,8 @@ não substitui silenciosamente o modelo. Claude e Codex não consultam a rede
 na abertura. O adaptador agy consulta catálogo e cota antes de criar sessão.
 
 No agy, `--modelo` só aceita `gemini-4-argon-high`; qualquer outro nome recusa.
-O catálogo precisa informar esse identificador numa linha inteira. Saída desconhecida
+O catálogo precisa informar esse identificador no início da linha, sozinho ou
+seguido de tabulação e nome legível (formato do agy 1.4.11). Saída desconhecida
 ou consulta sem sucesso recusa antes de alterar a atuação. `/usage` precisa
 informar cota válida de pelo menos 20% em todas as janelas `gemini-argon-*`;
 a cota Flash não entra nessa decisão. Cota desconhecida, inválida ou insuficiente
@@ -120,6 +121,21 @@ sintético e estado separado), sobre o ramo com a correção da origem:
   sobre rodar sem o servidor compartilhado vem dos hooks passados por `-c`
   e não indica falha.
 - Em ambos, `trabalhando` não comprova que o turno continua.
+
+Na mesma data, com o agy 1.4.11 e o coordenador `gemini-4-argon-high`:
+
+- Abertura, trabalho e conclusão funcionaram depois de duas correções no
+  ramo: o catálogo do `agy models` traz id, tabulação e nome legível, e o
+  agy exporta `ANTIGRAVITY_APP_DATA_DIR` com a pasta padrão nos comandos que
+  roda, o que fazia o `jangada-isolar` recusar toda delegação.
+- Uma delegação agy (`leitor`, Flash) feita de dentro do coordenador terminou
+  com código 0. A linha de `delegacoes.jsonl` registra papel e destino; o
+  registro do coordenador manteve provedor, modelo e `atuacao_id`; as travas
+  ficaram livres e nenhum processo sobrou.
+- Pedido de permissão, Esc e `/exit` deixam o registro em `trabalhando`: o
+  cliente não tem evento de permissão e não entregou Stop ao interromper nem
+  aviso de saída. A saída liberou tmux, processos e travas, e a reabertura
+  retomou a mesma `atuacao_id`.
 
 A abertura não toma `.agy-execucao.lock`; tampouco os hooks a retêm até Stop.
 Os filhos continuam disputando a trava do delegador. Isso evita o impasse

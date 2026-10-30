@@ -304,6 +304,10 @@ variáveis de caminho do agy (`ANTIGRAVITY_GEMINI_DIR`,
 `ANTIGRAVITY_APP_DATA_DIR`, `ANTIGRAVITY_CONFIG_REL_DIR`,
 `ANTIGRAVITY_EXECUTABLE_DATA_DIR`, `GEMINI_DIR`) são recusadas com o agy
 concedido, porque a separação por sessão só foi conferida na pasta padrão.
+A exceção é `ANTIGRAVITY_APP_DATA_DIR` apontando para a própria pasta padrão:
+o agy a define assim nos comandos que roda, e a delegação feita de dentro de
+um coordenador agy a herda. Nesse caso a variável sai do ambiente e a
+execução segue; qualquer outro valor continua recusado.
 
 **Restauração.** Abrir de novo a mesma sessão monta a mesma pasta, e o
 cliente retoma a própria conversa. Sessões registradas antes de 30/10/2026

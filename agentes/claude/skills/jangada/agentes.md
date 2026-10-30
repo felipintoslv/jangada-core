@@ -408,7 +408,12 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
   a conversa do agy depois da chamada (agy falso de teste precisa criar a
   pasta `log`, que começa vazia).
   `CLAUDE_CONFIG_DIR` precisa ser absoluto; variável de caminho do agy
-  (`ANTIGRAVITY_*_DIR`, `GEMINI_DIR`) faz o isolamento recusar o agy. O login
+  (`ANTIGRAVITY_*_DIR`, `GEMINI_DIR`) faz o isolamento recusar o agy. A
+  exceção é `ANTIGRAVITY_APP_DATA_DIR` na pasta padrão, que o próprio agy
+  exporta nos comandos que roda: sem ela, delegar de dentro de um
+  coordenador agy sempre falhava (achado da homologação de 30/10/2026).
+  Ao conferir esse ambiente, não imprima `env` inteiro: o agy também exporta
+  um token local da sessão (`ANTIGRAVITY_CSRF_TOKEN`). O login
   do Claude é regravado por rename, por isso a pasta do Claude continua
   gravável e só as pastas de dados vêm da sessão.
 - Nos testes, rode o `jangada-isolar` real com a entrada em `/dev/null`
@@ -679,8 +684,14 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
   em subpasta de pasta confiável: para teste sem mexer no `settings.json`,
   rode com o diretório atual na raiz confiável.
 - `trabalhando` no registro não prova turno em curso: o Claude interrompido
-  com Esc e o Codex com turno encerrado por erro do provedor não chamam hook.
-  Confira a tela do tmux antes de concluir que o agente está ocupado.
+  com Esc, o Codex com turno encerrado por erro do provedor e o agy 1.4.11
+  com Esc, `/exit` ou pergunta de permissão não chamam hook. Confira a tela
+  do tmux antes de concluir que o agente está ocupado.
+- O `agy models` do 1.4.11 imprime um cabeçalho e linhas `id<TAB>nome`;
+  compare só o id, nunca a linha inteira.
+- Em homologação com `XDG_STATE_HOME` separado, o coordenador real escreve
+  caminhos literais como `~/.local/state/jangada` nos comandos e chega ao
+  estado em uso. Recuse esses pedidos de permissão no teste.
 - Codex aberto com `-c` (hooks do jangada) mostra aviso de que roda sem o
   servidor compartilhado; é efeito do `-c`, não alerta de hook.
 - Claude trata `git init` aninhado como projeto à parte e pede confiança;
