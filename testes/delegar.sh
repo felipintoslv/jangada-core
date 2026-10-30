@@ -118,7 +118,9 @@ if [[ -n "${FALSO_PASSOS:-}" ]]; then
   sqlite3 "$HOME/.gemini/antigravity-cli/conversations/c1.db" \
     "create table steps(n); insert into steps values(1),(2);"
 fi
-[[ -n "${FALSO_LOG:-}" ]] && echo "$FALSO_LOG" >"$HOME/.gemini/antigravity-cli/log/cli-1.log"
+# Como o agy real, cria a pasta do log: a da chamada isolada começa vazia.
+[[ -n "${FALSO_LOG:-}" ]] && mkdir -p "$HOME/.gemini/antigravity-cli/log" \
+  && echo "$FALSO_LOG" >"$HOME/.gemini/antigravity-cli/log/cli-1.log"
 [[ "${FALSO_CODIGO:-0}" != 0 ]] && { echo "falha falsa" >&2; exit "$FALSO_CODIGO"; }
 jq -n --arg r "$FALSO_RESPOSTA" --arg n "${FALSO_NEGADO:-}" \
   '{conversation_id: "c1", status: "SUCCESS", response: $r,
@@ -343,6 +345,8 @@ conferir "caso 5: informa bloqueio do apoio" grep -q "Delegação bloqueada" "$t
 LOG='Agent "explorador" not found, using default' delegar --permitir-remoto explorador "mapeie"
 conferir "caso 6: agente não achado, recusa" [ "$(codigo)" = 4 ]
 conferir "caso 6: diz o motivo" grep -q "não achou o agente" "$tmp/erro"
+conferir "caso 6: a pasta de dados da chamada é apagada no fim" \
+  [ -z "$(find "$tmp/home/.local/state/jangada/provedores" -mindepth 2 -maxdepth 2 -name 'delegacao-*' 2>/dev/null)" ]
 rm -f "$tmp/home/.gemini/antigravity-cli/log/cli-1.log"
 
 RESPOSTA="$(yes palavra | head -n 700 | paste -sd ' ')" delegar --permitir-remoto explorador "mapeie"

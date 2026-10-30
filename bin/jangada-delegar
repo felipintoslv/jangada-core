@@ -1042,7 +1042,10 @@ fi
 log_agy="${JANGADA_AGY_LOG:-$CONTA_AGY_PASTA/log}"
 marca="$(mktemp)"
 saida="$(mktemp)"
-trap 'rm -f "$marca" "$saida"' EXIT
+# Cada chamada isolada do agy grava conversa e log numa pasta própria em
+# provedores/ (dados por sessão do jangada-isolar), lida aqui e apagada no fim.
+dados_delegacao=()
+trap 'rm -f "$marca" "$saida"; ((${#dados_delegacao[@]} == 0)) || rm -rf -- "${dados_delegacao[@]}"' EXIT
 
 apoio_privado=0
 if ((${#urls[@]})) || [[ "$papel" == leitor || "$papel" == redator || ( "$papel" == arquiteto && ${#arquivos[@]} != 0 ) ]]; then
@@ -1122,7 +1125,11 @@ for modelo in "${modelos_agy[@]}"; do
     registro_ferramentas="$JANGADA_ESTADO/agentes/pesquisa-$delegacao_id-$chamadas_executor"
     executor_agy=("${apoio_agy[@]}" --registro "$registro_ferramentas" -- agy)
   fi
+  chave_dados="delegacao-$delegacao_id-$chamadas_executor"
+  pasta_dados="$JANGADA_ESTADO/provedores/agy-$CONTA_AGY_NOME/$chave_dados"
+  dados_delegacao+=("$pasta_dados")
   chamada_agy=(timeout "${limite_agy[@]}" "$((tempo + 30))" env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 JANGADA_AGY_PAPEL="$papel"
+    JANGADA_ISOLAR_DADOS="$chave_dados" \
     JANGADA_ISOLAR_PERFIL="$perfil_execucao" JANGADA_IMPLEMENTACAO_MANIFESTO="$executor_contrato" \
     "$JANGADA_CORE_PATH/bin/jangada-isolar" --provedor agy -- "${executor_agy[@]}" -p "$pedido" --agent "$papel" --model "$modelo" --sandbox \
     --output-format json --print-timeout "${tempo}s")
@@ -1172,13 +1179,19 @@ if ((!atendido)); then
   modelo="${modelos_agy[0]}"; cota="$cota_primeira"
   recusar "${sem_cota:-nenhuma conta habilitada para a família do modelo}" "${sem_cota_codigo:-capacidade_incompativel}"
 fi
+# Fora de outro isolamento, o agy gravou o log e a conversa na pasta da chamada.
+pasta_agy="$CONTA_AGY_PASTA"
+if [[ -n "${pasta_dados:-}" && -d "$pasta_dados" && ! -L "$pasta_dados" ]]; then
+  pasta_agy="$pasta_dados"
+  [[ -n "${JANGADA_AGY_LOG:-}" ]] || log_agy="$pasta_dados/log"
+fi
 if [[ -d "$log_agy" ]] && find "$log_agy" -name 'cli-*.log' -newer "$marca" -print0 2>/dev/null \
      | xargs -0r grep -l "Agent \"$papel\" not found" 2>/dev/null | grep -q .; then
   recusar "o agy não achou o agente $papel (rode ./install.sh 50)" capacidade_incompativel
 fi
 conversa="$(jq -r '.conversation_id // ""' <<<"$resposta" 2>/dev/null || true)"
 tokens_agy="$(jq -r '.usage.total_tokens // ""' <<<"$resposta" 2>/dev/null || true)"
-banco="${JANGADA_AGY_CONVERSAS:-$CONTA_AGY_PASTA/conversations}/$conversa.db"
+banco="${JANGADA_AGY_CONVERSAS:-$pasta_agy/conversations}/$conversa.db"
 [[ -z "$registro_ferramentas" ]] || banco="$registro_ferramentas/conversations/$conversa.db"
 if [[ -n "$conversa" && -f "$banco" ]] && command -v sqlite3 >/dev/null 2>&1; then
   passos="$(sqlite3 -readonly "$banco" 'select count(*) from steps' 2>/dev/null || true)"
