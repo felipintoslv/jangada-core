@@ -27,22 +27,25 @@ contra falha do próprio bubblewrap nem do kernel.
 A proteção é contra escrita, não contra leitura. O isolamento não garante que
 o agente só conheça os dados do projeto:
 
-- **Arquivos.** O agente lê tudo o que o usuário lê e não está na lista de
-  ocultos: documentos pessoais, o `.env` de outro projeto, o histórico do
-  shell, o `~/.Renviron`. `JANGADA_ISOLAR_CASA=minima` fecha a pasta
-  pessoal (veja Casa mínima); o resto do disco segue legível.
+- **Arquivos.** Desde 30/10/2026 a pasta pessoal começa vazia (veja Casa
+  mínima): documentos, outros projetos, o histórico do shell e o
+  `~/.Renviron` ficam fora de alcance. O resto do disco (`/etc`, `/mnt`,
+  outros discos) segue legível, e o `.env` de outro projeto fora da pasta
+  pessoal também.
 - **Rede.** Não há namespace de rede próprio: o agente fala com a internet e
   com os serviços locais da máquina. O que ele lê, pode enviar.
-- **Ambiente.** As variáveis são herdadas. Saem as de sessão gráfica e as de
-  credencial que correspondem aos ocultos (`GH_TOKEN`, `GITHUB_TOKEN`,
-  `AWS_SECRET_ACCESS_KEY`, `VAULT_TOKEN` e as demais da lista no
-  `jangada-isolar`). Outro segredo exportado no shell chega ao agente, a menos
-  que `JANGADA_ISOLAR_AMBIENTE=minimo` esteja ligado (seção "Ambiente mínimo").
-- **Keyring.** Com o agy instalado, o proxy do D-Bus libera o serviço
-  `org.freedesktop.secrets` inteiro, porque o agy guarda o login ali: com o
-  keyring destrancado, o agente alcança as outras senhas guardadas nele.
-  `JANGADA_ISOLAR_KEYRING_ITEM` restringe a leitura a um item (seção "Keyring
-  por item"). Sem o agy, o serviço não é liberado.
+- **Ambiente.** Desde 30/10/2026 o ambiente é mínimo (seção "Ambiente
+  mínimo"): passa uma lista explícita, e sai todo nome que parece credencial.
+  O valor de um segredo exportado com nome comum (`MEU_BANCO=senha`) não é
+  inspecionado: ele sai porque não está na lista, e volta se alguém o puser
+  em `JANGADA_ISOLAR_AMBIENTE_MANTER`.
+- **Keyring.** O agy guarda o login no `org.freedesktop.secrets`. Desde
+  30/10/2026 o proxy do D-Bus só libera itens de
+  `JANGADA_ISOLAR_KEYRING_ITEM` (seção "Keyring por item"); sem ele, o
+  keyring fica fechado e o agy sem login, com aviso.
+  `JANGADA_ISOLAR_KEYRING=servico` volta a liberar o serviço inteiro, também
+  com aviso. O keyring só é ligado quando o agy é um dos provedores
+  concedidos.
 
 ## Limites conhecidos
 
@@ -201,7 +204,7 @@ O `jangada-isolar` tem três perfis, escolhidos por `JANGADA_ISOLAR_PERFIL`:
 
 | Perfil | Rede | Login e chaves dos provedores | Quem usa |
 |---|---|---|---|
-| `agente` (padrão) | a da máquina | visíveis | `jangada-agente`, `jangada-delegar`, revisores |
+| `agente` (padrão) | a da máquina | só os dos provedores concedidos | `jangada-agente`, `jangada-delegar`, revisores |
 | `verificacao` | nenhuma (`--unshare-net`) | ocultos | `lintr` e `.jangada/validar.sh` no `jangada-validar` |
 | `verificacao-rede` | a da máquina | ocultos | `.jangada/validar.sh` com `JANGADA_VALIDAR_REDE=1` |
 
@@ -213,16 +216,39 @@ Perfil desconhecido é recusado. Dentro de uma sessão já isolada, o perfil
 retirar as credenciais e aplicar sua política de rede, mesmo com
 `JANGADA_AGENTE_ISOLAR=0`.
 
-No perfil `agente` não há política de rede nem intermediário de credenciais:
-o agente fala com qualquer destino e lê o login do próprio provedor e dos
-outros, porque delega e revisa por eles. Um agente desviado por injeção de
-prompt consegue enviar para fora o que lê, inclusive esses logins. Um
-intermediário (processo fora do isolamento que guarda as chaves e assina as
-chamadas) fecharia isso, mas depende de cada cliente aceitar um endereço de
-API próprio e fica fora do que o jangada faz hoje. Reduz o dano: usar login
-de assinatura em vez de chave de API com cobrança por uso,
-`JANGADA_ISOLAR_CASA=minima`, `JANGADA_ISOLAR_AMBIENTE=minimo` e
-`JANGADA_ISOLAR_KEYRING_ITEM`.
+### Provedores concedidos
+
+No perfil `agente`, desde 30/10/2026, o agente só recebe o login dos
+provedores concedidos à sessão. Os outros somem como no perfil de
+verificação: pastas (`~/.claude`, `~/.claude.json`, `~/.config/claude`,
+`~/.codex`, `~/.gemini`) e variáveis da família. Concedidos são:
+
+- o provedor principal: o de `--provedor` (`claude`, `codex`, `agy` ou
+  `nenhum`) ou, sem a opção, o nome do comando (`claude`, `agy`, `codex` ou
+  `jangada-codex`). Outro comando (um `bash`, o `Rscript`) não recebe login;
+- o destino da delegação, com `--delegar DESTINO`, resolvido pela mesma
+  regra do `jangada_delegacao` (o Claude delega ao agy ou ao próprio Claude;
+  o Codex, ao agy). O `jangada-agente` e o `jangada-agentes` passam o
+  `--delegar` da sessão;
+- o Codex, quando `JANGADA_CODEX_ECONOMICO_MODELO` ou
+  `JANGADA_CODEX_PRINCIPAL_MODELO` estão definidos;
+- os de `JANGADA_ISOLAR_PROVEDORES`, separados por `:`.
+
+Nome desconhecido em qualquer dessas fontes é recusado. A lista vai ao
+agente em `JANGADA_ISOLAR_CONCEDIDOS`; dentro da sessão, o `jangada-isolar`
+recusa abrir o comando de um provedor que não está nela, em vez de abri-lo
+sem login. O `jangada-delegar` abre o agy com `--provedor agy`.
+
+Com o agy concedido e o catálogo de contas, só a pasta da conta escolhida é
+montada; as outras contas do catálogo ficam vazias.
+
+Não há política de rede nem intermediário de credenciais: o agente fala com
+qualquer destino. Um agente desviado por injeção de prompt consegue enviar
+para fora o login que recebeu. Um intermediário (processo fora do
+isolamento que guarda as chaves e assina as chamadas) fecharia isso, mas
+depende de cada cliente aceitar um endereço de API próprio e fica fora do
+que o jangada faz hoje. Reduz o dano: usar login de assinatura em vez de
+chave de API com cobrança por uso.
 
 ## Refs do git
 
@@ -236,15 +262,16 @@ Repositório com refs em reftable guarda tudo numa pasta só; ali o
 
 ## Casa mínima
 
-Com `JANGADA_ISOLAR_CASA=minima` no `jangada.conf`, a pasta pessoal vira uma
-pasta vazia em memória antes das outras montagens. Por cima dela voltam,
-somente leitura:
+Desde 30/10/2026 é o padrão (antes, só com `JANGADA_ISOLAR_CASA=minima`): a
+pasta pessoal vira uma pasta vazia em memória antes das outras montagens. Por
+cima dela voltam, somente leitura:
 
 - as pastas do `PATH` dentro da pasta pessoal, `~/.local/bin`, `~/.local/lib`,
   `~/.local/share/claude`, `~/.local/share/mise` e `~/.config/mise`;
 - a cópia instalada, a configuração e o estado do jangada;
-- `~/.gitconfig` e `~/.config/git`;
-- `~/.claude.json`, `~/.gemini` e `~/.codex`;
+- `~/.gitconfig`, `~/.config/git` e `~/R`;
+- `~/.claude.json`, `~/.gemini` e `~/.codex`, cada um só se o provedor for
+  concedido;
 - o que estiver em `JANGADA_ISOLAR_CASA_LER`, separado por `:`.
 
 As regras de graváveis, somente leitura e ocultos valem como antes, por cima.
@@ -256,11 +283,16 @@ Os arquivos de início do shell (`.zshrc`, `.bashrc`, `.profile` e os demais)
 ficam de fora desde 05/10/2026: é neles que se exporta token. Quem precisa
 deles no agente acrescenta em `JANGADA_ISOLAR_CASA_LER`.
 
-O padrão continua sendo a casa inteira legível. A lista cobre o que o jangada
-conhece: bibliotecas de R em `~/R`, `~/.cargo`, `~/.nvm` ou dados que o
-projeto alcança por link (`.jangada/links`) precisam entrar em
-`JANGADA_ISOLAR_CASA_LER`. O que fica fora da pasta pessoal (`/etc`, `/mnt`,
-outros discos) segue legível.
+A lista cobre o que o jangada conhece: `~/.cargo`, `~/.nvm`, o
+`~/.Rprofile` ou dados que o projeto alcança por link (`.jangada/links`)
+precisam entrar em `JANGADA_ISOLAR_CASA_LER`. O que fica fora da pasta
+pessoal (`/etc`, `/mnt`, outros discos) segue legível. A casa mínima vale
+também nos perfis de verificação; o perfil `implementacao` tem montagem
+própria.
+
+`JANGADA_ISOLAR_CASA=inteira` volta à casa inteira legível, menos os
+ocultos, e avisa a cada abertura. Os logins de provedor não concedido
+continuam ocultos nesse modo.
 
 ## Keyring por item
 
@@ -341,17 +373,76 @@ done
 
 ## Ambiente mínimo
 
-Com `JANGADA_ISOLAR_AMBIENTE=minimo`, o agente recebe só as variáveis de uma
-lista: as do sistema (`HOME`, `PATH`, `TERM`, `LANG`, `LC_*`, `XDG_*`, proxy e
-certificados), as do jangada e do mise, e as dos agentes (`CLAUDE_*`,
-`ANTHROPIC_*`, `CODEX_*`, `OPENAI_*`, `GEMINI_*`, `GOOGLE_*`, `AGY_*`,
-`NODE_*`). As demais saem, inclusive as que o `~/.zshenv` exportou antes de o
-jangada abrir. O que o projeto usa (`R_LIBS_USER`, `JAVA_HOME`) entra em
-`JANGADA_ISOLAR_AMBIENTE_MANTER`, separado por `:`.
+Desde 30/10/2026 é o padrão em todos os perfis (antes, só com
+`JANGADA_ISOLAR_AMBIENTE=minimo`). Cada variável exportada passa por esta
+ordem, e a primeira regra que vale decide:
 
-As variáveis de credencial conhecidas saem mesmo quando listadas ali. O shell
-que o agente abre dentro do isolamento lê de novo os arquivos de início: o que
-eles exportam volta, a menos que a casa mínima os deixe de fora.
+1. família de um provedor (`CLAUDE_*` e `ANTHROPIC_*`; `CODEX_*` e
+   `OPENAI_*`; `GEMINI_*`, `GOOGLE_*`, `AGY_*` e `ANTIGRAVITY_*`): passa só
+   se o provedor for concedido;
+2. nome em `JANGADA_ISOLAR_AMBIENTE_MANTER` (separado por `:`): passa;
+3. nome que parece credencial (contém `TOKEN`, `SECRET`, `PASSWORD`,
+   `PASSWD`, `PASSPHRASE`, `CREDENTIAL`, `API_KEY`, `APIKEY`,
+   `PRIVATE_KEY`, `ACCESS_KEY` ou `SENHA`, tem `AUTH` ou `AUTHORIZATION`
+   como parte separada por `_`, ou termina em `_PAT`): sai,
+   inclusive nas famílias da lista (`MISE_GITHUB_TOKEN`, `NODE_AUTH_TOKEN`);
+4. lista base: `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `PWD`, `TERM`,
+   `COLORTERM`, `LANG`, `LANGUAGE`, `TZ`, `TMPDIR`, `EDITOR`, `VISUAL`,
+   `PAGER`, `NO_COLOR`, `DBUS_SESSION_BUS_ADDRESS`, `SSL_CERT_FILE`,
+   `SSL_CERT_DIR`, os de proxy, `R_LIBS`, `R_LIBS_USER`, `R_LIBS_SITE`,
+   `R_PROFILE_USER`, `R_ENVIRON_USER`, `R_LINTR_LINTER_FILE`, a identidade
+   do git (`GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`,
+   `GIT_COMMITTER_EMAIL`), `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM` e as famílias
+   `LC_*`, `XDG_*`, `JANGADA_*`, `MISE_*`, `__MISE_*` e `NODE_*`: passa;
+5. o resto sai.
+
+A lista fixa (`GH_TOKEN`, `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`,
+`VAULT_TOKEN`, `PGPASSWORD` e as demais no `jangada-isolar`) sai sempre, mesmo
+listada em `JANGADA_ISOLAR_AMBIENTE_MANTER`. As variáveis saem por nome
+(`--unsetenv`), e nenhum valor vai à linha de comando do `bwrap` nem à saída
+do `--mostrar`.
+
+`JANGADA_ISOLAR_AMBIENTE=herdado` volta a herdar o ambiente, com aviso a cada
+abertura; as regras 1 a 3 e a lista fixa continuam valendo.
+
+O shell que o agente abre dentro do isolamento lê de novo os arquivos de
+início: o que eles exportam volta, a menos que a casa mínima os deixe de fora
+(o padrão).
+
+## Modos e transição
+
+Os padrões de 30/10/2026 mudam o que a sessão enxerga. Cada um tem uma
+variável no `jangada.conf` para voltar ao modo antigo, sempre com aviso no
+terminal a cada abertura. Valor fora da lista é recusado com código 1, para
+que um erro de digitação não desligue a proteção calado.
+
+| Variável | Padrão | Valores | Modo antigo |
+|---|---|---|---|
+| `JANGADA_ISOLAR_CASA` | `minima` | `minima`, `inteira` | `inteira` |
+| `JANGADA_ISOLAR_AMBIENTE` | `minimo` | `minimo`, `herdado` | `herdado` |
+| `JANGADA_ISOLAR_KEYRING` | `itens` | `itens`, `servico` | `servico` (sem `JANGADA_ISOLAR_KEYRING_ITEM`) |
+| `JANGADA_ISOLAR_PROVEDORES` | vazio | `claude`, `codex`, `agy` separados por `:` | `claude:codex:agy` |
+
+Os ajustes finos, sem voltar ao modo antigo, são `JANGADA_ISOLAR_CASA_LER`
+(caminhos) e `JANGADA_ISOLAR_AMBIENTE_MANTER` (nomes de variável). Veja
+também [atualização e migrações](atualizacao-e-migracoes.md).
+
+## Limitações desta proteção
+
+- Não é certificação de segurança geral nem homologação dos provedores
+  reais: os testes usam provedores e credenciais fictícios.
+- O agente lê o login dos provedores concedidos e pode enviá-lo pela rede.
+- `JANGADA_ISOLAR_KEYRING_ITEM` vale para todas as contas do agy: o item
+  liberado não muda com a conta escolhida no catálogo.
+- O filtro de variáveis olha o nome, não o valor.
+- Um SIGKILL no `jangada-isolar` não deixa o próprio processo limpar nada.
+  O `bwrap` com `--die-with-parent` encerra o agente, e o proxy do D-Bus sai
+  quando o cano que o prende fecha. O arquivo do soquete
+  (`$XDG_RUNTIME_DIR/jangada-isolar/bus-PID`) pode sobrar sem ninguém
+  escutando; não guarda segredo e só é apagado quando outra abertura recebe
+  o mesmo PID. A cópia do login do Codex tem recuperação própria, que só
+  apaga resíduo do mesmo usuário, com mais de 60 segundos e sem trava viva
+  (veja [Codex](codex.md)).
 
 ## Falhas
 
@@ -404,7 +495,8 @@ e o processo de `inotifywait` são encerrados junto com o isolamento.
 | Arquivo | O que cobre |
 |---|---|
 | `testes/isolar.sh` | argumentos do bwrap (gravável, somente leitura, oculto, `/tmp`, marca), repositório direto, `JANGADA_AGENTE_ISOLAR=0`, variável sem marca não dispensa, recusa sem bwrap e um isolamento de verdade: gravação, commit, chave oculta, D-Bus restrito e PID próprio |
-| `testes/restaurar.sh` | comando gravado e `.isolar: false` ignorados, `JANGADA_AGENTE_ISOLAR=0` abre fora, campos inválidos recusados, perfil não desliga o isolamento, protocolo refeito sem seguir link |
+| `testes/restaurar.sh` | comando gravado e `.isolar: false` ignorados, `JANGADA_AGENTE_ISOLAR=0` abre fora, campos inválidos recusados, perfil não desliga o isolamento, protocolo refeito sem seguir link, delegação passada ao isolamento |
+| `testes/isolar-provedores.py` | isolamento real com credenciais fictícias: cada provedor lê só o próprio login, comando comum não recebe nenhum, delegação concede só o destino, conta do agy só a escolhida, transição com aviso, execuções simultâneas separadas, sessão aninhada recusa provedor não concedido, modos inválidos recusados |
 
 Dentro de uma sessão do agente, o `testes/isolar.sh` passa, mas pula o caso
 do D-Bus (o endereço do barramento não entra no teste) e a leitura da casa

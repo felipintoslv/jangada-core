@@ -147,6 +147,27 @@ A pasta `migrations/` começa vazia no Core. As migrações anteriores à
 separação ficam no histórico do monorepo, e as marcas delas em
 `$JANGADA_ESTADO/migracoes/` impedem que sejam reaplicadas.
 
+### Padrões do isolamento de 30/10/2026
+
+A migração `202610301200-avisar-isolamento-credenciais.sh` não grava nada:
+ela mostra, uma vez, o que muda na configuração de quem atualiza. Os novos
+padrões do `jangada-isolar` valem para quem não definiu as variáveis no
+`jangada.conf`:
+
+| Antes | Agora | Para voltar ao modo antigo |
+|---|---|---|
+| pasta pessoal inteira legível | casa mínima | `JANGADA_ISOLAR_CASA=inteira` |
+| ambiente herdado, menos a lista fixa | lista base, sem nomes de credencial | `JANGADA_ISOLAR_AMBIENTE=herdado` |
+| keyring inteiro sem `JANGADA_ISOLAR_KEYRING_ITEM` | keyring fechado | `JANGADA_ISOLAR_KEYRING=servico` |
+| login dos três provedores no perfil `agente` | só o do principal e o do destino da delegação | `JANGADA_ISOLAR_PROVEDORES=claude:codex:agy` |
+
+O modo antigo avisa no terminal a cada abertura. Valor fora da lista é
+recusado, em vez de cair calado num modo sem proteção. O ajuste fino, sem
+voltar ao modo antigo, é `JANGADA_ISOLAR_CASA_LER` para caminhos e
+`JANGADA_ISOLAR_AMBIENTE_MANTER` para variáveis. Uma sessão aberta antes da
+atualização segue com o modo antigo até ser reaberta. Detalhes em
+[isolamento](isolamento.md).
+
 ## Testes
 
 | Arquivo | O que cobre |

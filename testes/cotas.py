@@ -735,6 +735,10 @@ class Cotas(unittest.TestCase):
         agy.update(estado='ok', detalhe='Registro válido, com precedência da configuração do usuário; arquivo não executado.')
         esperado['saida']['resumo']['aviso'] -= 1
         esperado['saida']['resumo']['ok'] += 1
+        # A migração de aviso do isolamento de 30/10/2026 é a terceira pendente.
+        migracoes = next(v for v in esperado['saida']['verificacoes'] if v['id'] == 'migracoes.pendentes')
+        self.assertEqual(migracoes['detalhe'], '2 migrações pendentes entre 2 scripts; nenhum script executado.')
+        migracoes['detalhe'] = '3 migrações pendentes entre 3 scripts; nenhum script executado.'
         self.assertEqual(doctor, esperado)
 
     def test_gravacao_interrompida_nao_deixa_json_truncado(self):

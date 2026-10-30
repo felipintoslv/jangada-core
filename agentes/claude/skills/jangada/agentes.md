@@ -376,11 +376,31 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
 - Se a tarefa precisa gravar fora dessas pastas, pare e peça ao usuário:
   acrescentar a pasta em `JANGADA_ISOLAR_ESCRITA` no `jangada.conf`. Não há
   abertura sem isolamento. Não contorne o isolamento.
+- Desde 30/10/2026 a sessão só recebe o login do próprio provedor e do
+  destino da delegação (`--delegar` do `jangada-agente`), a pasta pessoal
+  começa vazia e o ambiente é mínimo. Chamar de dentro o comando de outro
+  provedor (`codex` numa sessão do Claude que delega ao agy) é recusado com
+  "esta sessão não recebeu o login do provedor": não procure o login em
+  outro lugar, peça ao usuário `JANGADA_ISOLAR_PROVEDORES`. Variável que
+  some do ambiente entra por nome em `JANGADA_ISOLAR_AMBIENTE_MANTER`;
+  arquivo da pasta pessoal, em `JANGADA_ISOLAR_CASA_LER`. Nome que parece
+  credencial (`TOKEN`, `SECRET`, `SENHA`, `_PAT`...) sai mesmo listado.
+- Quem chama o `jangada-isolar` com um comando que não tem nome de provedor
+  (um `bash`, um script) e precisa de login passa `--provedor NOME`; sem
+  isso, o comando não recebe login nenhum. O `jangada-delegar` usa
+  `--provedor agy`.
+- Nos testes, rode o `jangada-isolar` real com a entrada em `/dev/null`
+  (`</dev/null`): stdin em cano ou soquete é recusado pela fronteira de
+  confiança. Isolador falso de teste precisa aceitar `--conta`, `--delegar`
+  e `--provedor` antes do `--`; variável de controle de um falso
+  (`FALSO_*`) só chega ao comando isolado por
+  `JANGADA_ISOLAR_AMBIENTE_MANTER`.
 
 O isolamento fecha os caminhos conhecidos para rodar código fora do bwrap
 (estado executado na restauração, configuração do git, hooks do Claude,
 sockets do Hyprland e do sistema), mas não é uma barreira completa: o
-chaveiro inteiro é legível pelo D-Bus filtrado, `~/.claude/projects` e o
+login dos provedores concedidos é legível e pode sair pela rede, o disco fora
+da pasta pessoal segue legível, `~/.claude/projects` e o
 `settings.json` do agy seguem graváveis, e repositórios aninhados no índice
 só ficam protegidos quando o git de fora passa por `jangada_git_seguro`.
 `JANGADA_AGENTE_ISOLAR=0` e `--sem-isolar` não desligam mais: geram aviso e
