@@ -4,13 +4,54 @@ Notas da entrega e roteiro de lançamento da versão 1.0.0 estável do
 jangada-core. O registro completo de mudanças está no
 [CHANGELOG](../CHANGELOG.md), gerado por `jangada-versao`.
 
-## Situação
+## Situação atual
 
-Esta versão está preparada, não lançada. Enquanto o dono não executar o
-[roteiro](#roteiro-do-dono), a tag `v1.0.0` não existe, os commits não estão
-assinados nem publicados e a cópia instalada continua na versão anterior.
+Conferido em 30/10/2026 por comandos `git` e `jangada-versao`:
 
-## O que o Core entrega
+- A tag `v1.0.0` existe, é anotada e não tem assinatura própria. Aponta para
+  o commit `c1c417b` (18/10/2026), que tem assinatura válida. O
+  `git ls-remote origin` mostra a tag e o commit dela no repositório
+  publicado.
+- O `main` local, o `main` publicado e a cópia instalada estão em `c874caa`,
+  87 commits depois da `v1.0.0`. O `jangada-versao` informa
+  `1.0.0-87-gc874caa`. Não há tag posterior; essas mudanças entram na
+  próxima versão.
+- As tags `v0.1.0` e `v0.2.0` só existem na cópia local.
+
+Este arquivo descreve a entrega de 18/10/2026. As seções abaixo de
+[Histórico da entrega](#histórico-da-entrega) registram o que valia naquela
+data e não são atualizadas.
+
+## Limites conhecidos depois da 1.0.0
+
+- Revisão independente na fila: só para intermediários de risco 1 com
+  contexto `diff`, no fluxo de supervisão automática. Outros riscos e o
+  contexto `repositorio` são recusados no cadastro
+  ([detalhes](subagentes-e-delegacao.md#modelo-operacional-de-projetos)). Fora da fila, a integração depende
+  do `jangada-validar` com revisor de outro modelo. O histórico de pareceres
+  não autentica revisores.
+- Adaptador agy (versão 1.4.11 conferida): não há evento de pedido de
+  permissão, então o coordenador agy nunca fica em `aguardando`. Aberto sem
+  pedido, o cliente não entregou `SessionStart` ao hook; o registro só muda
+  no primeiro turno. Roda uma execução agy por vez (trava de execução). O
+  uso do modelo `gemini-4-argon-high` como coordenador não teve aceite real,
+  e a convivência de coordenador agy com delegação agy no mesmo momento não
+  foi comprovada.
+- Origem dos hooks: até `c874caa`, os hooks Claude e Codex herdavam a origem
+  da sessão e podiam alterar o registro de um coordenador de outro provedor.
+  A correção está no ramo `fix/hooks-origem-20261030`, ainda não assinada nem
+  instalada.
+
+## Histórico da entrega
+
+### Situação em 18/10/2026
+
+Esta versão foi preparada antes do lançamento. Até o dono executar o
+[roteiro](#roteiro-do-dono), a tag `v1.0.0` não existia, os commits não
+estavam assinados nem publicados e a cópia instalada estava na versão
+anterior.
+
+### O que o Core entrega
 
 O Core funciona sozinho. Cada item remete ao guia do assunto.
 
@@ -31,13 +72,13 @@ Quem vem de uma instalação anterior à separação dos módulos encontra a rai
 Core em `JANGADA_CORE_PATH` (antes `JANGADA_PATH`); o Core ignora o
 `JANGADA_PATH` que o Shell exporta na sessão.
 
-## Dependências
+### Dependências
 
 `bash`, `python3`, `sqlite3`, `bwrap`, `tmux`, `git` e `jq`. R com `lintr`
 é opcional. Claude Code, Codex, agy e Ollama são usados quando instalados.
 Detalhes no [README](../README.md#dependências).
 
-## Fronteira com o Shell
+### Fronteira com o Shell
 
 O Shell (área de trabalho e Central de Tarefas) e o Monitor são opcionais e
 ficam em outros repositórios. O Core procura os comandos deles no PATH e segue
@@ -51,7 +92,7 @@ chama por `JANGADA_CORE_PATH`.
 - `jangada-update --so-core` não chama o `jangada-sistema-update` do Shell.
   Sem a opção, o comando o chama quando ele está no PATH.
 
-## Limitações
+### Limitações
 
 - Assinar, publicar, criar a tag e atualizar a instalação são ações do dono,
   fora do isolamento. O agente não assina: a chave fica oculta nele.
@@ -73,7 +114,7 @@ chama por `JANGADA_CORE_PATH`.
 - Os testes usam simuladores do tmux e dos clientes de agente. O uso com cada
   provedor real depende de login, cota e versão do cliente instalado.
 
-## Critérios de aceitação
+### Critérios de aceitação
 
 Uma preparação só é integrada com todos estes itens:
 
@@ -99,9 +140,9 @@ ou atualização da cópia instalada para a 1.0.0, a instalação em outras
 máquinas, a integração contínua do GitHub nesta versão e todos os provedores
 reais.
 
-## Roteiro do dono
+### Roteiro do dono
 
-Comece depois que o coordenador integrar a preparação no `main`. Rode num
+Registro do roteiro usado em 18/10/2026; não repita para a 1.0.0, a tag já existe. Comece depois que o coordenador integrar a preparação no `main`. Rode num
 terminal comum, fora do isolamento e sem sessões de agentes abertas. Um comando
 por bloco; só siga ao próximo com o resultado esperado. Troque
 `~/Projetos/migracao-jangada-core` pelo caminho da cópia de trabalho do Core,

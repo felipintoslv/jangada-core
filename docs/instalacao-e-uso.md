@@ -95,5 +95,6 @@ atual do ramo. O `jangada-assinar` refaz commits e não move tags: uma tag criad
 antes da assinatura fica apontando para o commit sem assinatura. Com commits
 ainda sem assinatura, rode o `--lancar` numa cópia temporária privada do
 repositório, aproveite só o `CHANGELOG.md` gerado e crie a tag anotada à mão,
-no commit já assinado, antes de publicá-la. A sequência da `v1.0.0`, com os
-resultados esperados, está em [Core 1.0.0](versao-1.0.0.md#roteiro-do-dono).
+no commit já assinado, antes de publicá-la. A sequência usada na `v1.0.0`, com
+os resultados esperados, está registrada em
+[Core 1.0.0](versao-1.0.0.md#roteiro-do-dono) e serve de modelo para a próxima.

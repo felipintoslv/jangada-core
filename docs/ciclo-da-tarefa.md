@@ -95,13 +95,16 @@ a partir de `PreToolUse`. A pergunta continua no terminal, sem observação fiel
 pelo Core. Isso bloqueia o aceite de paridade até uma solução verificável.
 Não se deve usar este adaptador como capacidade já aceita para coordenar produção.
 
-A origem também tem uma lacuna: o hook agy declara seu provedor, mas os hooks
-Claude e Codex herdam `JANGADA_COORDENADOR_PROVEDOR`. Se chamados diretamente
-dentro da atuação agy, podem atualizar o registro do pai. A identidade preservada
-não distingue esses clientes. Corrigir `bin/jangada-hook-claude` e
-`bin/jangada-hook-codex` exige autorização adicional, pois estão fora do escopo
-da MOD-02. Os testes provam recusa de origem divergente explícita, sem comprovar
-que os três hooks declaram a própria origem.
+Cada hook declara a própria origem ao registrar: `bin/jangada-hook-claude`
+passa `claude`, `bin/jangada-hook-codex` passa `codex` e o hook agy passa `agy`,
+sem usar o `JANGADA_COORDENADOR_PROVEDOR` herdado. Um Claude ou Codex chamado
+diretamente dentro da atuação agy não altera o registro do pai, mesmo com a
+identidade dele; o `testes/coordenador.sh` reproduz essa herança. Até `c874caa`
+os hooks Claude e Codex usavam a origem herdada.
+
+Limites observados com o agy 1.4.11 em 30/10/2026: aberto sem pedido, o
+cliente não entregou `SessionStart` ao hook, e o registro só muda no primeiro
+turno. O cliente também não herda a confiança de pasta para subpastas.
 
 A abertura não toma `.agy-execucao.lock`; tampouco os hooks a retêm até Stop.
 Os filhos continuam disputando a trava do delegador. Isso evita o impasse

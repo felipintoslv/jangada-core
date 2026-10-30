@@ -670,11 +670,17 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
   `JANGADA_HOOK_DESLIGADO=1`; papel de apoio não atualiza coordenador. Stop só
   altera estado com `fullyIdle=true` booleano. Ausência ou valor inválido não
   comprova ociosidade, mesmo que o hook tenha terminado com código zero.
-- A origem do hook também precisa ser própria: Claude e Codex ainda herdam
-  `JANGADA_COORDENADOR_PROVEDOR`. Se chamados diretamente numa atuação agy,
-  podem atualizar seu registro. Só o hook agy fixa origem. A revisão da MOD-02
-  identificou a lacuna; os outros hooks estão fora do escopo autorizado.
-  Teste de recusa com origem explícita não comprova isolamento entre clientes.
+- A origem do hook é própria: cada hook passa `JANGADA_COORDENADOR_PROVEDOR`
+  com o seu provedor ao chamar `jangada-coordenador --registrar`, e o
+  persistidor recusa origem ausente ou diferente. Não confie na variável
+  herdada da sessão: um Claude ou Codex aberto numa atuação agy a herda.
+- agy 1.4.11 aberto sem pedido não entrega `SessionStart` ao hook; para
+  conferir a entrega, é preciso um turno. Ele também pede confiança de novo
+  em subpasta de pasta confiável: para teste sem mexer no `settings.json`,
+  rode com o diretório atual na raiz confiável.
+- Claude trata `git init` aninhado como projeto à parte e pede confiança;
+  projeto sintético sem pergunta fica em subpasta sem `.git` próprio dentro
+  de repositório já confiável.
 - O agy não abre sessão principal desde 03/10/2026: o `jangada-agente`
   recusa `--agente agy` e perfil com `COMANDO=agy`. Ele atende o
   `jangada-delegar` e a revisão do `jangada-validar`. Sessão antiga do agy
