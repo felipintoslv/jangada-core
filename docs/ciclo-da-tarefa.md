@@ -205,7 +205,7 @@ flowchart TD
     C --> D{--direto?}
     D -- sim --> H[pasta = repositório]
     D -- não --> E{ramo agente/NOME existe?}
-    E -- não --> F[git worktree add -b]
+    E -- não --> F[clone da sessão:<br>objetos da raiz pelo alternates]
     E -- já integrado --> F
     E -- não integrado --> G[retomar, outro nome<br>ou cancelar]
     G --> F
@@ -259,9 +259,11 @@ essa autorização ao worktree da tarefa.
   `jangada-agentes --confianca SESSAO` avisam e não conferem nem sincronizam;
   a opção explícita devolve erro. A sessão abre ou volta do mesmo jeito.
 - Raiz autorizada: o `jangada-worktree-preparar --so-confianca RAIZ WORKTREE`
-  confirma pelo Git que o worktree é registrado no repositório da raiz
-  (`git worktree list` lido na raiz e a pasta `.git` comum lida no worktree,
-  com os caminhos resolvidos), grava o worktree em `trustedWorkspaces` e relê
+  confirma pelo Git que a pasta é sessão da raiz: num clone, o
+  `jangada.raiz` do config do clone igual à raiz e a pasta em
+  `JANGADA_WORKTREES`; numa sessão antiga em worktree, `git worktree list`
+  lido na raiz e a pasta `.git` comum lida no worktree, com os caminhos
+  resolvidos. Depois grava o worktree em `trustedWorkspaces` e relê
   o arquivo para confirmar. Repetir não duplica a entrada.
 - Raiz sem autorização: o `jangada-agente` informa a raiz. Com terminal e
   sessão nova, pergunta se abre o agy nela. Você responde à pergunta de

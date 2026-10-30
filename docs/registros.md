@@ -73,7 +73,8 @@ monitoramento, incluindo reservas interativas, seguem o prazo anterior.
 - **Campos:**
   - `data`: `date -Iseconds`, com fuso.
   - `projeto`: nome da pasta do repositório principal, tirado do
-    `--git-common-dir`. Num worktree dá o nome real do repositório (por
+    `jangada.raiz` gravado no clone da sessão ou, fora dele, do
+    `--git-common-dir`. Na sessão dá o nome real do repositório (por
     exemplo `Demanda CEBRAP`), não o nome da tarefa nem o slug.
   - `rotulo`: nome da sessão (`JANGADA_SESSAO`); fora de sessão, nome da
     pasta. Caracteres fora de `[A-Za-z0-9_.-]` viram `-`. Não é único no

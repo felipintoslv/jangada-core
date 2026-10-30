@@ -180,3 +180,27 @@ atualização segue com o modo antigo até ser reaberta. Detalhes em
 
 Veja também as [boas práticas](boas-praticas.md) e o ciclo de versão no
 README (`jangada-versao`).
+
+### Git separado de 30/10/2026
+
+Sessão nova do `jangada-agente` deixou de ser `git worktree` e passou a ser
+um clone com `.git` próprio em `JANGADA_WORKTREES`. Refs, índice e objetos
+novos ficam no clone; os objetos da raiz entram pelo
+`objects/info/alternates`, sem cópia. O ramo `agente/NOME` é criado também na
+raiz ao abrir, e o `jangada-agente-fim` leva os commits do clone para ele por
+`fetch` com conferência de cada objeto, antes de apagar o clone. Na
+integração, a entrega passa pelo espelho em `revisoes/espelhos` e só avança a
+base pelo commit exato aprovado.
+
+A migração `202610301300-avisar-git-separado.sh` não grava nada: lista as
+sessões antigas. Elas não são convertidas. Uma sessão aberta antes da
+atualização segue em worktree, com aviso ao ser reaberta, até o
+`jangada-agente-fim`, que a encerra pelo caminho antigo. Enquanto houver
+sessão antiga, os objetos e as refs `agente/` da raiz continuam graváveis de
+dentro dela; a proteção nova vale inteira quando a última for encerrada.
+
+O clone depende dos objetos da raiz. Um `git gc --prune=now` na raiz depois
+de reescrever a história dela (por exemplo, `reset` para trás seguido de
+`gc`) pode apagar um objeto que o clone ainda usa. Não há outra alternativa
+silenciosa: sem `jangada.raiz` no config, uma pasta com `.git` próprio não é
+aceita como sessão pelo `jangada-agente-fim`.

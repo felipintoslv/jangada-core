@@ -92,8 +92,9 @@ nem cole comandos ou pedidos no tmux de uma sessão aberta.
 Após integração aceita, limpe imediatamente toda tarefa concluída do projeto,
 inclusive herdada de outro coordenador. Antes de `jangada-agente-fim SESSAO`:
 
-1. Confira a raiz na cópia protegida `revisoes/SESSAO.json`, o diretório Git
-   comum e o vínculo do worktree em `git worktree list`. Nome parecido ou
+1. Confira a raiz na cópia protegida `revisoes/SESSAO.json` e o vínculo da
+   pasta: no clone, `git -C PASTA config --get jangada.raiz`; numa sessão
+   antiga, o diretório Git comum e `git worktree list`. Nome parecido ou
    campo `coordenador` declarado não comprova vínculo real com o projeto.
 2. Confira o parecer independente exigido para a cabeça final, a integração
    aceita na base atual e a árvore limpa, incluindo arquivos novos.
@@ -334,7 +335,17 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
   `CLAUDE.md`, `commands`, `agents`, `skills`, `hooks`, `plugins`,
   `output-styles`, `backups` e os scripts soltos. `/model` ou `/config` de
   dentro não persistem.
-- Git num worktree: o `.git` comum é somente leitura, menos `objects`,
+- Git da sessão: a pasta é um clone com `.git` próprio. Commit, ramo,
+  tag, `stash`, `reset` e `gc` mexem só nele; os objetos da raiz vêm pelo
+  `objects/info/alternates`, somente leitura. A raiz e as outras sessões não
+  aparecem (com `JANGADA_ISOLAR_CASA=inteira`, aparecem somente leitura):
+  `git -C RAIZ` não funciona de dentro, e o que chega à raiz é só o ramo
+  `agente/NOME`, levado pelo `jangada-agente-fim` com conferência de cada
+  objeto. Ramo extra com commit fora do ramo da sessão some com o clone; o
+  fim pergunta antes. Não rode `git repack -a -d` sem `-l` nem `gc
+  --prune=now` esperando liberar espaço: o clone depende dos objetos da raiz.
+- Sessão antiga em worktree (aberta antes do clone, `.git` como arquivo):
+  segue assim até o fim, com aviso ao reabrir. O `.git` comum é somente leitura, menos `objects`,
   `refs`, `logs`, `rr-cache`, `reftable` e a pasta do próprio worktree (sem
   o `commondir`, o `gitdir` e o `config.worktree`). Commit, ramo, `checkout -b`, `reset` e `stash` funcionam; apagar
   ramo ou tag e `git gc` falham (regravam o `packed-refs` da raiz). Com
