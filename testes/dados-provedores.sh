@@ -231,6 +231,10 @@ conferir "caso 1: pasta delegacao-* sem PID de dono não é tocada" \
   test -d "$estado/provedores/agy-principal/delegacao-semdono"
 conferir "caso 1: pasta delegacao-* do formato anterior não é tocada" \
   test -d "$estado/provedores/agy-principal/$antiga"
+# A procura de quem usa a pasta lê o /proc inteiro; o environ de processo de
+# outro usuário não se lê, e isso não pode chegar ao terminal.
+conferir "caso 1: a limpeza não imprime erro de /proc/*/environ" \
+  bash -c '! grep -q "/proc/[0-9]*/environ" "$1" "$2"' _ "$tmp/rodar-alfa" "$tmp/rodar-beta"
 
 # Caso 2: restaurar alfa retoma o que é dela, sem o que beta gravou.
 rm -f "$tmp/proj-alfa/visto-alfa"

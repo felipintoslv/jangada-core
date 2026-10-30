@@ -589,8 +589,10 @@ dados_pasta() {
 # dele ainda o encerra no prazo) mantém a pasta até sair.
 dados_em_uso() {
   local f
+  # O environ de processo de outro usuário não se lê; o erro da abertura do
+  # arquivo sairia antes do 2>/dev/null do tr, por isso o bloco inteiro cala.
   for f in /proc/[0-9]*/environ; do
-    tr '\0' '\n' <"$f" 2>/dev/null | grep -qxF "JANGADA_ISOLAR_DADOS=$1" && return 0
+    { tr '\0' '\n' <"$f" | grep -qxF "JANGADA_ISOLAR_DADOS=$1"; } 2>/dev/null && return 0
   done
   return 1
 }
