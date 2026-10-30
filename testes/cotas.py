@@ -63,6 +63,8 @@ class Casa:
         self.estado = self.casa / '.local/state/jangada'
         self.cache = self.casa / '.cache/jangada'
         self.marca = base / 'marca'
+        self.runtime = base / 'run'
+        self.runtime.mkdir(mode=0o700)
         for nome in FERRAMENTAS:
             executavel(self.bin, nome)
         for nome in ('bash', 'python3', 'git', 'jq', 'sqlite3'):
@@ -91,7 +93,8 @@ class Casa:
         ambiente = {'PATH': str(self.bin) + ':/usr/bin:/bin', 'HOME': str(self.casa), 'LANG': 'C.UTF-8',
                     'XDG_STATE_HOME': str(self.casa / '.local/state'), 'XDG_CACHE_HOME': str(self.casa / '.cache'),
                     'XDG_CONFIG_HOME': str(self.casa / '.config'), 'XDG_DATA_HOME': str(self.casa / '.local/share'),
-                    'TMPDIR': self.tmp.name, 'JANGADA_OLLAMA_URL': 'http://127.0.0.1:9',
+                    'TMPDIR': self.tmp.name, 'XDG_RUNTIME_DIR': str(self.runtime),
+                    'JANGADA_OLLAMA_URL': 'http://127.0.0.1:9',
                     'JANGADA_CORE_PATH': str(self.raiz), 'JANGADA_ESTADO': str(self.estado),
                     'JANGADA_CONFIG': str(self.casa / '.config/jangada')}
         ambiente.update(extra)
@@ -277,6 +280,16 @@ class Cotas(unittest.TestCase):
         resposta = casa.router('cotas', '--atualizar', '--permitir-remoto')
         self.assertEqual(resposta.returncode, 0, resposta.stderr)
         self.assertTrue(casa.marca.exists())
+        self.assertEqual(grupos(lido(casa), 'codex', None)['codex']['motivo'], 'consulta_falhou')
+
+    def test_sem_pasta_privada_o_codex_nao_e_chamado_nem_copia_o_login(self):
+        casa = self.casa()
+        autenticacao_falsa(casa)
+        casa.runtime.chmod(0o755)
+        resposta = casa.router('cotas', '--atualizar', '--permitir-remoto')
+        self.assertEqual(resposta.returncode, 0, resposta.stderr)
+        self.assertFalse(casa.marca.exists(), 'codex chamado sem pasta privada para a cópia do login')
+        self.assertEqual(list(casa.runtime.iterdir()), [])
         self.assertEqual(grupos(lido(casa), 'codex', None)['codex']['motivo'], 'consulta_falhou')
 
     def test_codex_com_resposta_valida_traz_janelas_e_renovacao(self):

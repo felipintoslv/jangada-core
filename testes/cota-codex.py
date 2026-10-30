@@ -16,7 +16,8 @@ from unittest.mock import patch
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / 'orquestracao'))
-from cota_codex import consultar, percentual
+import cota_codex
+from cota_codex import consultar, percentual, recuperar_residuos
 from estado import Estado
 from processos import Processo
 from saude import Saude
@@ -91,7 +92,10 @@ class Consulta(unittest.TestCase):
         self.bin = self.pasta / 'bin'
         self.bin.mkdir()
         self.fake = self.bin / 'codex'
-        self.ambiente = patch.dict(os.environ, CODEX_HOME=str(self.casa),
+        self.runtime = self.pasta / 'run'
+        self.runtime.mkdir(mode=0o700)
+        self.base = self.runtime / 'jangada-credenciais'
+        self.ambiente = patch.dict(os.environ, CODEX_HOME=str(self.casa), XDG_RUNTIME_DIR=str(self.runtime),
                                    PATH=str(self.bin) + os.pathsep + os.environ['PATH'])
         self.ambiente.start()
         self.addCleanup(self.ambiente.stop)
@@ -110,6 +114,9 @@ assert sys.argv[-2:] == ['app-server', '--stdio']
 casa = pathlib.Path(os.environ['CODEX_HOME'])
 assert casa == pathlib.Path.cwd()
 assert casa.name.startswith('.cota-codex-')
+assert str(casa.parent) == ''' + repr(str(self.base)) + '''
+assert 'XDG_RUNTIME_DIR' not in os.environ
+assert casa.parent.stat().st_mode & 0o777 == 0o700
 assert (casa / 'auth.json').stat().st_mode & 0o777 == 0o600
 assert casa.stat().st_mode & 0o777 == 0o700
 assert json.loads((casa / 'auth.json').read_text())['tokens']['refresh_token'] == ''
@@ -134,9 +141,9 @@ sys.stdin.read()
         antes = self.auth.read_bytes()
         self.resposta(cotas())
         with patch.dict(os.environ, SEGREDO_TESTE='nao-transmitir'):
-            self.assertEqual(consultar(self.estado.pasta), cotas())
+            self.assertEqual(consultar(), cotas())
         self.assertEqual(self.auth.read_bytes(), antes)
-        self.assertEqual(list(self.estado.pasta.glob('.cota-codex-*')), [])
+        self.assertEqual(list(self.base.glob('.cota-codex-*')), [])
 
     def test_token_vencido_ou_invalido_nao_inicia_consulta(self):
         for dados in ({}, autenticacao(time.time() - 1), autenticacao(time.time() + 20),
@@ -144,7 +151,7 @@ sys.stdin.read()
             with self.subTest(dados=dados):
                 self.auth.write_text(json.dumps(dados))
                 with patch('cota_codex.Processo') as iniciar, self.assertRaises(ValueError):
-                    consultar(self.estado.pasta)
+                    consultar()
                 iniciar.assert_not_called()
 
     def test_sigterm_e_sighup_encerram_filho_e_removem_pasta(self):
@@ -154,7 +161,7 @@ sys.stdin.read()
                       + 'time.sleep(60)\n')
         pedido = 'import sys; sys.dont_write_bytecode = True; sys.path.insert(0, ' \
                  + repr(str(RAIZ / 'orquestracao')) \
-                 + '); from cota_codex import consultar; consultar(' + repr(str(self.estado.pasta)) + ')'
+                 + '); from cota_codex import consultar; consultar()'
         for numero in (signal.SIGTERM, signal.SIGHUP):
             with self.subTest(sinal=numero):
                 prontidao.unlink(missing_ok=True)
@@ -208,17 +215,17 @@ sys.stdin.read()
             with self.subTest(resposta=resposta[:30]):
                 self.programa('import sys\nsys.stdin.readline()\nprint(' + repr(resposta) + ', flush=True)\nsys.stdin.read()\n')
                 with self.assertRaises(ValueError):
-                    consultar(self.estado.pasta)
-                self.assertEqual(list(self.estado.pasta.glob('.cota-codex-*')), [])
+                    consultar()
+                self.assertEqual(list(self.base.glob('.cota-codex-*')), [])
 
     def test_autenticacao_simbolica_e_ausente_nao_sao_seguidas(self):
         self.auth.unlink()
         self.auth.symlink_to(self.pasta / 'inexistente')
         with self.assertRaises(OSError):
-            consultar(self.estado.pasta)
+            consultar()
         self.auth.unlink()
         with self.assertRaises(OSError):
-            consultar(self.estado.pasta)
+            consultar()
 
     def test_prazo_e_interrupcao_encerram_o_grupo_e_removem_credenciais(self):
         self.programa('import time\ntime.sleep(60)\n')
@@ -232,11 +239,11 @@ sys.stdin.read()
 
         with patch('cota_codex.Processo', side_effect=capturar):
             with patch('cota_codex.time.monotonic', side_effect=[0, 11]), self.assertRaises(TimeoutError):
-                consultar(self.estado.pasta)
+                consultar()
             with patch('cota_codex.select.select', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
-                consultar(self.estado.pasta)
+                consultar()
         self.assertTrue(all(p.poll() is not None for p in filhos))
-        self.assertEqual(list(self.estado.pasta.glob('.cota-codex-*')), [])
+        self.assertEqual(list(self.base.glob('.cota-codex-*')), [])
 
     def test_prazo_global_interrompe_metadados_e_remove_credenciais(self):
         self.programa('import time\ntime.sleep(60)\n')
@@ -248,22 +255,22 @@ sys.stdin.read()
             return processo
         inicio = time.monotonic()
         with patch('cota_codex.Processo', side_effect=capturar), self.assertRaises(TimeoutError):
-            consultar(self.estado.pasta, prazo=inicio + 0.2)
+            consultar(prazo=inicio + 0.2)
         self.assertLess(time.monotonic() - inicio, 2)
         self.assertTrue(filhos)
         self.assertTrue(all(p.poll() is not None for p in filhos))
-        self.assertEqual(list(self.estado.pasta.glob('.cota-codex-*')), [])
+        self.assertEqual(list(self.base.glob('.cota-codex-*')), [])
         with patch('cota_codex.Processo') as processo, self.assertRaises(TimeoutError):
-            consultar(self.estado.pasta, prazo=inicio - 1)
+            consultar(prazo=inicio - 1)
         processo.assert_not_called()
 
     def test_encerramento_prematuro_e_falha_de_inicio_nao_deixam_credenciais(self):
         self.programa('import sys\nsys.exit(1)\n')
         with self.assertRaises(ValueError):
-            consultar(self.estado.pasta)
+            consultar()
         with patch('cota_codex.Processo', side_effect=OSError), self.assertRaises(OSError):
-            consultar(self.estado.pasta)
-        self.assertEqual(list(self.estado.pasta.glob('.cota-codex-*')), [])
+            consultar()
+        self.assertEqual(list(self.base.glob('.cota-codex-*')), [])
 
     def test_cli_explicita_e_falha_sem_divulgar_resposta(self):
         self.resposta(cotas())
@@ -280,6 +287,139 @@ sys.stdin.read()
         item = next(p for p in json.loads(resultado.stdout)['provedores'] if p['id'] == 'codex')
         self.assertEqual(item['status'], 'UNKNOWN')
         self.assertNotIn('renovacao-original', resultado.stdout + resultado.stderr)
+
+
+class Residuos(unittest.TestCase):
+    """Cópias do login em pasta privada, com trava do dono e recuperação posterior."""
+
+    setUp = Consulta.setUp
+    programa = Consulta.programa
+    resposta = Consulta.resposta
+
+    def iniciar(self, prontidao, corpo=None):
+        self.programa('import json, os, pathlib, time\npathlib.Path(' + repr(str(prontidao))
+                      + ').write_text(json.dumps({"pid": os.getpid(), "casa": os.environ["CODEX_HOME"]}))\n'
+                      + 'time.sleep(60)\n')
+        pedido = corpo or ('from cota_codex import consultar; consultar()')
+        pai = subprocess.Popen([sys.executable, '-c', 'import sys; sys.dont_write_bytecode = True; sys.path.insert(0, '
+                                + repr(str(RAIZ / 'orquestracao')) + '); ' + pedido],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        self.addCleanup(lambda: pai.poll() is None and (pai.kill(), pai.communicate(timeout=5)))
+        limite = time.monotonic() + 5
+        while not prontidao.exists() and time.monotonic() < limite:
+            time.sleep(0.01)
+        self.assertTrue(prontidao.exists(), pai.stderr.read().decode() if pai.poll() is not None else '')
+        time.sleep(0.05)
+        return pai, json.loads(prontidao.read_text())
+
+    def esperar_fim(self, pid):
+        limite = time.monotonic() + 5
+        while time.monotonic() < limite:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.02)
+        self.fail(f'processo {pid} continua vivo')
+
+    def test_sem_runtime_privado_recusa_sem_gravar_copia(self):
+        aberto = self.pasta / 'aberto'
+        aberto.mkdir(mode=0o755)
+        aberto.chmod(0o755)
+        ligacao = self.pasta / 'ligacao'
+        ligacao.symlink_to(self.runtime)
+        for valor in (None, '', 'relativo', str(aberto), str(ligacao), str(self.pasta / 'inexistente')):
+            with self.subTest(valor=valor), patch('cota_codex.Processo') as processo:
+                with patch.dict(os.environ):
+                    if valor is None:
+                        del os.environ['XDG_RUNTIME_DIR']
+                    else:
+                        os.environ['XDG_RUNTIME_DIR'] = valor
+                    with self.assertRaises((ValueError, OSError)):
+                        consultar()
+                processo.assert_not_called()
+        self.assertEqual(list(aberto.iterdir()), [])
+        self.base.mkdir(mode=0o700)
+        self.base.chmod(0o750)
+        with patch('cota_codex.Processo') as processo, self.assertRaises(ValueError):
+            consultar()
+        processo.assert_not_called()
+
+    def test_execucoes_simultaneas_tem_copias_separadas_e_recuperacao_as_preserva(self):
+        pai1, dados1 = self.iniciar(self.pasta / 'pronto1.json')
+        pai2, dados2 = self.iniciar(self.pasta / 'pronto2.json')
+        casa1, casa2 = pathlib.Path(dados1['casa']), pathlib.Path(dados2['casa'])
+        self.assertNotEqual(casa1, casa2)
+        self.assertEqual({casa1.parent, casa2.parent}, {self.base})
+        for casa in (casa1, casa2):
+            self.assertEqual((casa / 'auth.json').stat().st_mode & 0o777, 0o600)
+            self.assertEqual(casa.stat().st_mode & 0o777, 0o700)
+        # Resíduo sem trava, nome fora do padrão e ligação com o nome certo.
+        orfa = self.base / '.cota-codex-1-orfa'
+        orfa.mkdir(mode=0o700)
+        (orfa / 'auth.json').write_text('{}')
+        alheia = self.base / 'outra-coisa'
+        alheia.mkdir()
+        alvo = self.pasta / 'alvo'
+        alvo.mkdir()
+        (alvo / 'manter').write_text('x')
+        (self.base / '.cota-codex-2-ligacao').symlink_to(alvo)
+        with patch.object(cota_codex, 'IDADE_MINIMA_RESIDUO', 0):
+            self.assertEqual(recuperar_residuos(self.base), ['.cota-codex-1-orfa'])
+        self.assertTrue((casa1 / 'auth.json').exists() and (casa2 / 'auth.json').exists())
+        self.assertTrue(alheia.exists() and (alvo / 'manter').exists())
+        # Recente demais: nem a pasta sem trava some.
+        orfa.mkdir(mode=0o700)
+        self.assertEqual(recuperar_residuos(self.base), [])
+        self.assertTrue(orfa.exists())
+        for pai in (pai1, pai2):
+            pai.terminate()
+            pai.communicate(timeout=5)
+        self.assertFalse(casa1.exists() or casa2.exists())
+
+    def test_sigkill_deixa_copia_e_a_proxima_consulta_a_recolhe(self):
+        pai, dados = self.iniciar(self.pasta / 'pronto.json')
+        casa = pathlib.Path(dados['casa'])
+        pai.kill()
+        pai.communicate(timeout=5)
+        # O processo morto por SIGKILL não limpa: a cópia fica até a recuperação.
+        self.assertTrue((casa / 'auth.json').exists())
+        self.esperar_fim(dados['pid'])
+        with patch.object(cota_codex, 'IDADE_MINIMA_RESIDUO', 0):
+            self.resposta(cotas())
+            self.assertEqual(consultar(), cotas())
+        self.assertFalse(casa.exists())
+        self.assertEqual(list(self.base.glob('.cota-codex-*')), [])
+
+    def test_trava_passada_ao_filho_preserva_a_copia_depois_do_sigkill(self):
+        pronto = self.pasta / 'filho.json'
+        corpo = ('import subprocess, sys, json, pathlib\n'
+                 'from cota_codex import ambiente_codex\n'
+                 'with ambiente_codex() as (temporario, ambiente, trava):\n'
+                 '    f = subprocess.Popen(["sleep", "60"], pass_fds=(trava,))\n'
+                 '    pathlib.Path(' + repr(str(pronto)) + ').write_text(json.dumps({"pid": f.pid, "casa": temporario}))\n'
+                 '    f.wait()\n')
+        pai = subprocess.Popen([sys.executable, '-c', 'import sys; sys.dont_write_bytecode = True; sys.path.insert(0, '
+                                + repr(str(RAIZ / 'orquestracao')) + ')\n' + corpo],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        limite = time.monotonic() + 5
+        while not pronto.exists() and time.monotonic() < limite:
+            time.sleep(0.01)
+        self.assertTrue(pronto.exists())
+        dados = json.loads(pronto.read_text())
+        casa = pathlib.Path(dados['casa'])
+        pai.kill()
+        pai.wait(timeout=5)
+        try:
+            with patch.object(cota_codex, 'IDADE_MINIMA_RESIDUO', 0):
+                self.assertEqual(recuperar_residuos(self.base), [])
+                self.assertTrue((casa / 'auth.json').exists())
+        finally:
+            os.kill(dados['pid'], signal.SIGKILL)
+        self.esperar_fim(dados['pid'])
+        with patch.object(cota_codex, 'IDADE_MINIMA_RESIDUO', 0):
+            self.assertEqual(recuperar_residuos(self.base), [casa.name])
+        self.assertFalse(casa.exists())
 
 
 if __name__ == '__main__':

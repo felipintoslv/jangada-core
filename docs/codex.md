@@ -173,12 +173,21 @@ Claude.
 metadados pelo método `account/rateLimits/read` do Codex. Não inicia conversa,
 gera texto, envia fontes ou ativa execução de ferramentas.
 
-A consulta usa uma pasta temporária privada dentro do estado da orquestração,
-com token de acesso existente e sem configuração do usuário. O token de
+A consulta copia o token de acesso existente para uma pasta própria em
+`$XDG_RUNTIME_DIR/jangada-credenciais` (modo 0700; o arquivo, 0600), sem
+configuração do usuário. Essa pasta fica fora do estado do jangada e não
+aparece dentro do isolamento, que tem `XDG_RUNTIME_DIR` próprio. Sem
+`XDG_RUNTIME_DIR`, ou com ele aberto a outros usuários, a consulta recusa
+sem gravar cópia. O token de
 renovação não é transmitido nem copiado. Tokens vencidos ou com menos de
 60 segundos de validade impedem a consulta e deixam o estado em `UNKNOWN`.
 Encerra o grupo do processo e remove a pasta ao concluir, falhar ou receber
-Ctrl-C, SIGTERM ou SIGHUP. Não faz login, não renova a credencial original e não usa
+Ctrl-C, SIGTERM ou SIGHUP. Morto por SIGKILL, o processo não remove nada: a
+cópia fica até a próxima consulta, que apaga as pastas `.cota-codex-PID-*`
+do mesmo usuário com mais de 60 segundos e sem trava. Cada execução segura
+uma trava (`flock`) na própria pasta enquanto vive, e o executor econômico a
+passa ao processo do Codex; uma execução ativa nunca é recolhida. Ligações
+simbólicas e nomes fora do padrão são ignorados. Não faz login, não renova a credencial original e não usa
 chaves de API do ambiente. Autenticação ausente ou incompatível deixa
 o estado em `UNKNOWN`. O ambiente do filho contém somente caminhos
 temporários, idioma, busca de executáveis, certificados e configuração de proxy.

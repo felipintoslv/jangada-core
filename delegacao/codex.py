@@ -100,7 +100,7 @@ def executar_uma(raiz, pasta, pedido, fontes, tempo, papel='leitor'):
     except OSError:
         return recusar('fonte_ausente')
     try:
-        cota, _ = percentual(consultar(pasta, grupo_proprio=False), time.time())
+        cota, _ = percentual(consultar(grupo_proprio=False), time.time())
         resultado['cota_antes'] = cota
         if cota == 0 or cota < minimo:
             return recusar('cota_insuficiente')
@@ -122,7 +122,7 @@ def executar_uma(raiz, pasta, pedido, fontes, tempo, papel='leitor'):
         return recusar('limite_tempo')
     processo = None
     try:
-        with sinais_codex(), ambiente_codex(pasta) as (temporario, ambiente):
+        with sinais_codex(), ambiente_codex() as (temporario, ambiente, trava):
             ambiente['JANGADA_CORE_PATH'] = str(raiz)
             for nome in ('JANGADA_ISOLADO', 'JANGADA_MARCA_ISOLADO'):
                 if nome in os.environ:
@@ -133,7 +133,7 @@ def executar_uma(raiz, pasta, pedido, fontes, tempo, papel='leitor'):
                                             '--model', resultado['modelo'], '--output-last-message', str(saida),
                                             '--json'], cwd=temporario, env=ambiente,
                                            stdin=subprocess.PIPE, stdout=eventos, stderr=subprocess.DEVNULL,
-                                           start_new_session=False)
+                                           start_new_session=False, pass_fds=(trava,))
                 resultado['chamadas'] = 1
                 try:
                     processo.communicate(prompt.encode(), timeout=restante)

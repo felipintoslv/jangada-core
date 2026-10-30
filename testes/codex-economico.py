@@ -56,7 +56,10 @@ class Economico(unittest.TestCase):
         self.config = self.pasta / 'config/jangada'
         self.config.mkdir(parents=True)
         (self.config / 'delegacao.json').write_text(json.dumps({'analise_documental': ['agy', 'codex-economico']}))
+        self.runtime = self.pasta / 'run'
+        self.runtime.mkdir(mode=0o700)
         self.ambiente = patch.dict(os.environ, JANGADA_CORE_PATH=str(self.raiz), JANGADA_DELEGAR='agy',
+                                   XDG_RUNTIME_DIR=str(self.runtime),
                                    JANGADA_CODEX_ECONOMICO_MODELO='modelo-economico-teste',
                                    JANGADA_CODEX_COTA_MIN='25', CODEX_HOME=str(self.casa),
                                    XDG_STATE_HOME=str(self.pasta / 'state'), XDG_CONFIG_HOME=str(self.pasta / 'config'),
@@ -479,6 +482,7 @@ print(json.dumps({'status':'SUCCESS','conversation_id':'sup','response':json.dum
         self.assertEqual(resultado['motivo_codigo'], 'limite_tempo')
         self.assertEqual(resultado['chamadas'], 1)
         self.assertEqual(list(self.pasta.glob('.cota-codex-*')), [])
+        self.assertEqual(list((self.runtime / 'jangada-credenciais').glob('.cota-codex-*')), [])
 
     def test_fallback_agy_esgotado_codex_configurado_sem_premium(self):
         resposta = self.delegar(['--permitir-remoto', '--permitir-codex'])

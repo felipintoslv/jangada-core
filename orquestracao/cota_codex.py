@@ -3,11 +3,14 @@
 import base64
 import contextlib
 import datetime
+import fcntl
 import json
 import math
 import os
 import pathlib
+import re
 import select
+import shutil
 import signal
 import stat
 import subprocess
@@ -70,8 +73,64 @@ def sinais_codex():
             signal.signal(numero, tratador)
 
 
+# A cópia do login fica numa pasta própria de XDG_RUNTIME_DIR, que só o
+# usuário lê e que o jangada-isolar troca por uma vazia em cada isolamento.
+# Cada cópia tem a trava do dono enquanto ele vive. Morto por SIGKILL, o dono
+# não apaga nada: a próxima consulta recolhe as pastas sem trava.
+PREFIXO = '.cota-codex-'
+IDADE_MINIMA_RESIDUO = 60
+_RESIDUO = re.compile(r'\.cota-codex-[0-9]+-[A-Za-z0-9_]+')
+
+
+def _pasta_privada(caminho):
+    info = os.lstat(caminho)
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+            or info.st_mode & 0o077):
+        raise ValueError(f'{caminho} não é pasta privada do usuário')
+
+
+def base_credenciais():
+    """Pasta privada das cópias temporárias do login; recusa sem XDG_RUNTIME_DIR conferido."""
+    runtime = os.environ.get('XDG_RUNTIME_DIR', '')
+    if not runtime.startswith('/'):
+        raise ValueError('cópia do login do Codex exige XDG_RUNTIME_DIR; nenhuma cópia gravada')
+    _pasta_privada(runtime)
+    base = pathlib.Path(runtime) / 'jangada-credenciais'
+    with contextlib.suppress(FileExistsError):
+        base.mkdir(mode=0o700)
+    _pasta_privada(base)
+    return base
+
+
+def recuperar_residuos(base):
+    """Apaga cópias de consultas encerradas; pula as que têm trava de execução viva."""
+    removidas = []
+    for entrada in os.scandir(base):
+        if not _RESIDUO.fullmatch(entrada.name):
+            continue
+        try:
+            info = entrada.stat(follow_symlinks=False)
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                    or time.time() - info.st_mtime < IDADE_MINIMA_RESIDUO):
+                continue
+            trava = None
+            with contextlib.suppress(FileNotFoundError):
+                trava = os.open(os.path.join(entrada.path, 'trava'), os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                if trava is not None:
+                    fcntl.flock(trava, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                shutil.rmtree(entrada.path)
+                removidas.append(entrada.name)
+            finally:
+                if trava is not None:
+                    os.close(trava)
+        except (BlockingIOError, OSError):
+            continue
+    return removidas
+
+
 @contextlib.contextmanager
-def ambiente_codex(pasta):
+def ambiente_codex():
     casa = pathlib.Path(os.environ.get('CODEX_HOME', str(pathlib.Path.home() / '.codex')))
     fd = os.open(casa / 'auth.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as origem:
@@ -97,7 +156,16 @@ def ambiente_codex(pasta):
         'id_token': tokens['id_token'], 'access_token': tokens['access_token'],
         'refresh_token': '', 'account_id': tokens.get('account_id')},
         'last_refresh': datetime.datetime.now(datetime.timezone.utc).isoformat()}).encode()
-    with tempfile.TemporaryDirectory(prefix='.cota-codex-', dir=pasta) as temporario:
+    base = base_credenciais()
+    recuperar_residuos(base)
+    temporario = tempfile.mkdtemp(prefix=f'{PREFIXO}{os.getpid()}-', dir=base)
+    trava = None
+    try:
+        # Quem passar a trava ao processo do Codex (pass_fds) mantém a pasta
+        # viva enquanto ele roda, mesmo que este processo morra antes.
+        trava = os.open(os.path.join(temporario, 'trava'),
+                        os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fcntl.flock(trava, fcntl.LOCK_EX)
         destino = pathlib.Path(temporario) / 'auth.json'
         with os.fdopen(os.open(destino, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as arquivo:
             arquivo.write(autenticacao)
@@ -108,13 +176,17 @@ def ambiente_codex(pasta):
                         XDG_STATE_HOME=temporario, XDG_CONFIG_HOME=temporario,
                         XDG_CACHE_HOME=temporario, XDG_DATA_HOME=temporario,
                         JANGADA_HOOK_DESLIGADO='1')
-        yield temporario, ambiente
+        yield temporario, ambiente, trava
+    finally:
+        shutil.rmtree(temporario, ignore_errors=True)
+        if trava is not None:
+            os.close(trava)
 
 
-def consultar(pasta, grupo_proprio=True, prazo=None):
+def consultar(grupo_proprio=True, prazo=None):
     if prazo is not None and time.monotonic() >= prazo:
         raise TimeoutError('prazo da consulta de metadados atingido')
-    with sinais_codex(), ambiente_codex(pasta) as (temporario, ambiente):
+    with sinais_codex(), ambiente_codex() as (temporario, ambiente, _trava):
         processo = Processo(['codex', '--no-daemon', '-c',
                                      'log_dir=' + json.dumps(str(pathlib.Path(temporario) / 'log')),
                                      'app-server', '--stdio'], cwd=temporario, env=ambiente,

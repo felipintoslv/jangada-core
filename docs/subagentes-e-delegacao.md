@@ -1137,6 +1137,8 @@ falhas de processo e transações SQLite interrompidas, não perda física de en
 Se o próprio vigia for encerrado à força, a coleta de descendentes não é garantida.
 Arquivos temporários deixados pelo controlador morto são preservados para
 conferência; não há remoção automática de diretórios a partir do estado.
+A exceção são as cópias temporárias do login do Codex, que ficam fora do
+estado e são recolhidas na consulta seguinte (veja [Codex](codex.md)).
 Tarefas aprovadas, pausadas ou em revisão não são retomadas automaticamente.
 Quando só restam dependências de revisão ou tarefas sem adaptador, o
 acompanhamento encerra. Não aprova relatórios nem instala serviços.

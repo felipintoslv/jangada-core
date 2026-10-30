@@ -449,10 +449,8 @@ def estado_codex(raiz_estado, agora, candidatas):
 
 
 def consulta_codex(raiz_estado, agora):
-    pasta = raiz_estado / 'agentes/runtime'
     try:
-        pasta.mkdir(mode=0o700, parents=True, exist_ok=True)
-        dados = consultar(pasta)
+        dados = consultar()
         medido = time.time()
         cota, validade = percentual_codex(dados, medido)
         confirmadas, _ = janelas_codex(dados, medido)

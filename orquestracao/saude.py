@@ -241,7 +241,7 @@ class Saude:
         if atual and (atual['pausado'] or atual['status'] == 'COOLDOWN'):
             return
         try:
-            dados = consultar(self.estado.pasta) if prazo is None else consultar(self.estado.pasta, prazo=prazo)
+            dados = consultar() if prazo is None else consultar(prazo=prazo)
             cota, validade = percentual(dados, time.time())
         except (OSError, ValueError, TypeError, subprocess.SubprocessError):
             if restante(prazo, 1) <= 0:
