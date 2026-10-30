@@ -112,6 +112,7 @@ python3 testes/contexto-revisao.py || falha "testes/contexto-revisao.py"
 
 passo "isolamento dos agentes"
 testes/isolar.sh || falha "testes/isolar.sh"
+python3 -B testes/isolar-provedores.py || falha "testes/isolar-provedores.py"
 testes/restaurar.sh || falha "testes/restaurar.sh"
 testes/fim.sh || falha "testes/fim.sh"
 
