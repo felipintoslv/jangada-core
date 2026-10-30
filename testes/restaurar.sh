@@ -89,7 +89,10 @@ EOF
 done
 cat >"$jp/bin/jangada-isolar" <<'EOF'
 #!/usr/bin/env bash
-if [[ "$1" == --conta ]]; then printf '%s\n' "$2" >"$FALSO_DIR/conta"; shift 2; fi
+# Opções com valor antes do "--": a conta e a delegação ficam registradas.
+while [[ "${1:-}" == --conta || "${1:-}" == --delegar || "${1:-}" == --provedor ]]; do
+  printf '%s\n' "$2" >"$FALSO_DIR/${1#--}"; shift 2
+done
 [[ "$1" == -- ]] && shift
 FALSO_ISOLADO=isolado JANGADA_ISOLADO=1 JANGADA_MARCA_ISOLADO=/ exec "$@"
 EOF
@@ -98,7 +101,7 @@ chmod +x "$tmp/bin/"* "$jp/bin/jangada-isolar"
 uuid=0123abcd-4567-89ab-cdef-0123456789ab
 # restaurar JSON [env extra...]: grava o estado da sessão "s" e restaura.
 restaurar() {
-  rm -f "$log" "$tmp/pasta" "$tmp/ambiente" "$tmp/digitado" "$invadido" "$estado/s.json"
+  rm -f "$log" "$tmp/pasta" "$tmp/ambiente" "$tmp/digitado" "$invadido" "$estado/s.json" "$tmp/delegar"
   jq -n --arg dir "$tmp/projetos/proj" --argjson extra "$1" \
     '{sessao:"s", dir:$dir, agente:"claude", estado:"interrompido",
       atualizado:(now | todate)} + $extra' >"$estado/s.json"
@@ -120,6 +123,7 @@ conferir "caso 1: retoma a conversa e recebe o protocolo" \
 conferir "caso 1: o estado passa a iniciado" [ "$(jq -r .estado "$estado/s.json")" = iniciado ]
 
 conferir "restauração Claude sem perfil: destino padrão agy" grep -qx JANGADA_DELEGAR=agy "$tmp/ambiente"
+conferir "restauração Claude sem perfil: isolador recebe a delegação agy" grep -qx agy "$tmp/delegar"
 conferir "restauração Claude: leitor e redator locais, demais papéis no agy" \
   bash -c 'grep -q -- "--destino local --arquivos FONTES" "$1" && grep -q -- "--destino agy --permitir-remoto" "$1"' _ "$estado/protocolo-s.md"
 for perfil in claude-codex codex-claude; do
@@ -198,11 +202,13 @@ restaurar "{\"agente\":\"codex\", \"perfil\":\"codex-mesmo\", \"revisor\":\"code
 conferir "caso 11: Codex retoma isolado com UUID e revisor Codex" \
   bash -c 'grep -q "^isolado|.*codex .*--no-daemon.*resume $2" "$1" && grep -qx JANGADA_VALIDAR_REVISOR=codex "$3"' _ "$log" "$uuid" "$tmp/ambiente"
 conferir "restauração Codex: perfil local explícito preservado" grep -qx JANGADA_DELEGAR=local "$tmp/ambiente"
+conferir "restauração Codex: isolador recebe a delegação local" grep -qx local "$tmp/delegar"
 conferir "caso 11: protocolo de delegação do Codex refeito" grep -q 'Não tente chamar subagentes do Claude' "$estado/protocolo-s.md"
 restaurar "{\"agente\":\"codex\", \"dir\":\"$tmp/wt/proj/tarefa\", \"worktree\":\"$tmp/wt/proj/tarefa\"}"
 conferir "caso 12: Codex sem UUID no worktree retoma por pasta" grep -q 'resume --last' "$log"
 restaurar '{"agente":"codex", "delegar":"local"}'
 conferir "restauração Codex: destino antigo do estado não vira preferência" grep -qx JANGADA_DELEGAR=agy "$tmp/ambiente"
+conferir "restauração Codex: isolador recebe a delegação da preferência" grep -qx agy "$tmp/delegar"
 conferir "restauração Codex: leitor e redator locais, demais papéis no agy" \
   bash -c 'grep -q "inclusive leitor e redator" "$1" && grep -q -- "--destino local --arquivos FONTES" "$1"' _ "$estado/protocolo-s.md"
 conferir "caso 13: Codex direto sem UUID abre conversa nova" \

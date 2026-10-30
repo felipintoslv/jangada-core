@@ -161,7 +161,7 @@ else
   abrir() { rodar "$repo_jangada/bin/jangada-agente" --projeto "$raiz" --agente claude --delegacao agy "$@"; }
   conta_do() { jq -r '.conta_agy // "-"' "$estado/revisoes/app--$1.json" 2>/dev/null; }
   estado_conta_do() { jq -r '.conta_agy // "-"' "$estado/agentes/app--$1.json" 2>/dev/null; }
-  isolar_com() { grep -F "send-keys -t =app--$1:" "$tmp/tmux.log" | grep -qF "jangada-isolar --conta $2 -- "; }
+  isolar_com() { grep -F "send-keys -t =app--$1:" "$tmp/tmux.log" | grep -qF "jangada-isolar --conta $2 --delegar agy -- "; }
 
   limpar_medidas; cotas 95.13 98; : >"$tmp/tmux.log"
   abrir --nome saldo

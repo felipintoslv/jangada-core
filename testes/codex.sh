@@ -76,7 +76,7 @@ conferir "revisor e delegação no estado" jq -e '.agente == "codex" and .reviso
   "$tmp/state/jangada/agentes/projeto--tarefa.json"
 conferir "protocolo compatível com Codex" grep -q 'Não tente chamar subagentes do Claude' \
   "$tmp/state/jangada/agentes/protocolo-projeto--tarefa.md"
-conferir "lançamento isolado pelo adaptador" grep -q 'jangada-isolar -- .*jangada-codex --protocolo .* -- codex' "$tmp/tmux.comando"
+conferir "lançamento isolado pelo adaptador" grep -q 'jangada-isolar --delegar local -- .*jangada-codex --protocolo .* -- codex' "$tmp/tmux.comando"
 conferir "metadados externos para revisão" jq -e '.revisor == "codex" and .agente == "codex"' \
   "$tmp/state/jangada/revisoes/projeto--tarefa.json"
 

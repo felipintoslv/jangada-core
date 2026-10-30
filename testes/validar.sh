@@ -58,6 +58,9 @@ if [[ -z "${R_LIBS_USER:-}" ]] && command -v Rscript >/dev/null 2>&1; then
   export R_LIBS_USER
 fi
 export HOME="$tmp/casa"
+# O ambiente do agente é mínimo por padrão: as variáveis de controle dos
+# falsos entram por nome, sem abrir o filtro de credenciais.
+export JANGADA_ISOLAR_AMBIENTE_MANTER="FALSO_AGENTES:FALSO_CODEX_ERRO:FALSO_COMANDO:FALSO_DEMORA:FALSO_DIR:FALSO_ECO:FALSO_RESPOSTA:FALSO_SUBAGENTES:FALSO_TOKENS_CODEX:FALSO_USO_AGY"
 erros_dos_pulados "$tmp"
 mkdir -p "$tmp/casa" "$tmp/bin" "$tmp/config/jangada" "$tmp/estado/jangada/agentes" "$tmp/projeto" "$tmp/falso"
 estado="$tmp/estado/jangada/agentes"
@@ -1494,13 +1497,13 @@ conferir "caso 13d: JANGADA_AGENTE_PROTOCOLO=0 desliga também as regras de R" \
 # consulta também; --sem-isolar e JANGADA_AGENTE_ISOLAR=0 não tiram o prefixo.
 agente_em "$tmp/semr"
 conferir "caso 13e: o comando passa pelo jangada-isolar" \
-  bash -c 'jq -r .comando "$1" | grep -q "bin/jangada-isolar -- claude"' _ "$estado/semr.json"
+  bash -c 'jq -r .comando "$1" | grep -q "bin/jangada-isolar --delegar agy -- claude"' _ "$estado/semr.json"
 agente_em "$tmp/semr" --sem-isolar
 conferir "caso 13e: --sem-isolar não tira o jangada-isolar" \
-  bash -c 'jq -r .comando "$1" | grep -q "bin/jangada-isolar -- claude"' _ "$estado/semr.json"
+  bash -c 'jq -r .comando "$1" | grep -q "bin/jangada-isolar --delegar agy -- claude"' _ "$estado/semr.json"
 JANGADA_AGENTE_ISOLAR=0 agente_em "$tmp/semr"
 conferir "caso 13e: JANGADA_AGENTE_ISOLAR=0 não tira o jangada-isolar" \
-  bash -c 'jq -r .comando "$1" | grep -q "bin/jangada-isolar -- claude"' _ "$estado/semr.json"
+  bash -c 'jq -r .comando "$1" | grep -q "bin/jangada-isolar --delegar agy -- claude"' _ "$estado/semr.json"
 
 ((pulados == 0)) || echo "$pulados caso(s) pulado(s) no isolamento"
 if ((falhas)); then

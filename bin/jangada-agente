@@ -557,6 +557,7 @@ if ((sessao_nova)); then
   fi
   isolar_bin="$(printf '%q' "$JANGADA_CORE_PATH/bin/jangada-isolar")"
   [[ -z "$conta_agy" ]] || isolar_bin+=" --conta $conta_agy"
+  isolar_bin+=" --delegar $(printf '%q' "$delegar")"
 
   cmd_agente="$agente"
   if [[ -n "$perfil" ]]; then

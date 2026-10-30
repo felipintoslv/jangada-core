@@ -2,8 +2,14 @@
 # Roda um comando no bubblewrap, com o sistema somente leitura e a pasta atual
 # gravável. O jangada-agente abre o agente por aqui.
 #
-# Uso: jangada-isolar [--mostrar] [--conta NOME] [--] COMANDO [ARGUMENTOS]
-#   --mostrar   imprime a chamada ao bwrap, um argumento por linha, e sai
+# Uso: jangada-isolar [--mostrar] [--conta NOME] [--provedor NOME]
+#                      [--delegar DESTINO] [--] COMANDO [ARGUMENTOS]
+#   --mostrar      imprime a chamada ao bwrap, um argumento por linha, e sai
+#   --provedor     provedor cujo login o comando recebe (claude, agy, codex ou
+#                  nenhum); sem ele, vem do nome do comando
+#   --delegar      concede também o provedor para onde a sessão delega
+#                  (agy, claude, nativo ou local) e o Codex, se os modelos do
+#                  Codex econômico estão configurados
 #
 # Graváveis: a pasta atual, do .git comum só o que um commit precisa, as
 # pastas do Claude e do agy, o estado dos agentes, as métricas do
@@ -13,19 +19,26 @@
 # conteúdo de fora, mas o que o agente grava neles some no fim. O /tmp e o
 # XDG_RUNTIME_DIR são próprios; com eles somem o socket do tmux, do Hyprland,
 # do Wayland e do gpg-agent. O D-Bus da sessão passa pelo xdg-dbus-proxy, que
-# só deixa falar com o keyring (se o agy está instalado) e com as
-# notificações. JANGADA_ISOLAR_KEYRING_ITEM (pares atributo=valor separados
-# por espaço) limita a leitura do keyring aos itens com esses atributos. O
+# só deixa falar com as notificações e, com o agy concedido, com os itens
+# do keyring de JANGADA_ISOLAR_KEYRING_ITEM (pares atributo=valor separados
+# por espaço). Sem essa lista o keyring fica fechado;
+# JANGADA_ISOLAR_KEYRING=servico abre o serviço inteiro, com aviso. O
 # agente não vê os processos de fora (namespace de PID próprio) nem o Docker.
 #
-# A proteção é contra escrita. O agente lê o que não está oculto, usa a rede
-# e herda o ambiente, menos as variáveis de credencial conhecidas.
-# JANGADA_ISOLAR_CASA=minima inverte a leitura da pasta pessoal: ela começa
-# vazia e só aparece o que os agentes e o jangada usam, mais o que estiver
-# em JANGADA_ISOLAR_CASA_LER (caminhos separados por ":").
-# JANGADA_ISOLAR_AMBIENTE=minimo faz o mesmo com o ambiente: só passam as
-# variáveis do sistema, do jangada e dos agentes, mais as de
-# JANGADA_ISOLAR_AMBIENTE_MANTER (nomes separados por ":").
+# Provedores concedidos: no perfil agente, o login (arquivos, variáveis e a
+# conta do agy) só aparece para o provedor do comando, para os da
+# delegação com --delegar e para os de JANGADA_ISOLAR_PROVEDORES (nomes
+# separados por ":"). Os outros somem. Já isolado, o comando de um provedor
+# que a sessão não recebeu é recusado.
+#
+# A pasta pessoal começa vazia e só aparece o que os agentes e o jangada
+# usam, mais o que estiver em JANGADA_ISOLAR_CASA_LER (caminhos separados
+# por ":"); JANGADA_ISOLAR_CASA=inteira volta a mostrar tudo, com aviso. O
+# ambiente é mínimo: só passam as variáveis do sistema e do jangada, menos
+# as que parecem credencial, mais as de JANGADA_ISOLAR_AMBIENTE_MANTER (nomes
+# separados por ":"); JANGADA_ISOLAR_AMBIENTE=herdado volta a herdar tudo,
+# com aviso, menos as credenciais conhecidas. Valor desconhecido nessas
+# variáveis é recusado. O agente usa a rede.
 #
 # Ficam somente leitura, mesmo dentro dos graváveis, os arquivos que o git,
 # o Claude ou o agy leem como configuração ou executam fora do isolamento:
@@ -58,16 +71,20 @@ source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
 
 mostrar=0
 conta_opt=""
+provedor_opt=""
+delegar_opt=""
 while (($#)); do
   case "$1" in
     --mostrar) mostrar=1; shift ;;
     --conta) [[ $# -ge 2 && -n "$2" ]] || exit 2; conta_opt="$2"; shift 2 ;;
-    -h|--ajuda|--help) sed -n '2,54s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    --provedor) [[ $# -ge 2 && -n "$2" ]] || exit 2; provedor_opt="$2"; shift 2 ;;
+    --delegar) [[ $# -ge 2 && -n "$2" ]] || exit 2; delegar_opt="$2"; shift 2 ;;
+    -h|--ajuda|--help) sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//p}' "$0"; exit 0 ;;
     --) shift; break ;;
     *) break ;;
   esac
 done
-(($#)) || { echo "uso: jangada-isolar [--mostrar] [--] COMANDO" >&2; exit 1; }
+(($#)) || { echo "uso: jangada-isolar [--mostrar] [--conta NOME] [--provedor NOME] [--delegar DESTINO] [--] COMANDO" >&2; exit 1; }
 
 # Marca do isolamento: um ponto de montagem no /tmp próprio. Fora, qualquer
 # processo cria um arquivo no /tmp, mas só quem monta cria um ponto de
@@ -84,6 +101,55 @@ case "$perfil" in
   *) echo "jangada-isolar: perfil desconhecido em JANGADA_ISOLAR_PERFIL: $perfil" >&2; exit 1 ;;
 esac
 
+# Modos da casa, do ambiente e do keyring. Valor desconhecido é recusado: um
+# erro de digitação não pode virar o modo aberto.
+casa_modo="${JANGADA_ISOLAR_CASA:-minima}"
+ambiente_modo="${JANGADA_ISOLAR_AMBIENTE:-minimo}"
+keyring_modo="${JANGADA_ISOLAR_KEYRING:-itens}"
+case "$casa_modo" in minima | inteira) ;; *) echo "jangada-isolar: JANGADA_ISOLAR_CASA aceita minima ou inteira, não $casa_modo" >&2; exit 1 ;; esac
+case "$ambiente_modo" in minimo | herdado) ;; *) echo "jangada-isolar: JANGADA_ISOLAR_AMBIENTE aceita minimo ou herdado, não $ambiente_modo" >&2; exit 1 ;; esac
+case "$keyring_modo" in itens | servico) ;; *) echo "jangada-isolar: JANGADA_ISOLAR_KEYRING aceita itens ou servico, não $keyring_modo" >&2; exit 1 ;; esac
+
+# Provedores cujo login o comando recebe. O principal vem de --provedor ou do
+# nome do comando; um comando que não é de provedor não recebe nenhum. Com
+# --delegar (a sessão de agente), entra também o destino da delegação. JANGADA_ISOLAR_PROVEDORES acrescenta outros, separados por ":".
+provedor_valido() {
+  case "$1" in claude | codex | agy) return 0 ;; esac
+  echo "jangada-isolar: provedor desconhecido: $1 (aceita claude, codex ou agy)" >&2
+  exit 1
+}
+if [[ -n "$provedor_opt" ]]; then
+  [[ "$provedor_opt" == nenhum ]] || provedor_valido "$provedor_opt"
+  principal="$provedor_opt"
+else
+  case "$(basename -- "$1")" in
+    claude) principal=claude ;;
+    agy) principal=agy ;;
+    codex | jangada-codex) principal=codex ;;
+    *) principal=nenhum ;;
+  esac
+fi
+concedidos=" "
+if [[ "$perfil" == agente ]]; then
+  [[ "$principal" == nenhum ]] || concedidos+="$principal "
+  if [[ -n "$delegar_opt" && "$principal" != nenhum ]]; then
+    destino="$(jangada_delegacao "$principal" "$delegar_opt")"
+    case "$destino" in agy | claude) [[ "$concedidos" == *" $destino "* ]] || concedidos+="$destino " ;; esac
+    if [[ -n "$JANGADA_CODEX_ECONOMICO_MODELO$JANGADA_CODEX_PRINCIPAL_MODELO" && "$concedidos" != *" codex "* ]]; then
+      concedidos+="codex "
+    fi
+  fi
+  IFS=': ' read -ra extras_provedores <<<"${JANGADA_ISOLAR_PROVEDORES:-}"
+  for p in "${extras_provedores[@]}"; do
+    [[ -n "$p" ]] || continue
+    provedor_valido "$p"
+    [[ "$concedidos" == *" $p "* ]] || concedidos+="$p "
+  done
+fi
+concedido() { [[ "$concedidos" == *" $1 "* ]]; }
+concedidos_lista="${concedidos# }"
+concedidos_lista="${concedidos_lista% }"
+
 contas_agy="$(jangada_contas_agy)" || exit 1
 if [[ -n "$conta_opt" ]]; then export JANGADA_AGY_CONTA="$conta_opt"; fi
 jangada_conta_agy || exit 1
@@ -96,6 +162,16 @@ if ja_isolado && [[ -n "${JANGADA_AGY_CONTA_MONTADA:-}" && "$CONTA_AGY_NOME" != 
 fi
 if [[ "$perfil" == agente ]] && ja_isolado \
    && { ((!conta_configurada)) || [[ "${JANGADA_AGY_CONTA_MONTADA:-}" == "$CONTA_AGY_NOME" ]]; }; then
+  # O login de um provedor só existe aqui dentro se o isolamento de fora o
+  # concedeu. A variável só serve para recusar com mensagem clara; ela não
+  # concede nada. Sem ela, a sessão foi aberta antes de 30/10/2026 e montou
+  # os logins como era então: o comando roda e o aviso pede a reabertura.
+  if [[ -z "${JANGADA_ISOLAR_CONCEDIDOS+x}" ]]; then
+    echo "jangada-isolar: sessão aberta antes da concessão por provedor; reabra-a para valer o isolamento atual" >&2
+  elif [[ "$principal" != nenhum && " $JANGADA_ISOLAR_CONCEDIDOS " != *" $principal "* ]]; then
+    echo "jangada-isolar: esta sessão não recebeu o login do provedor $principal; conceda-o fora (JANGADA_ISOLAR_PROVEDORES ou a delegação configurada)" >&2
+    exit 1
+  fi
   exec "$@"
 fi
 if [[ "$perfil" == agente && "$JANGADA_AGENTE_ISOLAR" == 0 ]]; then
@@ -130,11 +206,16 @@ done
 gravavel() { [[ -e "$1" ]] && args+=(--bind "$1" "$1"); return 0; }
 somente_leitura() { [[ -e "$1" ]] && args+=(--ro-bind "$1" "$1"); return 0; }
 
-# Casa mínima: a pasta pessoal vira uma pasta vazia em memória, e por cima
-# volta, somente leitura, só o que os agentes e o jangada leem. As montagens
-# seguintes (graváveis, somente leitura, ocultos) valem por cima dela. Os
-# arquivos de início do shell ficam de fora: é neles que se exporta token.
-if [[ "$perfil" != implementacao && "${JANGADA_ISOLAR_CASA:-}" == minima ]]; then
+# Casa mínima (padrão): a pasta pessoal vira uma pasta vazia em memória, e
+# por cima volta, somente leitura, só o que os agentes e o jangada leem. As
+# montagens seguintes (graváveis, somente leitura, ocultos) valem por cima
+# dela. Os arquivos de início do shell ficam de fora: é neles que se exporta
+# token. Do login, só o dos provedores concedidos.
+# JANGADA_ISOLAR_CASA=inteira volta ao modo antigo, com aviso a cada abertura.
+if [[ "$perfil" != implementacao && "$casa_modo" == inteira ]]; then
+  echo "jangada-isolar: JANGADA_ISOLAR_CASA=inteira: o agente lê toda a pasta pessoal fora da lista de ocultos" >&2
+fi
+if [[ "$perfil" != implementacao && "$casa_modo" == minima ]]; then
   args+=(--tmpfs "$HOME")
   visiveis=("$JANGADA_CORE_PATH" "$JANGADA_CONFIG" "$JANGADA_ESTADO")
   IFS=: read -ra dirs_path <<<"$PATH"
@@ -142,9 +223,12 @@ if [[ "$perfil" != implementacao && "${JANGADA_ISOLAR_CASA:-}" == minima ]]; the
     [[ "$p" == "$HOME"/?* ]] && visiveis+=("$p")
   done
   for p in .local/bin .local/lib .local/share/claude .local/share/mise .config/mise \
-           .config/git .gitconfig .claude.json .gemini .codex; do
+           .config/git .gitconfig R; do
     visiveis+=("$HOME/$p")
   done
+  concedido claude && visiveis+=("$HOME/.claude.json")
+  concedido agy && visiveis+=("$HOME/.gemini")
+  concedido codex && visiveis+=("${CODEX_HOME:-$HOME/.codex}")
   IFS=: read -ra extras <<<"${JANGADA_ISOLAR_CASA_LER:-}"
   for p in "${extras[@]}"; do
     [[ -n "$p" ]] && visiveis+=("$(realpath -m "${p/#\~/$HOME}")")
@@ -294,14 +378,20 @@ if ((!chamada_aninhada)) && [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR
     if [[ "$perfil" == implementacao && -z "${JANGADA_ISOLAR_KEYRING_ITEM:-}" ]]; then
       recusar_sem_login 'implementação exige atributos de keyring já configurados; não liberar o serviço inteiro'
     fi
-    # Sem o agy instalado, ninguém precisa do keyring. Com ele, e sem
-    # JANGADA_ISOLAR_KEYRING_ITEM, o proxy libera o serviço inteiro: com o
-    # keyring aberto, o agente alcança o que estiver nele.
+    # Só o agy usa o keyring, e só quando ele é concedido. Sem
+    # JANGADA_ISOLAR_KEYRING_ITEM o keyring fica fechado; liberar o serviço
+    # inteiro (com o keyring aberto, o agente alcança o que estiver nele)
+    # exige JANGADA_ISOLAR_KEYRING=servico, com aviso a cada abertura.
     falar=(--talk=org.freedesktop.Notifications)
     falar_impl=()
-    if command -v agy >/dev/null 2>&1; then
+    if command -v agy >/dev/null 2>&1 && { [[ "$perfil" == implementacao ]] || concedido agy; }; then
       if [[ -z "${JANGADA_ISOLAR_KEYRING_ITEM:-}" ]]; then
-        falar+=(--talk=org.freedesktop.secrets)
+        if [[ "$keyring_modo" == servico ]]; then
+          echo "jangada-isolar: JANGADA_ISOLAR_KEYRING=servico: o agente alcança todo o keyring aberto" >&2
+          falar+=(--talk=org.freedesktop.secrets)
+        else
+          echo "jangada-isolar: keyring fechado ao agente: defina JANGADA_ISOLAR_KEYRING_ITEM (o agy que guarda o login em arquivo, por conta do catálogo, não precisa dele)" >&2
+        fi
       else
         achar_itens_keyring
         politica_keyring "$perfil"
@@ -381,13 +471,11 @@ gravavel "$pasta"
 # Numa instalação nova as pastas ainda não existem, e sem o bind o agente não
 # conseguiria criá-las.
 mkdir -p "$HOME/.claude" "$HOME/.cache" 2>/dev/null || true
-if ((!conta_configurada)); then
+if ((!conta_configurada)) && concedido agy; then
   command -v agy >/dev/null 2>&1 && { mkdir -p "$CONTA_AGY_PASTA" 2>/dev/null || true; }
 fi
-for p in "$HOME/.claude" "$CONTA_AGY_PASTA"; do
-  ((conta_configurada)) && [[ "$p" == "$CONTA_AGY_PASTA" ]] && continue
-  gravavel "$p"
-done
+gravavel "$HOME/.claude"
+((conta_configurada)) || ! concedido agy || gravavel "$CONTA_AGY_PASTA"
 # O ~/.cache alimenta código que roda fora: clones do AUR que o yay compila
 # com sudo, cache de compilação do Go, rodas do pip, bytecode do nvim, a
 # atualização do Claude. O agente lê, e o que grava some no fim.
@@ -451,10 +539,11 @@ done
 # CODEX_HOME nem deixar o agente gravar configurações usadas fora dele.
 codex_casa="${CODEX_HOME:-$HOME/.codex}"
 codex_sessao="${JANGADA_SESSAO:-}"
-# Outras sessões também recebem a montagem quando há login do Codex: assim
-# podem chamá-lo como revisor sem precisar criar um isolamento aninhado.
+# Outra sessão recebe a montagem só com o Codex concedido (executor
+# econômico configurado ou JANGADA_ISOLAR_PROVEDORES): assim o chama sem
+# precisar criar um isolamento aninhado.
 if [[ "$(basename -- "$1")" == jangada-codex ]] \
-   || [[ -n "$codex_sessao" && "$codex_casa" == /* && -d "$codex_casa" ]]; then
+   || { concedido codex && [[ -n "$codex_sessao" && "$codex_casa" == /* && -d "$codex_casa" ]]; }; then
   [[ "$codex_sessao" =~ ^[A-Za-z0-9_.-]+$ && "$codex_sessao" != . && "$codex_sessao" != .. \
      && -d "$codex_casa" && "$codex_casa" == /* ]] || {
     echo "jangada-isolar: Codex exige uma sessão válida e a pasta de login existente (rode codex login fora do isolamento)" >&2
@@ -530,7 +619,7 @@ done
 # agy: os executáveis que ele chama (agentapi, webm_encoder). Ele regrava o
 # agentapi antes de cada comando, e somente leitura impediria todo comando.
 # Sem a pasta, o agente a criaria no disco pela pasta do CLI, gravável.
-if ((!conta_configurada)); then
+if ((!conta_configurada)) && concedido agy; then
   [[ -d "$CONTA_AGY_PASTA" ]] && { mkdir -p "$CONTA_AGY_PASTA/bin" 2>/dev/null || true; }
   temporario "$cli_agy/bin" ro
 fi
@@ -617,10 +706,11 @@ else
 fi
 IFS=: read -ra ocultos_extra <<<"${JANGADA_ISOLAR_OCULTAR_EXTRA:-}"
 ocultos+=("${ocultos_extra[@]}")
-# Fora do perfil de agente ninguém fala com provedor: somem os logins do
-# Claude, do Codex e do agy.
-[[ "$perfil" == agente ]] \
-  || ocultos+=("$HOME/.claude" "$HOME/.claude.json" "$codex_casa" "$HOME/.gemini" "$HOME/.config/claude")
+# Some o login de cada provedor não concedido. Fora do perfil de agente
+# ninguém fala com provedor, e somem os três.
+concedido claude || ocultos+=("$HOME/.claude" "$HOME/.claude.json" "$HOME/.config/claude")
+concedido codex || ocultos+=("$codex_casa")
+concedido agy || ocultos+=("$HOME/.gemini")
 # O token do antigo painel fica oculto sempre, com ou sem a lista acima: sem
 # ele, um painel antigo ainda em execução abriria sessão ao agente. A pasta é
 # criada antes, para um token gravado depois não aparecer no isolamento.
@@ -796,33 +886,48 @@ encerrar()' "$atendente_pasta" "$atendente_sessao" "$JANGADA_CORE_PATH/bin/janga
   exec {atendente_fd}<&-
 fi
 
-# Ambiente mínimo: sai toda variável exportada que não está na lista. Vai por
-# nome (--unsetenv) e não por --clearenv com --setenv, que poria os valores na
-# linha de comando do bwrap e na saída do --mostrar.
-if [[ "${JANGADA_ISOLAR_AMBIENTE:-}" == minimo ]]; then
-  while IFS= read -r v; do
-    case "$v" in
-      HOME | USER | LOGNAME | SHELL | PATH | PWD | TERM | COLORTERM | LANG | LANGUAGE | TZ | TMPDIR) continue ;;
-      EDITOR | VISUAL | PAGER | NO_COLOR | DBUS_SESSION_BUS_ADDRESS | SSL_CERT_FILE | SSL_CERT_DIR) continue ;;
-      HTTP_PROXY | HTTPS_PROXY | NO_PROXY | http_proxy | https_proxy | no_proxy) continue ;;
-      LC_* | XDG_* | JANGADA_* | MISE_* | NODE_*) continue ;;
-      CLAUDE_* | ANTHROPIC_* | CODEX_* | OPENAI_* | GEMINI_* | GOOGLE_* | AGY_* | ANTIGRAVITY_*) continue ;;
-    esac
-    [[ ":${JANGADA_ISOLAR_AMBIENTE_MANTER:-}:" == *":$v:"* ]] || args+=(--unsetenv "$v")
-  done < <(compgen -e)
-fi
-
-# As credenciais que os arquivos ocultos guardam também chegam por variável.
-# Sem o ambiente mínimo, o resto é herdado: o que o usuário exportou, o agente lê.
+# Ambiente mínimo (padrão): sai toda variável exportada que não está na
+# lista. Vai por nome (--unsetenv) e não por --clearenv com --setenv, que poria
+# os valores na linha de comando do bwrap e na saída do --mostrar. Em
+# qualquer modo, sai o nome que parece credencial (TOKEN, SECRET, PASSWORD,
+# SENHA, AUTH, API_KEY...), mesmo nas famílias da lista (LC_*, XDG_*, JANGADA_*,
+# MISE_*, NODE_*), e as variáveis de um provedor passam só quando ele é
+# concedido. JANGADA_ISOLAR_AMBIENTE_MANTER (nomes separados por ":") traz
+# de volta um nome, mas não o de provedor não concedido nem os da lista fixa
+# abaixo. JANGADA_ISOLAR_AMBIENTE=herdado mantém o resto, com aviso.
+[[ "$ambiente_modo" != herdado ]] \
+  || echo "jangada-isolar: JANGADA_ISOLAR_AMBIENTE=herdado: o agente herda o ambiente exportado, menos as variáveis de credencial" >&2
+nome_de_credencial() {
+  [[ "${1^^}" =~ (TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|(^|_)AUTH(ORIZATION)?(_|$)|API_?KEY|PRIVATE_KEY|ACCESS_KEY|SENHA|(^|_)PAT$) ]]
+}
 credenciais=()
-if [[ "$perfil" != agente ]]; then
-  while IFS= read -r v; do
-    case "$v" in
-      CLAUDE_* | ANTHROPIC_* | CODEX_* | OPENAI_* | GEMINI_* | GOOGLE_* | AGY_* | ANTIGRAVITY_*)
-        credenciais+=(--unsetenv "$v") ;;
-    esac
-  done < <(compgen -e)
-fi
+while IFS= read -r v; do
+  dono=""
+  case "$v" in
+    CLAUDE_* | ANTHROPIC_*) dono=claude ;;
+    CODEX_* | OPENAI_*) dono=codex ;;
+    GEMINI_* | GOOGLE_* | AGY_* | ANTIGRAVITY_*) dono=agy ;;
+  esac
+  if [[ -n "$dono" ]]; then
+    concedido "$dono" || credenciais+=(--unsetenv "$v")
+    continue
+  fi
+  [[ ":${JANGADA_ISOLAR_AMBIENTE_MANTER:-}:" != *":$v:"* ]] || continue
+  if nome_de_credencial "$v"; then
+    credenciais+=(--unsetenv "$v")
+    continue
+  fi
+  [[ "$ambiente_modo" == minimo ]] || continue
+  case "$v" in
+    HOME | USER | LOGNAME | SHELL | PATH | PWD | TERM | COLORTERM | LANG | LANGUAGE | TZ | TMPDIR) continue ;;
+    EDITOR | VISUAL | PAGER | NO_COLOR | DBUS_SESSION_BUS_ADDRESS | SSL_CERT_FILE | SSL_CERT_DIR) continue ;;
+    HTTP_PROXY | HTTPS_PROXY | NO_PROXY | ALL_PROXY | http_proxy | https_proxy | no_proxy | all_proxy) continue ;;
+    R_LIBS | R_LIBS_USER | R_LIBS_SITE | R_PROFILE_USER | R_ENVIRON_USER | R_LINTR_LINTER_FILE) continue ;;
+    GIT_AUTHOR_NAME | GIT_AUTHOR_EMAIL | GIT_COMMITTER_NAME | GIT_COMMITTER_EMAIL | GIT_CONFIG_GLOBAL | GIT_CONFIG_NOSYSTEM) continue ;;
+    LC_* | XDG_* | JANGADA_* | MISE_* | __MISE_* | NODE_*) continue ;;
+  esac
+  credenciais+=(--unsetenv "$v")
+done < <(compgen -e)
 for v in GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITLAB_TOKEN AWS_ACCESS_KEY_ID \
          AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AZURE_CLIENT_SECRET RCLONE_CONFIG_PASS \
          VAULT_TOKEN PGPASSWORD MYSQL_PWD OP_SERVICE_ACCOUNT_TOKEN BW_SESSION \
@@ -840,7 +945,7 @@ while IFS= read -r v; do
   esac
 done < <(compgen -e)
 if ((conta_configurada)); then
-  if [[ "$perfil" == agente && ! -d "$CONTA_AGY_PASTA" ]]; then
+  if [[ "$perfil" == agente ]] && concedido agy && [[ ! -d "$CONTA_AGY_PASTA" ]]; then
     echo "jangada-isolar: pasta da conta $CONTA_AGY_NOME indisponível" >&2; exit 1
   fi
   # Estas montagens vêm depois de qualquer liberação extra de escrita ou leitura.
@@ -849,7 +954,7 @@ if ((conta_configurada)); then
   done <<<"$contas_agy"
   args+=(--tmpfs "$cli_agy")
   args+=(--ro-bind "$JANGADA_ESTADO/contas/agy.json" "$JANGADA_ESTADO/contas/agy.json")
-  if [[ "$perfil" == agente ]]; then
+  if [[ "$perfil" == agente ]] && concedido agy; then
     args+=(--bind "$CONTA_AGY_PASTA" "$cli_agy"
            --setenv JANGADA_AGY_CONTA "$CONTA_AGY_NOME"
            --setenv JANGADA_AGY_CONTA_MONTADA "$CONTA_AGY_NOME"
@@ -867,6 +972,7 @@ args+=(--unsetenv TMUX --unsetenv TMUX_PANE --unsetenv SSH_AUTH_SOCK
        --unsetenv HYPRLAND_INSTANCE_SIGNATURE --unsetenv HYPRLAND_CMD
        --unsetenv WAYLAND_DISPLAY --unsetenv DISPLAY --unsetenv GPG_AGENT_INFO
        "${credenciais[@]}"
+       --setenv JANGADA_ISOLAR_CONCEDIDOS "$concedidos_lista"
        --setenv JANGADA_ISOLADO 1 --chdir "$pasta" -- env "--default-signal=INT,QUIT" "$@")
 
 if ((mostrar)); then

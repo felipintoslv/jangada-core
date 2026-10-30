@@ -38,7 +38,9 @@ class Confianca(unittest.TestCase):
         self.env.update(XDG_DATA_HOME=str(self.raiz / 'dados'),
                         XDG_CACHE_HOME=str(self.raiz / 'cache'),
                         XDG_RUNTIME_DIR=str(self.raiz / 'runtime'),
-                        PYTHONDONTWRITEBYTECODE='1')
+                        PYTHONDONTWRITEBYTECODE='1',
+                        # Ambiente mínimo: o caminho do banco sintético entra por nome.
+                        JANGADA_ISOLAR_AMBIENTE_MANTER='DB_SINTETICO')
         for nome in ('DBUS_SESSION_BUS_ADDRESS', 'DISPLAY', 'WAYLAND_DISPLAY',
                      'HYPRLAND_INSTANCE_SIGNATURE', 'TMUX', 'CODEX_HOME'):
             self.env.pop(nome, None)

@@ -61,9 +61,11 @@ git init -q -b main "$tmp/repo"
 git -C "$tmp/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m inicio
 git -C "$tmp/repo" worktree add -q -b agente/t "$tmp/wt"
 
+# Os casos rodam como a sessão de um Claude que delega ao agy: os dois
+# provedores concedidos. Os casos dos provedores trocam a lista.
 isolar() {
   (cd "$1" && executar "$tmp" env -u JANGADA_SESSAO -u CODEX_HOME -u XDG_CACHE_HOME -u JANGADA_ISOLADO HOME="$casa" XDG_STATE_HOME="$casa/.local/state" XDG_CONFIG_HOME="$tmp/config" \
-    JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" "${@:2}")
+    JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" JANGADA_ISOLAR_PROVEDORES=claude:agy "${@:2}")
 }
 mostrar() { isolar "$tmp/wt" "$@" "$repo_jangada/bin/jangada-isolar" --mostrar -- true >"$tmp/args"; }
 seguidos() { grep -A2 -xF -- "$1" "$tmp/args" | paste -sd' ' | grep -qF -- "$1 $2 $3"; }
@@ -141,22 +143,57 @@ conferir "caso 1: bin do agy em camada temporária ou somente leitura" bash -c \
 grep -A1 -xF -- --tmp-overlay "$tmp/args" | grep -qxF "$casa/.gemini/antigravity-cli/bin" && sobreposicao=1 || sobreposicao=0
 
 # Ambiente mínimo: só as variáveis da lista passam.
-conferir "caso 1: sem a opção, variável comum não é retirada" \
-  bash -c '! grep -A1 -xF -- --unsetenv "$1" | grep -qxF LESS' _ "$tmp/args"
-mostrar JANGADA_ISOLAR_AMBIENTE=minimo JANGADA_ISOLAR_AMBIENTE_MANTER=R_LIBS_USER:OUTRA \
-  LESS=x SENHA_DO_BANCO=x R_LIBS_USER=x ANTHROPIC_API_KEY=x
 retirada() { grep -A1 -xF -- --unsetenv "$tmp/args" | grep -qxF "$1"; }
+mostrar LESS=x
+conferir "caso 1: sem a opção, o ambiente é mínimo e a variável comum sai" retirada LESS
+mostrar JANGADA_ISOLAR_AMBIENTE=herdado LESS=x JANGADA_TOKEN_TESTE=x MISE_GITHUB_TOKEN=x HF_TOKEN=x 2>"$tmp/aviso"
+conferir "ambiente herdado: a variável comum fica" bash -c '! grep -A1 -xF -- --unsetenv "$1" | grep -qxF LESS' _ "$tmp/args"
+for v in JANGADA_TOKEN_TESTE MISE_GITHUB_TOKEN HF_TOKEN; do
+  conferir "ambiente herdado: $v, nome de credencial, sai" retirada "$v"
+done
+conferir "ambiente herdado: avisa a cada abertura" grep -q "JANGADA_ISOLAR_AMBIENTE=herdado" "$tmp/aviso"
+rc=0
+isolar "$tmp/wt" JANGADA_ISOLAR_AMBIENTE=minima "$repo_jangada/bin/jangada-isolar" --mostrar -- true >/dev/null 2>"$tmp/aviso" || rc=$?
+conferir "ambiente com valor desconhecido é recusado" [ "$rc" -eq 1 ]
+rc=0
+isolar "$tmp/wt" JANGADA_ISOLAR_CASA=minimo "$repo_jangada/bin/jangada-isolar" --mostrar -- true >/dev/null 2>"$tmp/aviso" || rc=$?
+conferir "casa com valor desconhecido é recusada" [ "$rc" -eq 1 ]
+rc=0
+isolar "$tmp/wt" JANGADA_ISOLAR_KEYRING=tudo "$repo_jangada/bin/jangada-isolar" --mostrar -- true >/dev/null 2>"$tmp/aviso" || rc=$?
+conferir "keyring com valor desconhecido é recusado" [ "$rc" -eq 1 ]
+rc=0
+isolar "$tmp/wt" JANGADA_ISOLAR_PROVEDORES=claude:gpt "$repo_jangada/bin/jangada-isolar" --mostrar -- true >/dev/null 2>"$tmp/aviso" || rc=$?
+conferir "provedor desconhecido é recusado" [ "$rc" -eq 1 ]
+mostrar JANGADA_ISOLAR_AMBIENTE=minimo JANGADA_ISOLAR_AMBIENTE_MANTER=R_LIBS_USER:OUTRA:OPENAI_API_KEY:GH_TOKEN \
+  LESS=x OUTRA=x SENHA_DO_BANCO=x R_LIBS_USER=x R_LINTR_LINTER_FILE=x R_PROFILE_USER=x R_ENVIRON_USER=x \
+  GIT_AUTHOR_NAME=x GIT_COMMITTER_EMAIL=x GIT_CONFIG_GLOBAL=x GIT_SSH_COMMAND=x \
+  ANTHROPIC_API_KEY=x OPENAI_API_KEY=x GH_TOKEN=x \
+  MISE_GITHUB_TOKEN=x NODE_AUTH_TOKEN=x JANGADA_VALIDAR_API_KEY=x MISE_ENV=x \
+  JANGADA_PROXY_AUTH=x XDG_AUTHORIZATION=x
+conferir "ambiente mínimo: nome de credencial sai mesmo em família da lista" \
+  bash -c 'for v in MISE_GITHUB_TOKEN NODE_AUTH_TOKEN JANGADA_VALIDAR_API_KEY JANGADA_PROXY_AUTH XDG_AUTHORIZATION; do
+    grep -A1 -xF -- --unsetenv "$1" | grep -qxF "$v" || exit 1; done' _ "$tmp/args"
+conferir "ambiente mínimo: o resto da família da lista fica" bash -c '! grep -A1 -xF -- --unsetenv "$1" | grep -qxF MISE_ENV' _ "$tmp/args"
+conferir "ambiente mínimo: MANTER não traz a variável de provedor não concedido" retirada OPENAI_API_KEY
+conferir "ambiente mínimo: MANTER não traz a credencial da lista fixa" retirada GH_TOKEN
 conferir "ambiente mínimo: variável fora da lista sai" retirada SENHA_DO_BANCO
 conferir "ambiente mínimo: variável comum sai" retirada LESS
 conferir "ambiente mínimo: PATH, HOME e as do jangada ficam" \
   bash -c 'for v in PATH HOME JANGADA_CORE_PATH XDG_STATE_HOME ANTHROPIC_API_KEY; do
     ! grep -A1 -xF -- --unsetenv "$1" | grep -qxF "$v" || exit 1; done' _ "$tmp/args"
 mantida() { ! retirada "$1"; }
-conferir "ambiente mínimo: JANGADA_ISOLAR_AMBIENTE_MANTER fica" mantida R_LIBS_USER
+conferir "ambiente mínimo: JANGADA_ISOLAR_AMBIENTE_MANTER fica" mantida OUTRA
+for v in R_LIBS_USER R_LINTR_LINTER_FILE R_PROFILE_USER R_ENVIRON_USER; do
+  conferir "ambiente mínimo: $v, que o jangada-validar passa ao lintr, fica" mantida "$v"
+done
+for v in GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL GIT_CONFIG_GLOBAL; do
+  conferir "ambiente mínimo: $v, da identidade e configuração do git, fica" mantida "$v"
+done
+conferir "ambiente mínimo: outra variável do git sai" retirada GIT_SSH_COMMAND
 conferir "ambiente mínimo: o valor não aparece nos argumentos" bash -c '! grep -q "SENHA_DO_BANCO=" "$1"' _ "$tmp/args"
 
 # Variáveis de um coordenador que é sessão do Claude Code não chegam ao agente.
-for amb in "" JANGADA_ISOLAR_AMBIENTE=minimo; do
+for amb in "" JANGADA_ISOLAR_AMBIENTE=herdado; do
   mostrar ${amb:+"$amb"} CLAUDECODE=1 CLAUDE_CODE_CHILD_SESSION=1 CLAUDE_CODE_SESSION_ID=s \
     CLAUDE_CODE_MESSAGING_SOCKET=/tmp/s CLAUDE_CODE_MESSAGING_TOKEN=t \
     CLAUDE_CODE_OAUTH_TOKEN=login CLAUDE_CODE_USE_VERTEX=1 CLAUDE_CODE_DISABLE_1M_CONTEXT=1 JANGADA_SESSAO_TESTE=x
@@ -170,7 +207,10 @@ for amb in "" JANGADA_ISOLAR_AMBIENTE=minimo; do
 done
 
 # Casa mínima: a pasta pessoal some e volta só o que está na lista.
-conferir "caso 1: sem a opção, a pasta pessoal não é esvaziada" bash -c '! grep -A1 -xF -- --tmpfs "$1" | grep -qxF "$2"' _ "$tmp/args" "$casa"
+conferir "caso 1: sem a opção, a pasta pessoal é esvaziada" seguidos --tmpfs "$casa" ""
+mostrar JANGADA_ISOLAR_CASA=inteira 2>"$tmp/aviso"
+conferir "casa inteira: a pasta pessoal não é esvaziada" bash -c '! grep -A1 -xF -- --tmpfs "$1" | grep -qxF "$2"' _ "$tmp/args" "$casa"
+conferir "casa inteira: avisa a cada abertura" grep -q "JANGADA_ISOLAR_CASA=inteira" "$tmp/aviso"
 : >"$casa/.zshrc"; : >"$casa/.bashrc"
 mostrar JANGADA_ISOLAR_CASA=minima JANGADA_ISOLAR_CASA_LER="$casa/extra"
 conferir "casa mínima: a pasta pessoal vira pasta vazia" seguidos --tmpfs "$casa" ""
@@ -491,9 +531,10 @@ EOF
     echo pessoal >"$casa_fora/documento.txt"
     le() { (cd "$tmp/wt" && executar "$tmp" env -u JANGADA_ISOLADO HOME="$casa_fora" JANGADA_CORE_PATH="$repo_jangada" JANGADA_MARCA_ISOLADO="$marca_teste" \
       "${@:2}" "$repo_jangada/bin/jangada-isolar" -- bash -c "$1" >/dev/null 2>>"$tmp/isolar.err"); }
-    conferir "casa mínima: sem ela o documento pessoal é legível" le "grep -q pessoal '$casa_fora/documento.txt'"
+    conferir "casa inteira: o documento pessoal é legível" le "grep -q pessoal '$casa_fora/documento.txt'" JANGADA_ISOLAR_CASA=inteira
     conferir "casa mínima: documento pessoal fora de alcance" \
       le "! test -e '$casa_fora/documento.txt'" JANGADA_ISOLAR_CASA=minima
+    conferir "sem a opção: documento pessoal fora de alcance" le "! test -e '$casa_fora/documento.txt'"
     rm -rf "$casa_fora"
   else
     pular "casa mínima (leitura): /var/tmp não é gravável aqui"
@@ -523,9 +564,15 @@ EOF
     proxy ""
     conferir "caso 3: sem agy, o proxy não libera o keyring" \
       bash -c 'grep -qxF -- --talk=org.freedesktop.Notifications "$1" && ! grep -q secrets "$1"' _ "$tmp/proxy.args"
-    proxy "$tmp/agy-falso:"
-    conferir "caso 3: com agy, o proxy libera o keyring e as notificações" \
+    proxy "$tmp/agy-falso:" 2>"$tmp/aviso"
+    conferir "keyring sem item: o proxy fecha o keyring e mantém as notificações" \
+      bash -c 'grep -qxF -- --talk=org.freedesktop.Notifications "$1" && ! grep -q secrets "$1"' _ "$tmp/proxy.args"
+    proxy "$tmp/agy-falso:" JANGADA_ISOLAR_KEYRING=servico
+    conferir "keyring como serviço: com agy, o proxy libera o keyring e as notificações" \
       bash -c 'grep -qxF -- --talk=org.freedesktop.Notifications "$1" && grep -qxF -- --talk=org.freedesktop.secrets "$1"' _ "$tmp/proxy.args"
+    proxy "$tmp/agy-falso:" JANGADA_ISOLAR_KEYRING=servico JANGADA_ISOLAR_PROVEDORES=claude
+    conferir "keyring como serviço: sem o agy concedido, o keyring fica fechado" \
+      bash -c '! grep -q secrets "$1"' _ "$tmp/proxy.args"
     # Com o item configurado, o serviço inteiro sai e entra só o item achado.
     printf '#!/bin/sh\nprintf "%%s\\n" "$*" >"$PROXY_ARGS.gdbus"\necho "([objectpath %s/collection/cofre/7], @ao [])"\n' \
       "'/org/freedesktop/secrets" >"$tmp/proxy-falso/gdbus"
@@ -617,7 +664,9 @@ PY
     }
     segredo() { printf 'gdbus call --session --dest org.freedesktop.secrets --object-path /org/freedesktop/secrets/collection/login/%s --method org.freedesktop.Secret.Item.GetSecret /' "$1"; }
     um="JANGADA_ISOLAR_KEYRING_ITEM=service=agy-teste"
-    conferir "keyring por item: sem a opção, o outro item é lido" keyring "$(segredo 2) | grep -q 'segredo de'"
+    conferir "keyring sem item: o keyring real fica fechado" keyring "! $(segredo 2) 2>/dev/null | grep -q 'segredo de'"
+    conferir "keyring como serviço: o outro item é lido, só com a transição" \
+      keyring "$(segredo 2) | grep -q 'segredo de'" JANGADA_ISOLAR_KEYRING=servico
     conferir "keyring por item: o item do agy é lido" keyring "$(segredo 1) | grep -q 'segredo de'" "$um"
     conferir "keyring por item: o outro item é negado" keyring "! $(segredo 2)" "$um"
     conferir "keyring por item: a leitura em lote pelo serviço é negada" \

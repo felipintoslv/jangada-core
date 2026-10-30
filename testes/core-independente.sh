@@ -83,6 +83,8 @@ FALSO
 chmod +x "$tmp/bin/claude"
 export PATH="$tmp/bin:$PATH" FALSO_DIR="$tmp/falso"
 export JANGADA_ISOLAR_ESCRITA="$tmp/falso"
+# Ambiente mínimo do isolamento: a pasta do revisor falso entra por nome.
+export JANGADA_ISOLAR_AMBIENTE_MANTER=FALSO_DIR
 export XDG_STATE_HOME="$tmp/estado" XDG_CONFIG_HOME="$tmp/config"
 # Fora do isolamento, onde o atendente do jangada-isolar roda a revisão.
 export JANGADA_CORE_PATH="$copia" JANGADA_SESSAO=s

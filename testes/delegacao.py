@@ -115,7 +115,9 @@ class PadraoAgy(unittest.TestCase):
         for pasta in ('agentes', 'nucleo', 'orquestracao', 'delegacao', 'provedores', 'validacao'):
             (self.pasta / pasta).symlink_to(RAIZ / pasta)
         # Este transporte só executa o provedor falso da própria fixture.
-        self.script('jangada-isolar', '[[ "$1" == -- ]] && shift\nexec "$@"\n')
+        # O delegar concede ao isolamento só o login do agy.
+        self.script('jangada-isolar', '[[ "$1 $2" == "--provedor agy" ]] || exit 97\n'
+                    'shift 2\n[[ "$1" == -- ]] && shift\nexec "$@"\n')
         self.script('agy', """if [[ "$1" == agents ]]; then echo leitor; echo redator; exit 0; fi
 if [[ "${2:-}" == /usage ]]; then
   printf '{"command":{"data":{"groups":[{"buckets":[{"id":"gemini-5h","remaining_fraction":%s}]}]}}}\n' "${COTA_FALSA:-0.9}"

@@ -30,6 +30,9 @@ conferir_apos() {
 
 tmp="$(mktemp -d)"
 erros_dos_pulados "$tmp"
+# O ambiente do agente é mínimo por padrão: as variáveis de controle dos
+# falsos entram por nome, sem abrir o filtro de credenciais.
+export JANGADA_ISOLAR_AMBIENTE_MANTER="FALSO_DIR"
 # O bwrap também leva a pasta do soquete nos argumentos; o atendente é o python.
 atendente_vivo() { pgrep -f "^python3 -c import json, os, re, signal.* $tmp/run/jangada-isolar/atendente-" >/dev/null; }
 trap 'pkill -f "^python3 -c import json, os, re, signal.* $tmp/run/" 2>/dev/null; rm -rf "$tmp"' EXIT

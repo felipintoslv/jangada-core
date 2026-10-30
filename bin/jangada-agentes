@@ -353,6 +353,7 @@ restaurar() {
       || { recusa "a conta do agy do registro ($conta_reg) não está mais no catálogo"; return 1; }
     isolar_bin+=" --conta $(printf '%q' "$conta_reg")"
   fi
+  isolar_bin+=" --delegar $(printf '%q' "${delegar:-agy}")"
 
   cmd="$exe"
   [[ -n "$args" ]] && cmd+=" $args"

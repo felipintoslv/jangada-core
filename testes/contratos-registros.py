@@ -239,6 +239,8 @@ class Gerador:
             'TMUX_TMPDIR': str(tmp / 'run'), 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_NOSYSTEM': '1',
             'JANGADA_CORE_PATH': str(self.arvore), 'FALSO_DIR': str(self.falso),
             'JANGADA_ISOLAR_ESCRITA': str(self.falso), 'FALSO_COTA': '0.9', 'FALSO_RESPOSTA': '',
+            # Ambiente mínimo do isolamento: as variáveis dos falsos entram por nome.
+            'JANGADA_ISOLAR_AMBIENTE_MANTER': 'FALSO_COTA:FALSO_DIR:FALSO_RESPOSTA',
         }
         if 'TMPDIR' in os.environ:
             self.ambiente['TMPDIR'] = os.environ['TMPDIR']
@@ -256,7 +258,9 @@ class Gerador:
         """Roda como o agente chama: com JANGADA_ISOLADO e a marca do isolamento
         montada. Dentro de uma sessão a marca já existe; fora, o bwrap monta só
         ela, como faz o testes/validar.sh."""
-        prefixo, variaveis = [], {'JANGADA_ISOLADO': '1', 'JANGADA_SESSAO': SESSAO}
+        # Uma sessão do Claude que delega ao agy recebe os dois logins.
+        prefixo, variaveis = [], {'JANGADA_ISOLADO': '1', 'JANGADA_SESSAO': SESSAO,
+                                  'JANGADA_ISOLAR_CONCEDIDOS': 'claude agy'}
         montagens = pathlib.Path('/proc/self/mountinfo').read_text().splitlines()
         if not any(linha.split()[4] == MARCA for linha in montagens):
             marca = self.tmp / 'marca'

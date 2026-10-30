@@ -183,6 +183,8 @@ if not (cli/"usage.json").exists():
 print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identidade="+conta}))
 ''')
         self.env["CONTAS_ORIGENS"] = ":".join(c["pasta"] for c in contas)
+        # O ambiente mínimo do isolamento só deixa passar o nome pedido.
+        self.env["JANGADA_ISOLAR_AMBIENTE_MANTER"] = "CONTAS_ORIGENS"
         return contas, catalogo
 
     def delegar_conta(self, *args, sucesso=True):
@@ -273,7 +275,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
                   "assert (cli/'segredo').read_text()=='conta2'; "
                   "assert all(not (Path(p)/'segredo').exists() for p in os.environ['CONTAS_ORIGENS'].split(':')); "
                   "(cli/'gravado').write_text('ok')")
-        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--conta", "conta2", "--", "python3", "-c", codigo],
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--provedor", "agy", "--conta", "conta2", "--", "python3", "-c", codigo],
                            cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual((Path(contas[1]["pasta"]) / "gravado").read_text(), "ok")
@@ -291,7 +293,7 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 fonte.txt:1 identid
                   "try: (cli/'bin'/'agentapi').write_text('x')\n"
                   "except OSError: pass\n"
                   "(cli/'gravado').write_text('ok')")
-        comando = [str(REPO / "bin/jangada-isolar"), "--conta", "conta2", "--", "python3", "-c", codigo]
+        comando = [str(REPO / "bin/jangada-isolar"), "--provedor", "agy", "--conta", "conta2", "--", "python3", "-c", codigo]
         # Sem bin na conta: a pasta é criada vazia pelo isolamento e nada sobra nela.
         p = subprocess.run(comando, cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=20)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -335,7 +337,7 @@ assert p.returncode==4 and "indisponível nesta sessão" in p.stderr,p.stderr
 p=subprocess.run([str(raiz/"bin/jangada-isolar"),"--conta","conta2","--","true"],capture_output=True,text=True)
 assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
 '''
-        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--conta", "conta1", "--", "python3", "-c", codigo],
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--provedor", "agy", "--conta", "conta1", "--", "python3", "-c", codigo],
                            cwd=self.raiz, env=self.env, capture_output=True, text=True, timeout=25)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertFalse((Path(contas[1]["pasta"]) / "consultas").exists())
@@ -359,7 +361,7 @@ assert p.returncode!=0 and "indisponível nesta sessão" in p.stderr,p.stderr
         codigo = ("from pathlib import Path; import os; "
                   "assert not (Path.home()/'.gemini/antigravity-cli/segredo').exists(); "
                   "assert all(not (Path(p)/'segredo').exists() for p in os.environ['CONTAS_ORIGENS'].split(':'))")
-        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--conta", "conta2", "--", "python3", "-c", codigo],
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--provedor", "agy", "--conta", "conta2", "--", "python3", "-c", codigo],
                            cwd=self.raiz, env=dict(self.env, JANGADA_ISOLAR_PERFIL="verificacao"),
                            capture_output=True, text=True, timeout=20)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -545,7 +547,7 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
         padrao = self.casa / ".gemini/antigravity-cli/settings.json"
         self.assertNotIn("conta2", padrao.read_text())
 
-    def argumentos_sem_catalogo(self, fontes=None):
+    def argumentos_sem_catalogo(self, fontes=None, extra=None):
         arvore = self.tmp / "montagem"
         (arvore / "bin").mkdir(parents=True)
         (arvore / "orquestracao").mkdir()
@@ -557,15 +559,32 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
             'import sys; assert sys.argv[1]=="preparar-isolamento"; sys.exit(0)\n')
         self.script("bwrap", "import sys; sys.exit(1)")
         ambiente = {k: self.env[k] for k in ("HOME", "PATH", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME")}
-        ambiente.update(JANGADA_CORE_PATH=str(arvore), LANG="C.UTF-8", JANGADA_SESSAO="sintetica")
+        ambiente.update(JANGADA_CORE_PATH=str(arvore), LANG="C.UTF-8", JANGADA_SESSAO="sintetica", **(extra or {}))
         p = subprocess.run(["bash", str(arvore / "bin/jangada-isolar"), "--mostrar", "--", "agy"],
                            cwd=self.raiz, env=ambiente, capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
         return p.stdout.replace(str(self.tmp), "${TMP}")
 
     def test_sem_catalogo_bwrap_igual_a_base_0f82006(self):
-        esperado = (REPO / "testes/contratos/isolar-sem-contas-0f82006.txt").read_text()
-        self.assertEqual(self.argumentos_sem_catalogo(), esperado)
+        # Os padrões novos (casa mínima, ambiente mínimo, keyring por item e
+        # só o login do provedor do comando) mudam a chamada. As variáveis de
+        # transição documentadas voltam à de 0f82006; a única diferença é a
+        # lista de provedores concedidos que o isolamento aninhado lê.
+        base = (REPO / "testes/contratos/isolar-sem-contas-0f82006.txt").read_text()
+        marca = "--setenv\nJANGADA_ISOLADO\n"
+        self.assertEqual(base.count(marca), 1)
+        esperado = base.replace(marca, "--setenv\nJANGADA_ISOLAR_CONCEDIDOS\nagy claude codex\n" + marca)
+        transicao = dict(JANGADA_ISOLAR_CASA="inteira", JANGADA_ISOLAR_AMBIENTE="herdado",
+                         JANGADA_ISOLAR_KEYRING="servico", JANGADA_ISOLAR_PROVEDORES="claude:codex")
+        self.assertEqual(self.argumentos_sem_catalogo(extra=transicao), esperado)
+
+    def test_sem_catalogo_padrao_esconde_casa_e_login_de_outros_provedores(self):
+        args = self.argumentos_sem_catalogo().splitlines()
+        seguidos = ["\n".join(args[i:i + 3]) for i in range(len(args))]
+        self.assertIn("--tmpfs\n${TMP}/casa\n--ro-bind", seguidos)
+        self.assertIn("--ro-bind\n${TMP}/casa/.gemini\n${TMP}/casa/.gemini", seguidos)
+        self.assertIn("--tmpfs\n${TMP}/casa/.claude\n--tmpfs", seguidos)
+        self.assertIn("--setenv\nJANGADA_ISOLAR_CONCEDIDOS\nagy", seguidos)
 
     def argumentos_privados_sem_catalogo(self, codigo_base=None):
         import re
@@ -612,13 +631,14 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
         isolador.write_text("#!/usr/bin/python3\nimport json,os,sys\n"
                             "from pathlib import Path\n"
                             "Path(os.environ['FALSO_ARGUMENTOS']).write_text(json.dumps(sys.argv[1:]))\n"
-                            "os.execvp('agy',sys.argv[2:])\n")
+                            "os.execvp('agy',sys.argv[sys.argv.index('--')+1:])\n")
         isolador.chmod(0o755)
         agy = self.bin / "agy"
         agy.write_text(agy.read_text().replace('print("implementador")', 'print("explorador")'))
         ambiente = dict(self.env, JANGADA_CORE_PATH=str(arvore), FALSO_ARGUMENTOS=str(self.tmp / "argumentos.json"))
         # Lista conferida na base de T1, antes de acrescentar contas.
-        esperado = ["--", "agy", "-p", "Leia\n\nSe uma ferramenta ou comando for negado, pare e informe qual ação foi negada.",
+        # Desde o lote de credenciais, o provedor vai explícito na frente.
+        esperado = ["--provedor", "agy", "--", "agy", "-p", "Leia\n\nSe uma ferramenta ou comando for negado, pare e informe qual ação foi negada.",
                     "--agent", "explorador", "--model", "gemini-3.8-flash-high", "--sandbox",
                     "--output-format", "json", "--print-timeout", "300s"]
         for conta in ([], ["--conta", "principal"]):
@@ -1381,8 +1401,10 @@ print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"
         ambiente = {**self.env, "XDG_RUNTIME_DIR": str(runtime),
                     "DBUS_SESSION_BUS_ADDRESS": "unix:path=/inexistente",
                     "JANGADA_ISOLAR_KEYRING_ITEM": "service=gemini username=antigravity"}
-        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--", "true"], cwd=self.raiz, env=ambiente,
-                           input="", capture_output=True, text=True)
+        # A sessão do autor é a de um Claude que delega ao agy: só assim ela
+        # recebe o login do agy e, com ele, o keyring.
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--provedor", "claude", "--delegar", "agy", "--", "true"],
+                           cwd=self.raiz, env=ambiente, input="", capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
         registros = [linha.split("|") for linha in proxies.read_text().splitlines()]
         self.assertEqual(len(registros), 2, registros)
@@ -1475,7 +1497,8 @@ print(json.dumps({"status":"SUCCESS","response":"dados.txt:1 valor atualizado","
         ambiente = {**self.env, "XDG_RUNTIME_DIR": str(runtime), "DBUS_SESSION_BUS_ADDRESS": barramento,
                     "JANGADA_ISOLAR_KEYRING_ITEM": "service=agy-teste",
                     "JANGADA_ISOLAR_ESCRITA": str(self.tmp)}
-        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--", str(REPO / "bin/jangada-delegar"), "implementador",
+        p = subprocess.run([str(REPO / "bin/jangada-isolar"), "--provedor", "claude", "--delegar", "agy", "--",
+                            str(REPO / "bin/jangada-delegar"), "implementador",
                             "Mudar valor para 2", "--permitir-remoto", "--base", self.base, "--arquivos", "fonte.txt",
                             "--permitidos", "dados.txt", "--criterio", "O teste do autor exige valor=2"],
                            cwd=self.raiz, env=ambiente, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)

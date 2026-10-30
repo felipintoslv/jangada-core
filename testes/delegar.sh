@@ -57,6 +57,9 @@ mkdir -p "$tmp/bin" "$tmp/home/.gemini/antigravity-cli/log" "$tmp/falso" "$tmp/p
 # O agy roda pelo jangada-isolar, que troca o /tmp por um vazio: a pasta em
 # que o falso registra cada chamada entra como gravável a mais.
 export JANGADA_ISOLAR_ESCRITA="$tmp/falso"
+# O ambiente do agente é mínimo por padrão: as variáveis de controle do agy
+# falso entram por nome, sem abrir o filtro de credenciais.
+export JANGADA_ISOLAR_AMBIENTE_MANTER="FALSO_AGENTES:FALSO_CODIGO:FALSO_COTA:FALSO_DIR:FALSO_ESGOTADO:FALSO_ESPERA:FALSO_ESPERA_USAGE:FALSO_IGNORAR_TERM:FALSO_JOGO_ATIVO:FALSO_LOG:FALSO_NEGADO:FALSO_PASSOS:FALSO_RESPOSTA:FALSO_SEMANAL:FALSO_SEM_VRAM:FALSO_TERCEIROS:FALSO_USAGE_FALHA:FALSO_USAGE_JSON:FALSO_VRAM"
 
 # O agy falso responde ao /usage com a cota de $FALSO_COTA (fração) e ao
 # pedido com $FALSO_RESPOSTA. Grava os argumentos de cada chamada.
