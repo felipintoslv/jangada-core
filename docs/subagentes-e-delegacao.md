@@ -1135,8 +1135,17 @@ O desligamento da máquina encerra os processos pelo sistema operacional;
 a recuperação do estado ocorre na próxima abertura da fila. Os testes simulam
 falhas de processo e transações SQLite interrompidas, não perda física de energia.
 Se o próprio vigia for encerrado à força, a coleta de descendentes não é garantida.
+`testes/recuperacao-conjunta.py` percorre pelos comandos reais a matriz de
+término normal, erro do cliente, tempo esgotado, Ctrl+C, SIGTERM e SIGKILL do
+controlador, com outro projeto executando ao lado, e confere descendentes,
+estado, artefato, temporários, a sessão vizinha, uma segunda recuperação e uma
+nova execução que não repete a chamada.
 Arquivos temporários deixados pelo controlador morto são preservados para
 conferência; não há remoção automática de diretórios a partir do estado.
+A pasta de trabalho se chama `execucao-<dono>-*` (ou `supervisao-<dono>-*`),
+com o dono da reserva que o evento `reserva_expirada` registra; assim a sobra
+é ligada à tarefa interrompida. Recuperar de novo não a altera. A trava vazia
+em `reservas/` também fica.
 A exceção são as cópias temporárias do login do Codex, que ficam fora do
 estado e são recolhidas na consulta seguinte (veja [Codex](codex.md)).
 Tarefas aprovadas, pausadas ou em revisão não são retomadas automaticamente.
