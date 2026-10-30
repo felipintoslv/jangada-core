@@ -139,6 +139,9 @@ de 30 segundos. O observador é encerrado junto com o isolamento.
 | `Stop`, `Interrupt` | `concluido` |
 | `SessionEnd` | `concluido`, com mensagem de encerramento |
 
+Turno encerrado por erro do provedor não dispara `Stop` nem `Interrupt`
+(observado no Codex 0.165.0): o estado fica em `trabalhando`.
+
 `bin/jangada-hook-codex` não decide permissões: sua saída é vazia. Ele
 atualiza apenas uma sessão existente, sob a trava comum, e grava mudanças
 em `eventos-agentes.jsonl`. Eventos identificados como de subagente não

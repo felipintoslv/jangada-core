@@ -106,6 +106,21 @@ Limites observados com o agy 1.4.11 em 30/10/2026: aberto sem pedido, o
 cliente não entregou `SessionStart` ao hook, e o registro só muda no primeiro
 turno. O cliente também não herda a confiança de pasta para subpastas.
 
+Homologação real de 30/10/2026 (Claude Code 2.1.314 e Codex 0.165.0, projeto
+sintético e estado separado), sobre o ramo com a correção da origem:
+
+- Claude: abertura, trabalho, pedido de permissão (`aguardando`), conclusão,
+  saída, retomada com a mesma `atuacao_id` e recusa de outro provedor com a
+  sessão viva funcionaram. Interrompido com Esc, o Claude não chama nenhum
+  hook: o registro fica em `trabalhando` até o próximo pedido ou a saída.
+- Codex: abertura, permissão, conclusão, interrupção (`Interrupt` leva a
+  `concluido`), saída e passagem manual depois da saída do Claude
+  funcionaram. Quando o provedor encerra o turno com erro, o Codex também não
+  chama hook, e o registro fica em `trabalhando`. O aviso de inicialização
+  sobre rodar sem o servidor compartilhado vem dos hooks passados por `-c`
+  e não indica falha.
+- Em ambos, `trabalhando` não comprova que o turno continua.
+
 A abertura não toma `.agy-execucao.lock`; tampouco os hooks a retêm até Stop.
 Os filhos continuam disputando a trava do delegador. Isso evita o impasse
 pai esperando filho, mas não comprova coexistência na mesma conta. A prova real

@@ -678,6 +678,11 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
   conferir a entrega, é preciso um turno. Ele também pede confiança de novo
   em subpasta de pasta confiável: para teste sem mexer no `settings.json`,
   rode com o diretório atual na raiz confiável.
+- `trabalhando` no registro não prova turno em curso: o Claude interrompido
+  com Esc e o Codex com turno encerrado por erro do provedor não chamam hook.
+  Confira a tela do tmux antes de concluir que o agente está ocupado.
+- Codex aberto com `-c` (hooks do jangada) mostra aviso de que roda sem o
+  servidor compartilhado; é efeito do `-c`, não alerta de hook.
 - Claude trata `git init` aninhado como projeto à parte e pede confiança;
   projeto sintético sem pergunta fica em subpasta sem `.git` próprio dentro
   de repositório já confiável.
