@@ -239,7 +239,7 @@ def executar_uma(estado, projeto, raiz, perfil, permitir_remoto, saude, permitir
                         JANGADA_DELEGAR_CHAMADAS_MAX=str(saldo), JANGADA_EXECUCAO=execucao['id'])
         ambiente['JANGADA_DELEGAR_IMPEDIMENTOS'] = json.dumps(
             (saude.impedimentos() if saude is not None else []) + estado.impedimentos_politica())
-        with tempfile.TemporaryDirectory(prefix='execucao-', dir=estado.pasta) as pasta:
+        with tempfile.TemporaryDirectory(prefix=f'execucao-{dono}-', dir=estado.pasta) as pasta:
             saida = pathlib.Path(pasta) / 'relatorio.md'
             argumentos[1:1] = ['--arquivo', str(saida)]
             inicio = time.monotonic()
@@ -418,7 +418,7 @@ def retomar_supervisao(estado, projeto, raiz, perfil, permitir_remoto, saude, pe
             ambiente.update(JANGADA_CORE_PATH=str(raiz), JANGADA_EXECUCAO=execucao['id'])
             ambiente['JANGADA_DELEGAR_IMPEDIMENTOS'] = json.dumps(
                 (saude.impedimentos() if saude is not None else []) + estado.impedimentos_politica())
-            with tempfile.TemporaryDirectory(prefix='supervisao-', dir=estado.pasta) as pasta:
+            with tempfile.TemporaryDirectory(prefix=f'supervisao-{dono}-', dir=estado.pasta) as pasta:
                 arquivo = pathlib.Path(pasta) / 'relatorio.md'
                 arquivo.write_text(texto, encoding='utf-8')
                 # Uma interrupção após iniciar o supervisor deixa o consumo desconhecido.
