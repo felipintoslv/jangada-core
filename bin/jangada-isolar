@@ -583,13 +583,30 @@ dados_pasta() {
   [[ "$alvo" == "$raiz/$1/$dados_chave" ]] || return 1
   printf '%s\n' "$alvo"
 }
+# Uma pasta de delegação (delegacao-PID-*) sobra quando o jangada-delegar
+# morre por SIGKILL. Só some com o PID morto e sem nenhum processo vivo que
+# a tenha recebido em JANGADA_ISOLAR_DADOS: um jangada-isolar órfão (o timeout
+# dele ainda o encerra no prazo) mantém a pasta até sair.
+dados_em_uso() {
+  local f
+  for f in /proc/[0-9]*/environ; do
+    tr '\0' '\n' <"$f" 2>/dev/null | grep -qxF "JANGADA_ISOLAR_DADOS=$1" && return 0
+  done
+  return 1
+}
 dados_limpar_mortos() {
   local d pid
-  for d in "$dados_raiz"/*/efemera-*; do
+  for d in "$dados_raiz"/*/efemera-* "$dados_raiz"/*/delegacao-*; do
     [[ -d "$d" && ! -L "$d" ]] || continue
-    pid="${d##*/efemera-}"
-    [[ "$pid" =~ ^[0-9]+$ ]] || continue
-    kill -0 "$pid" 2>/dev/null || rm -rf -- "$d"
+    if [[ "${d##*/}" == efemera-* ]]; then
+      pid="${d##*/efemera-}"
+      [[ "$pid" =~ ^[0-9]+$ ]] || continue
+      kill -0 "$pid" 2>/dev/null || rm -rf -- "$d"
+    else
+      [[ "${d##*/}" =~ ^delegacao-([0-9]+)- ]] || continue
+      pid="${BASH_REMATCH[1]}"
+      kill -0 "$pid" 2>/dev/null || dados_em_uso "${d##*/}" || rm -rf -- "$d"
+    fi
   done
 }
 # Transição de 30/10/2026: diz se a pasta de dados ($1) ainda não existe e a

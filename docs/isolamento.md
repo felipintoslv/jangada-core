@@ -263,11 +263,16 @@ chave é o `JANGADA_SESSAO`; sem ele, a execução é efêmera
 SIGKILL, a pasta efêmera fica e é apagada na próxima abertura de agente,
 não antes. O `jangada-delegar` chama o agy sem sessão e lê o log e a
 conversa depois que ele sai; por isso passa `JANGADA_ISOLAR_DADOS` com uma
-chave `delegacao-*` própria de cada chamada, e apaga a pasta no fim. O
+chave `delegacao-<pid>-*` própria de cada chamada, com o PID do
+`jangada-delegar`, e apaga a pasta no fim. O
 `jangada-isolar` só aceita essa variável sem `JANGADA_SESSAO` e com esse
 prefixo, e uma sessão com nome `delegacao-*` ou `efemera-*` vira efêmera,
 para não cair na pasta de outra. Depois de SIGKILL no `jangada-delegar`, a
-pasta da chamada fica até ser apagada à mão. A pasta `provedores/` inteira fica oculta dentro de qualquer
+pasta da chamada é apagada na próxima abertura de agente, desde que esse PID
+não exista mais e nenhum processo vivo a tenha recebido em
+`JANGADA_ISOLAR_DADOS` (um `jangada-isolar` órfão, que o `timeout` da chamada
+ainda encerra no prazo). Se o PID for reaproveitado por outro processo, a pasta
+espera até ele sair. A pasta `provedores/` inteira fica oculta dentro de qualquer
 isolamento, assim como `codex/`, com as pastas do Codex por sessão.
 
 **Claude.** A pasta do Claude (`~/.claude` ou `CLAUDE_CONFIG_DIR`) continua

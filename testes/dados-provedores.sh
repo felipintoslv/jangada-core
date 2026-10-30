@@ -47,7 +47,8 @@ fi
 
 # Fora do /tmp: no isolamento ele vira uma pasta vazia.
 tmp="$(mktemp -d -p /var/tmp jangada-dados-provedores.XXXXXX)"
-trap 'chmod -R u+w "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
+vivos=()
+trap '((${#vivos[@]} == 0)) || kill "${vivos[@]}" 2>/dev/null; chmod -R u+w "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 casa="$tmp/casa"
 mkdir -p "$casa" "$tmp/config/jangada"
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1
@@ -157,6 +158,22 @@ nao_visto() { [[ -f "$tmp/proj-$1/visto-$1" ]] && ! grep -qE -e "$2" "$tmp/proj-
 # Uma efêmera de processo morto, deixada por um SIGKILL: some na abertura.
 sleep 0 & morto=$!; wait "$morto"
 mkdir -p "$estado/provedores/claude/efemera-$morto/projects"
+# Recuperação conjunta: pasta de execução viva fica; delegação de um
+# jangada-delegar morto por SIGKILL some, salvo se um isolamento órfão ainda
+# a usa (JANGADA_ISOLAR_DADOS no ambiente de um processo vivo).
+sleep 300 & vivo=$!; vivos+=("$vivo")
+env JANGADA_ISOLAR_DADOS="delegacao-$morto-orfa-1" sleep 300 & orfao=$!; vivos+=("$orfao")
+mkdir -p "$estado/provedores/claude/efemera-$vivo/projects" \
+  "$estado/provedores/agy-principal/delegacao-$morto-morta-1/conversations" \
+  "$estado/provedores/agy-principal/delegacao-$vivo-viva-1/conversations" \
+  "$estado/provedores/agy-principal/delegacao-$morto-orfa-1/conversations" \
+  "$estado/provedores/agy-principal/delegacao-semdono/conversations"
+recuperacao_preservada() {
+  test -d "$estado/provedores/claude/efemera-$vivo" \
+    && test -d "$estado/provedores/agy-principal/delegacao-$vivo-viva-1" \
+    && test -d "$estado/provedores/agy-principal/delegacao-$morto-orfa-1" \
+    && test ! -e "$estado/provedores/agy-principal/delegacao-$morto-morta-1"
+}
 
 # Caso 1: duas sessões de projetos distintos, ao mesmo tempo.
 rodar alfa escrever agy:codex >"$tmp/rodar-alfa" 2>&1 & pa=$!
@@ -202,6 +219,11 @@ conferir "caso 1: os dados ficam na pasta da sessão, só do dono" \
            && grep -qx codex-alfa "$1/codex/alfa/sessions/s-alfa.jsonl" \
            && test "$(stat -c %a "$1/provedores/claude/alfa")" = 700' _ "$estado"
 conferir "caso 1: a efêmera do processo morto foi removida" test ! -e "$estado/provedores/claude/efemera-$morto"
+conferir "caso 1: a delegação de jangada-delegar morto foi removida" \
+  test ! -e "$estado/provedores/agy-principal/delegacao-$morto-morta-1"
+conferir "caso 1: efêmera e delegação de processo vivo e delegação em uso por órfão ficam" recuperacao_preservada
+conferir "caso 1: pasta delegacao-* sem PID de dono não é tocada" \
+  test -d "$estado/provedores/agy-principal/delegacao-semdono"
 
 # Caso 2: restaurar alfa retoma o que é dela, sem o que beta gravou.
 rm -f "$tmp/proj-alfa/visto-alfa"
@@ -211,6 +233,10 @@ for m in conversa memoria prompt agy agyprompt resumo codex; do
   conferir "caso 2: alfa retoma o próprio $m" visto alfa "$m-alfa"
 done
 conferir "caso 2: alfa reaberta não vê beta nem o pessoal" nao_visto alfa '-(beta|pessoal)$'
+conferir "caso 2: a segunda recuperação não muda o resultado da primeira" recuperacao_preservada
+
+# Fim dos processos vivos: a próxima abertura (caso 3) recolhe as pastas deles.
+kill "$vivo" "$orfao"; wait "$vivo" "$orfao" 2>/dev/null
 
 # Caso 3: sem JANGADA_SESSAO, os dados valem só durante a execução.
 rodar - escrever agy >"$tmp/rodar-efe" 2>&1
@@ -218,6 +244,8 @@ conferir "caso 3: a execução sem sessão gravou ($?)" visto efe conversa-efe
 conferir "caso 3: sem sessão não vê alfa, beta nem o pessoal" nao_visto efe '-(alfa|beta|pessoal)$'
 conferir "caso 3: os dados efêmeros somem no fim" \
   bash -c '! compgen -G "$1/provedores/*/efemera-*" >/dev/null' _ "$estado"
+conferir "caso 3: com os donos mortos, as pastas antes vivas somem" \
+  bash -c '! compgen -G "$1/provedores/*/delegacao-[0-9]*" >/dev/null' _ "$estado"
 conferir "caso 3: nada da execução efêmera na pasta real" \
   bash -c '! grep -rqaE "(conversa|prompt|agy)-efe" "$1" "$2"' _ "$c" "$a"
 
