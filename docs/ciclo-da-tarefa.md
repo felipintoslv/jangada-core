@@ -142,11 +142,13 @@ Na mesma data, com o agy 1.4.11 e o coordenador `gemini-4-argon-high`:
 A abertura não toma `.agy-execucao.lock`; tampouco os hooks a retêm até Stop.
 Os filhos continuam disputando a trava do delegador. Isso evita o impasse
 pai esperando filho. A homologação de 30/10/2026 comprovou Argon delegando,
-interrupção, liberação e retomada. Faltam dois Flash concorrentes, interrupção
-com filho em curso e saída abrupta; a prova exige projeto sintético, estado
-separado, cota disponível e teto previamente aprovado. Cota baixa, resultado
-parcial e consumo desconhecido devem permanecer visíveis. Não interrompa
-sessões existentes.
+interrupção, liberação e retomada. A segunda homologação do mesmo dia, em
+projeto sintético, estado separado e teto de 6 chamadas, comprovou dois
+filhos simultâneos (o segundo recusado com `execucao_ocupada`), janela do
+filho fechada com o agy em curso (nada sobra) e SIGKILL no `jangada-delegar`
+(o agy órfão mantém a trava até sair). Veja a
+[delegação ao agy](subagentes-e-delegacao.md). Não interrompa sessões
+existentes nesses testes.
 
 Se a sessão tmux estiver viva com registro regular válido do mesmo projeto
 e provedor, o comando informa e foca a sessão atual. Outro provedor recebe

@@ -42,7 +42,8 @@ data e não são atualizadas.
   registro do pai. Até `c874caa` isso falhava por dois defeitos (formato do
   catálogo e variável de pasta do agy), corrigidos em `2372bd1`. Dois filhos
   agy simultâneos e a saída abrupta com filho em curso não foram testados com
-  o cliente real.
+  o cliente real nesta versão; a 1.1.0 os testou e corrigiu o agy órfão ao
+  fechar a janela.
 - Estado `trabalhando` sem turno: Claude interrompido com Esc, Codex com turno
   encerrado por erro do provedor e agy com Esc, `/exit` ou pergunta de
   permissão não chamam hook. O registro fica em `trabalhando` até o próximo

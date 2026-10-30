@@ -665,9 +665,17 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
 - Não segure `.agy-execucao.lock` durante a vida do coordenador ou enquanto
   espera filho: o delegador precisa dessa trava. O adaptador não a toma; os
   falsos conferem ausência de impasse, sem comprovar suporte remoto concorrente.
-  Pai delegando, interrupção e retomada foram provados em 30/10/2026; faltam
-  dois filhos simultâneos e saída abrupta com filho em curso, sempre em
-  projeto sintético e estado separado.
+  Pai delegando, interrupção, retomada, dois filhos simultâneos e saída
+  abrupta com filho em curso foram provados em 30/10/2026, em projeto
+  sintético e estado separado.
+- `timeout` sem `--foreground` cria grupo de processos próprio: o SIGHUP do
+  tmux ao fechar a janela mata o script, não o `timeout` nem o agy. Repasse
+  HUP, INT e TERM ao `timeout` (o pai espera com `wait` em segundo plano,
+  porque a substituição de comando adia o trap até o filho sair) e deixe a
+  trava com o `timeout`, fechada no filho antes do agy. A saída padrão do
+  implementador precisa ser pipe: o isolamento recusa arquivo comum. Ao
+  testar a árvore com `pstree`, use `-l`; sem ele a linha é cortada e o agy
+  some do texto.
 - O `/usage` distingue `gemini-argon-*` da cota Flash. O coordenador confere
   somente Argon; desde a MOD-03 o delegador também separa os grupos (antes
   misturava todo prefixo `gemini-` e recusava Flash pela cota Argon).

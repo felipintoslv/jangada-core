@@ -340,6 +340,21 @@ flowchart TD
   usa o valor expirado.
   Uma resposta atual com cota válida de algum grupo configurado pode ser usada.
   Grupo ausente ou ilegível é pulado, sem bloquear modelos de outro grupo válido.
+- Roda uma execução agy por vez: a trava
+  `$JANGADA_ESTADO/agentes/.agy-execucao.lock` recusa a segunda com código 4
+  (`execucao_ocupada`), antes de chamar o agy. Durante a chamada, a trava fica
+  com o `timeout`, que só sai depois do agy; o filho dele a fecha antes de
+  chamar o agy, para um processo que o agy deixe vivo não a segurar.
+- O `timeout` roda em grupo de processos próprio, fora do alcance do SIGHUP que
+  o tmux manda ao fechar a janela. Por isso o `jangada-delegar` repassa HUP,
+  INT e TERM ao `timeout`, que encerra o agy e solta a trava; a pasta da
+  chamada é apagada na saída. Morto por SIGKILL, o `jangada-delegar` não
+  repassa nada: o agy segue até sair no prazo dele, a trava continua ocupada
+  até lá e a pasta da chamada é apagada na próxima abertura de agente. Nos
+  dois casos a delegação interrompida não entra em `delegacoes.jsonl`. Até
+  `d95a267`, fechar a janela deixava o agy órfão com a trava livre e a pasta
+  sobrando. A homologação real de 30/10/2026 conferiu os três casos (duas
+  delegações simultâneas, janela fechada e SIGKILL).
 - A consulta `agy agents` deve terminar com sucesso antes de conferir o papel.
   Falha de inicialização, inclusive soquete local proibido pelo ambiente,
   registra `indisponivel` com diagnóstico; não significa papel ausente.
@@ -1282,7 +1297,7 @@ Os campos de cada arquivo estão em [registros](registros.md).
 | Arquivo | O que cobre |
 |---|---|
 | `testes/subagentes.sh` | papéis do Claude e do agy e a instalação deles; hook do leitor no Claude e no agy (papel pela variável, subagente pelo json da conversa, conversa fora do formato, falha do Python) |
-| `testes/delegar.sh` | `jangada-delegar` com agy falso: recusas (entre elas o leitor sem o hook no agy), cota, corte do relatório e registro |
+| `testes/delegar.sh` | `jangada-delegar` com agy falso: recusas (entre elas o leitor sem o hook no agy), cota, corte do relatório e registro; janela do pai fechada e SIGKILL no pai com o agy em curso (trava, órfão e pasta da chamada) |
 | `testes/validar.sh` | o campo `subagentes` e o `subagentes_erro` do `validar.jsonl` |
 
 ## Implementador opcional

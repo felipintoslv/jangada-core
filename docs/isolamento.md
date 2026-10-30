@@ -271,7 +271,10 @@ para não cair na pasta de outra. Depois de SIGKILL no `jangada-delegar`, a
 pasta da chamada é apagada na próxima abertura de agente, desde que esse PID
 não exista mais e nenhum processo vivo a tenha recebido em
 `JANGADA_ISOLAR_DADOS` (um `jangada-isolar` órfão, que o `timeout` da chamada
-ainda encerra no prazo). Se o PID for reaproveitado por outro processo, a pasta
+ainda encerra no prazo). Esse agy órfão continua com a trava de execução e
+impede outra delegação agy até sair. Fechar a janela do `jangada-delegar`
+(SIGHUP) não deixa órfão: o sinal é repassado ao `timeout` e a pasta é
+apagada na saída. Se o PID for reaproveitado por outro processo, a pasta
 espera até ele sair. Uma pasta do formato anterior (`delegacao-<uuid>-<n>`, sem
 PID) não é tocada e continua sendo apagada à mão. A pasta `provedores/` inteira fica oculta dentro de qualquer
 isolamento, assim como `codex/`, com as pastas do Codex por sessão.
