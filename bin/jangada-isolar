@@ -583,7 +583,7 @@ dados_pasta() {
   [[ "$alvo" == "$raiz/$1/$dados_chave" ]] || return 1
   printf '%s\n' "$alvo"
 }
-# Uma pasta de delegação (delegacao-PID-*) sobra quando o jangada-delegar
+# Uma pasta de delegação (delegacao-PID-UUID-N) sobra quando o jangada-delegar
 # morre por SIGKILL. Só some com o PID morto e sem nenhum processo vivo que
 # a tenha recebido em JANGADA_ISOLAR_DADOS: um jangada-isolar órfão (o timeout
 # dele ainda o encerra no prazo) mantém a pasta até sair.
@@ -603,7 +603,9 @@ dados_limpar_mortos() {
       [[ "$pid" =~ ^[0-9]+$ ]] || continue
       kill -0 "$pid" 2>/dev/null || rm -rf -- "$d"
     else
-      [[ "${d##*/}" =~ ^delegacao-([0-9]+)- ]] || continue
+      # O nome inteiro é conferido: o do formato anterior, delegacao-UUID-N,
+      # não tem PID e fica, mesmo com o UUID começando por algarismos.
+      [[ "${d##*/}" =~ ^delegacao-([0-9]+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9]+$ ]] || continue
       pid="${BASH_REMATCH[1]}"
       kill -0 "$pid" 2>/dev/null || dados_em_uso "${d##*/}" || rm -rf -- "$d"
     fi

@@ -162,17 +162,22 @@ mkdir -p "$estado/provedores/claude/efemera-$morto/projects"
 # jangada-delegar morto por SIGKILL some, salvo se um isolamento órfão ainda
 # a usa (JANGADA_ISOLAR_DADOS no ambiente de um processo vivo).
 sleep 300 & vivo=$!; vivos+=("$vivo")
-env JANGADA_ISOLAR_DADOS="delegacao-$morto-orfa-1" sleep 300 & orfao=$!; vivos+=("$orfao")
+# O nome é delegacao-<pid>-<uuid>-<n>. O do formato anterior,
+# delegacao-<uuid>-<n>, não é tocado, nem quando o uuid começa por algarismos.
+u=0a1b2c3d-1111-4222-8333-444455556666
+antiga=delegacao-12345678-1111-4222-8333-444455556666-1
+env JANGADA_ISOLAR_DADOS="delegacao-$morto-$u-3" sleep 300 & orfao=$!; vivos+=("$orfao")
 mkdir -p "$estado/provedores/claude/efemera-$vivo/projects" \
-  "$estado/provedores/agy-principal/delegacao-$morto-morta-1/conversations" \
-  "$estado/provedores/agy-principal/delegacao-$vivo-viva-1/conversations" \
-  "$estado/provedores/agy-principal/delegacao-$morto-orfa-1/conversations" \
-  "$estado/provedores/agy-principal/delegacao-semdono/conversations"
+  "$estado/provedores/agy-principal/delegacao-$morto-$u-1/conversations" \
+  "$estado/provedores/agy-principal/delegacao-$vivo-$u-2/conversations" \
+  "$estado/provedores/agy-principal/delegacao-$morto-$u-3/conversations" \
+  "$estado/provedores/agy-principal/delegacao-semdono/conversations" \
+  "$estado/provedores/agy-principal/$antiga/conversations"
 recuperacao_preservada() {
   test -d "$estado/provedores/claude/efemera-$vivo" \
-    && test -d "$estado/provedores/agy-principal/delegacao-$vivo-viva-1" \
-    && test -d "$estado/provedores/agy-principal/delegacao-$morto-orfa-1" \
-    && test ! -e "$estado/provedores/agy-principal/delegacao-$morto-morta-1"
+    && test -d "$estado/provedores/agy-principal/delegacao-$vivo-$u-2" \
+    && test -d "$estado/provedores/agy-principal/delegacao-$morto-$u-3" \
+    && test ! -e "$estado/provedores/agy-principal/delegacao-$morto-$u-1"
 }
 
 # Caso 1: duas sessões de projetos distintos, ao mesmo tempo.
@@ -220,10 +225,12 @@ conferir "caso 1: os dados ficam na pasta da sessão, só do dono" \
            && test "$(stat -c %a "$1/provedores/claude/alfa")" = 700' _ "$estado"
 conferir "caso 1: a efêmera do processo morto foi removida" test ! -e "$estado/provedores/claude/efemera-$morto"
 conferir "caso 1: a delegação de jangada-delegar morto foi removida" \
-  test ! -e "$estado/provedores/agy-principal/delegacao-$morto-morta-1"
+  test ! -e "$estado/provedores/agy-principal/delegacao-$morto-$u-1"
 conferir "caso 1: efêmera e delegação de processo vivo e delegação em uso por órfão ficam" recuperacao_preservada
 conferir "caso 1: pasta delegacao-* sem PID de dono não é tocada" \
   test -d "$estado/provedores/agy-principal/delegacao-semdono"
+conferir "caso 1: pasta delegacao-* do formato anterior não é tocada" \
+  test -d "$estado/provedores/agy-principal/$antiga"
 
 # Caso 2: restaurar alfa retoma o que é dela, sem o que beta gravou.
 rm -f "$tmp/proj-alfa/visto-alfa"
@@ -245,7 +252,7 @@ conferir "caso 3: sem sessão não vê alfa, beta nem o pessoal" nao_visto efe '
 conferir "caso 3: os dados efêmeros somem no fim" \
   bash -c '! compgen -G "$1/provedores/*/efemera-*" >/dev/null' _ "$estado"
 conferir "caso 3: com os donos mortos, as pastas antes vivas somem" \
-  bash -c '! compgen -G "$1/provedores/*/delegacao-[0-9]*" >/dev/null' _ "$estado"
+  bash -c '! compgen -G "$1/provedores/*/delegacao-[0-9]*-$2-*" >/dev/null && test -d "$1/provedores/agy-principal/$3"' _ "$estado" "$u" "$antiga"
 conferir "caso 3: nada da execução efêmera na pasta real" \
   bash -c '! grep -rqaE "(conversa|prompt|agy)-efe" "$1" "$2"' _ "$c" "$a"
 
