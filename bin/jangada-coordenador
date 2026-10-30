@@ -75,6 +75,8 @@ focar() {
 
 # Uso interno dos hooks. A linha chega pela entrada e vira dado: sem
 # sequências ANSI, caracteres de controle nem invisíveis, até 200 caracteres.
+# JANGADA_COORDENADOR_PROVEDOR é o provedor do hook que chama, definido por
+# ele; o registro só aceita o mesmo provedor da atuação.
 registrar() {
   local estado="$1" nome="${JANGADA_COORDENADOR:-}" linha
   [[ -z "${JANGADA_SESSAO:-}" && -z "${JANGADA_ISOLADO:-}" ]] || return 0

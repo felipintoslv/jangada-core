@@ -249,9 +249,11 @@ def persistir(estado, modo, sessao, argumentos):
         original = dados.copy() if dados is not None else None
         agora = datetime.now().astimezone().isoformat(timespec='seconds')
         if modo == 'registrar':
+            # Cada hook declara o próprio provedor; sem ele, ou com outro, o
+            # evento não é da atuação.
             esperado, situacao, linha, *provedor_hook = argumentos
             if (ciclo(dados) == 'encerrada' or (identidade(dados) or '') != esperado
-                    or (provedor_hook and provedor_hook[0] and provedor_hook[0] != dados['provedor'])):
+                    or provedor_hook[:1] != [dados['provedor']]):
                 return None
             if situacao not in ESTADOS + ('',):
                 raise ValueError('Estado de hook inválido.')

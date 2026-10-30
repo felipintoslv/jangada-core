@@ -127,7 +127,9 @@
       inicio) [[ "$(campo .source)" == startup || "$(campo .source)" == resume ]] || estado_coord="" ;;
     esac
     [[ "$tipo" != idle_prompt ]] || linha=""
-    "$dir_bin/jangada-coordenador" --registrar "$estado_coord" <<<"$linha"
+    # O provedor é este hook, não o herdado da sessão: um Claude aberto dentro
+    # da atuação de outro provedor não altera o registro dela.
+    JANGADA_COORDENADOR_PROVEDOR=claude "$dir_bin/jangada-coordenador" --registrar "$estado_coord" <<<"$linha"
   fi
   nome="${sessao:-${JANGADA_COORDENADOR:-$(basename "${cwd:-$PWD}")}}"
 

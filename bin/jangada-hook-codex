@@ -20,7 +20,8 @@ exec 3>&1
       fim) estado=concluido; linha="Codex encerrado" ;;
       *) estado="$evento" ;;
     esac
-    "$(dirname "${BASH_SOURCE[0]}")/jangada-coordenador" --registrar "$estado" <<<"$linha"
+    # O provedor é este hook, não o herdado da sessão.
+    JANGADA_COORDENADOR_PROVEDOR=codex "$(dirname "${BASH_SOURCE[0]}")/jangada-coordenador" --registrar "$estado" <<<"$linha"
     exit 0
   fi
   [[ -n "${JANGADA_SESSAO:-}" && -z "${JANGADA_HOOK_DESLIGADO:-}" ]] || exit 0

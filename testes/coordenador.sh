@@ -508,6 +508,11 @@ conferir "o Stop do Codex chama o jangada-hook-codex" grep -q "^hooks.Stop=.*jan
 conferir "a aprovação dos hooks vai na chamada" grep -q "^hooks.state=" <<<"$args_codex"
 conferir "a aprovação fica na pasta dos coordenadores" test -f "$reg/codex-hooks-confianca.json"
 conferir "o registro do Codex diz o provedor" [ "$(jq -r .provedor "$reg/outro--coordenador.json")" = codex ]
+# Um Codex legítimo grava na própria atuação, mesmo com outra origem herdada.
+printf '{"cwd":"/x"}' | rodar env JANGADA_COORDENADOR=outro--coordenador \
+  JANGADA_ATUACAO_ID="$(jq -r .atuacao_id "$reg/outro--coordenador.json")" JANGADA_COORDENADOR_PROVEDOR=claude \
+  "$repo_jangada/bin/jangada-hook-codex" aguardando
+conferir "o hook do Codex grava na atuação Codex" [ "$(jq -r .estado "$reg/outro--coordenador.json")" = aguardando ]
 tm kill-session -t =outro--coordenador
 rm -f "$reg/outro--coordenador.json"
 
@@ -562,10 +567,12 @@ ln -s "$tmp/outro.json" "$reg/link--coordenador.json"
 hook trabalhando '{"prompt":"p"}' JANGADA_COORDENADOR=link--coordenador
 conferir "o hook não segue link no registro" [ "$(cat "$tmp/outro.json")" = '{"estado":"x"}' ]
 rm -f "$reg/link--coordenador.json"
+antes="$(cat "$reg/projeto--coordenador.json")"
 printf '{"cwd":"/x"}' | rodar env JANGADA_COORDENADOR=projeto--coordenador \
-  JANGADA_ATUACAO_ID="$atuacao_original" \
+  JANGADA_ATUACAO_ID="$atuacao_original" JANGADA_COORDENADOR_PROVEDOR=claude \
   "$repo_jangada/bin/jangada-hook-codex" aguardando
-conferir "o hook do Codex também grava" [ "$(campo .estado)" = aguardando ]
+conferir "o hook do Codex não grava na atuação Claude, nem com a origem herdada" \
+  [ "$(cat "$reg/projeto--coordenador.json")" = "$antes" ]
 hook concluido '{"last_assistant_message":"pronto"}' JANGADA_COORDENADOR=projeto--coordenador
 for provedor_hook in claude codex agy; do
   for evento in concluido fim; do
@@ -1077,6 +1084,18 @@ for origem in claude codex; do
       JANGADA_COORDENADOR_PROVEDOR="$origem" "$repo_jangada/bin/jangada-hook-$origem" trabalhando
   conferir "$origem com origem explícita não altera registro Argon" \
     test "$(cat "$argon_reg")" = "$argon_antes"
+done
+# A sessão tmux da atuação exporta JANGADA_COORDENADOR_PROVEDOR=agy, e um
+# Claude ou Codex aberto dentro dela herda a variável. Cada hook declara o
+# próprio provedor; a origem herdada não vale.
+for origem in claude codex; do
+  for evento in inicio trabalhando aguardando concluido fim; do
+    printf '{"prompt":"evento herdado","last_assistant_message":"evento herdado","source":"startup","reason":"prompt_input_exit"}' \
+      | rodar env JANGADA_COORDENADOR=argon--coordenador JANGADA_ATUACAO_ID="$argon_id" \
+        JANGADA_COORDENADOR_PROVEDOR=agy "$repo_jangada/bin/jangada-hook-$origem" "$evento"
+    conferir "$origem $evento com origem herdada agy não altera registro Argon" \
+      test "$(cat "$argon_reg")" = "$argon_antes"
+  done
 done
 hook_argon inicio '{"modelName":"gemini-4-argon-high"}' >/dev/null
 conferir "Argon: SessionStart conserva identidade e ciclo aberto" \
