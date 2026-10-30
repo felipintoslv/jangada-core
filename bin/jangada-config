@@ -634,12 +634,13 @@ jangada_agy_ajustar_confianca() {
   return 0
 }
 
-# Diz se WORKTREE é worktree registrado do repositório cuja pasta de trabalho
-# é RAIZ, pelo Git e pelos dois lados: a lista de worktrees lida na raiz e a
+# Diz se WORKTREE é clone de sessão de RAIZ ou worktree registrado do
+# repositório cuja pasta de trabalho é RAIZ, este pelo Git e pelos dois lados: a lista de worktrees lida na raiz e a
 # pasta .git comum lida no worktree. Os caminhos chegam resolvidos. O estado
 # da sessão é gravável pelo agente isolado e não entra nesta conferência.
 _jangada_agy_worktree_da_raiz() {
   local raiz="$1" worktree="$2" linha topo comum_r comum_w achou=0
+  jangada_clone_da_raiz "$raiz" "$worktree" && return 0
   for linha in "$raiz" "$worktree"; do
     topo="$(jangada_git_seguro -C "$linha" rev-parse --show-toplevel 2>/dev/null)" || return 1
     [[ "$(realpath -e -- "$topo" 2>/dev/null)" == "$linha" ]] || return 1
@@ -653,6 +654,73 @@ _jangada_agy_worktree_da_raiz() {
     [[ "$(realpath -e -- "${linha#worktree }" 2>/dev/null)" == "$worktree" ]] && achou=1
   done < <(jangada_git_seguro -C "$raiz" worktree list --porcelain -z 2>/dev/null)
   ((achou))
+}
+
+# Clone de sessão: a pasta de um agente aberta desde 30/10/2026. Tem .git
+# próprio (refs, index e objetos novos) e lê os objetos da raiz pelo
+# alternates, que o jangada-isolar monta somente leitura; um agente não move
+# ramo nem grava objeto de outra sessão ou da base. A raiz fica em
+# jangada.raiz no config do clone, somente leitura no isolamento.
+#
+# Diz se WORKTREE (resolvido) é clone de sessão da raiz RAIZ (resolvida):
+# pasta em JANGADA_WORKTREES, .git como pasta e jangada.raiz igual a RAIZ.
+jangada_clone_da_raiz() {
+  local raiz="$1" worktree="$2" wts dito
+  wts="$(realpath -m -- "$JANGADA_WORKTREES")"
+  [[ "$worktree" == "$wts"/*/* ]] || return 1
+  [[ -d "$worktree/.git" && ! -L "$worktree/.git" ]] || return 1
+  dito="$(git config --file "$worktree/.git/config" --get jangada.raiz 2>/dev/null)" || return 1
+  [[ "$(realpath -e -- "$dito" 2>/dev/null)" == "$raiz" ]] || return 1
+  [[ "$(realpath -e -- "$(jangada_git_seguro -C "$worktree" rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)" == "$worktree" ]]
+}
+
+# Cria em DESTINO o clone de sessão da raiz RAIZ, com RAMO em INICIO e, se
+# BASE é nome de ramo, BASE em PONTA. Os objetos da raiz entram pelo
+# alternates, sem cópia nem hardlink: com hardlink, gravar no arquivo do
+# clone gravaria no da raiz. Raiz que já empresta objetos de outro
+# repositório recebe cópia dos objetos por fetch, para o isolamento não ter
+# de montar a corrente. Roda fora do isolamento.
+jangada_clone_criar() {
+  local raiz="$1" destino="$2" ramo="$3" inicio="$4" base="${5:-}" ponta="${6:-}" objetos chave valor
+  objetos="$(jangada_git_seguro -C "$raiz" rev-parse --path-format=absolute --git-path objects 2>/dev/null)" \
+    && objetos="$(realpath -e -- "$objetos")" || return 1
+  [[ "$objetos" != *[[:cntrl:]]* ]] || return 1
+  [[ ! -e "$destino" ]] || { echo "jangada: $destino já existe" >&2; return 1; }
+  mkdir -p "${destino%/*}" || return 1
+  jangada_git_seguro init -q --template= -b "$ramo" "$destino" || return 1
+  git config --file "$destino/.git/config" jangada.raiz "$raiz" || return 1
+  # Identidade local da raiz, que o worktree herdava do config comum.
+  for chave in user.name user.email; do
+    valor="$(git config --file "$(jangada_git_seguro -C "$raiz" rev-parse --path-format=absolute --git-path config)" --get "$chave" 2>/dev/null)" \
+      && git config --file "$destino/.git/config" "$chave" "$valor"
+  done
+  if [[ -s "$objetos/info/alternates" ]]; then
+    jangada_git_seguro -C "$destino" -c transfer.fsckObjects=true fetch -q --no-tags "$raiz" \
+      "$inicio:refs/heads/$ramo" ${ponta:+"$ponta:refs/jangada/ponta"} || return 1
+    jangada_git_seguro -C "$destino" update-ref -d refs/jangada/ponta 2>/dev/null || true
+    # Vazio, para o isolamento montá-lo somente leitura: o agente não cria um.
+    mkdir -p "$destino/.git/objects/info" && : >"$destino/.git/objects/info/alternates" || return 1
+  else
+    mkdir -p "$destino/.git/objects/info" && printf '%s\n' "$objetos" >"$destino/.git/objects/info/alternates" || return 1
+    jangada_git_seguro -C "$destino" update-ref "refs/heads/$ramo" "$inicio" || return 1
+  fi
+  if [[ -n "$base" && -n "$ponta" && "$base" != HEAD && "$base" != "$ramo" ]] \
+     && git check-ref-format "refs/heads/$base" 2>/dev/null; then
+    jangada_git_seguro -C "$destino" update-ref "refs/heads/$base" "$ponta" || return 1
+  fi
+  jangada_git_seguro -C "$destino" reset -q --hard "$inicio"
+}
+
+# Repositório onde mora o RAMO da sessão: o clone dela ou, num worktree
+# antigo, a raiz, que divide as refs com ele.
+jangada_repo_do_ramo() {
+  local raiz="$1" worktree="$2" r w
+  if [[ -n "$worktree" ]] && r="$(realpath -e -- "$raiz" 2>/dev/null)" && w="$(realpath -e -- "$worktree" 2>/dev/null)" \
+     && jangada_clone_da_raiz "$r" "$w"; then
+    printf '%s\n' "$worktree"
+  else
+    printf '%s\n' "$raiz"
+  fi
 }
 
 # Confiança derivada: WORKTREE entra em trustedWorkspaces só quando o agy já

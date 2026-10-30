@@ -71,7 +71,7 @@ conferir "perfil de autorrevisão do Codex cria a sessão" [ "$?" = 0 ]
 # Dentro do isolamento esta sessão é recusada: as conferências adiante que só
 # valem com ela usam o conferir_da_sessao.
 guardar_recusa "$tmp" tarefa
-conferir "worktree próprio" test -f "$tmp/worktrees/projeto/tarefa/.git"
+conferir "clone próprio" test -d "$tmp/worktrees/projeto/tarefa/.git"
 conferir "revisor e delegação no estado" jq -e '.agente == "codex" and .revisor == "codex" and .delegar == "local" and .isolar' \
   "$tmp/state/jangada/agentes/projeto--tarefa.json"
 conferir "protocolo compatível com Codex" grep -q 'Não tente chamar subagentes do Claude' \
@@ -497,7 +497,7 @@ for nome_recusa in recusa-nova tarefa; do
 done
 conferir "falha remove worktree novo" test ! -e "$tmp/worktrees/projeto/recusa-nova"
 conferir "falha remove ramo novo" test -z "$(git -C "$tmp/projeto" branch --list agente/recusa-nova)"
-conferir_da_sessao "falha preserva worktree reaproveitado" test -f "$tmp/worktrees/projeto/tarefa/.git"
+conferir_da_sessao "falha preserva clone reaproveitado" test -d "$tmp/worktrees/projeto/tarefa/.git"
 conferir_da_sessao "falha preserva ramo reaproveitado" git -C "$tmp/projeto" show-ref --verify --quiet refs/heads/agente/tarefa
 printf '{"orcamento":{"chamadas":1}}\n' >"$tmp/politica.json"
 rodar "$repo_jangada/bin/jangada-projeto" --projeto "$tmp/pasta-anexar" \

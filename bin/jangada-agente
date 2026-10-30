@@ -374,6 +374,22 @@ if ((!anexar)); then
   fi
 fi
 
+# A pasta da sessão é um clone próprio (jangada_clone_criar), com o ramo na
+# ponta que ele tem na raiz. Clone que falha no meio não fica para trás: a
+# pasta seguinte seria tomada por sessão reaproveitada.
+criar_clone() {
+  local inicio ponta=""
+  [[ ! -e "$worktree" ]] || { echo "jangada-agente: $worktree já existe" >&2; exit 1; }
+  inicio="$(jangada_git_seguro -C "$raiz" rev-parse --verify --quiet "refs/heads/$1^{commit}")" \
+    || { echo "jangada-agente: o ramo $1 não tem commit em $raiz" >&2; exit 1; }
+  [[ "$base" == HEAD ]] || ponta="$(jangada_git_seguro -C "$raiz" rev-parse --verify --quiet "refs/heads/$base^{commit}" || true)"
+  if ! jangada_clone_criar "$raiz" "$worktree" "$1" "$inicio" "$base" "$ponta"; then
+    rm -rf -- "$worktree"
+    echo "jangada-agente: não foi possível criar o clone da sessão em $worktree" >&2
+    exit 1
+  fi
+}
+
 dir="$raiz"; worktree=""; ramo=""; base=""; worktree_novo=0; ramo_novo=0
 if ((eh_git)) && [[ -n "$nome" ]]; then
   worktree="$JANGADA_WORKTREES/$repo/$nome"
@@ -385,12 +401,16 @@ if ((eh_git)) && [[ -n "$nome" ]]; then
     :
   elif [[ -d "$worktree" ]]; then
     echo "reaproveitando worktree existente: $worktree"
+    # Worktree de antes de 30/10/2026: divide objetos e refs com a raiz e
+    # segue assim até ser encerrado; não é convertido por baixo da sessão.
+    [[ ! -f "$worktree/.git" ]] \
+      || echo "aviso: $worktree é worktree antigo, que divide os objetos e as refs com $raiz; encerre-o com jangada-agente-fim para a próxima sessão vir em clone próprio" >&2
   elif git -C "$raiz" show-ref --verify --quiet "refs/heads/$ramo"; then
     if git -C "$raiz" merge-base --is-ancestor "refs/heads/$ramo" "$base" 2>/dev/null; then
       echo "ramo $ramo já estava integrado em $base; reiniciado a partir do HEAD"
       git -C "$raiz" branch -f "$ramo" HEAD
       worktree_novo=1
-      git -C "$raiz" worktree add "$worktree" "$ramo"
+      criar_clone "$ramo"
     else
       novos="$(git -C "$raiz" log --oneline "$base..$ramo" 2>/dev/null | head -10 || true)"
       if [[ -t 0 ]]; then
@@ -405,7 +425,7 @@ if ((eh_git)) && [[ -n "$nome" ]]; then
           1)
             echo "retomando o ramo existente: $ramo"
             worktree_novo=1
-            git -C "$raiz" worktree add "$worktree" "$ramo"
+            criar_clone "$ramo"
             ;;
           2)
             idx=2
@@ -419,7 +439,7 @@ if ((eh_git)) && [[ -n "$nome" ]]; then
             worktree="$JANGADA_WORKTREES/$repo/$nome"
             echo "criando novo ramo desambiguado: $ramo"
             worktree_novo=1
-            git -C "$raiz" worktree add -b "$ramo" "$worktree" HEAD
+            git -C "$raiz" branch "$ramo" HEAD && criar_clone "$ramo"
             ramo_novo=1
             ;;
           *)
@@ -439,13 +459,13 @@ if ((eh_git)) && [[ -n "$nome" ]]; then
         ramo="agente/$nome"
         worktree="$JANGADA_WORKTREES/$repo/$nome"
         worktree_novo=1
-        git -C "$raiz" worktree add -b "$ramo" "$worktree" HEAD
+        git -C "$raiz" branch "$ramo" HEAD && criar_clone "$ramo"
         ramo_novo=1
       fi
     fi
   else
     worktree_novo=1
-    git -C "$raiz" worktree add -b "$ramo" "$worktree" HEAD
+    git -C "$raiz" branch "$ramo" HEAD && criar_clone "$ramo"
     ramo_novo=1
   fi
   # Só num worktree recém-criado: o reaproveitado já tem o que precisa, e o
@@ -653,7 +673,7 @@ if ((sessao_nova)); then
   if ! execucao="$("$JANGADA_CORE_PATH/bin/jangada-projeto" --projeto "$raiz" sessao-iniciar "$sessao" \
     --executor "$base_agente" "${vinculos[@]}" | jq -er .execucao)"; then
     echo "jangada-agente: não foi possível registrar a execução da sessão $sessao" >&2
-    if ((worktree_novo)) && git -C "$raiz" worktree remove "$worktree"; then
+    if ((worktree_novo)) && rm -rf -- "$worktree"; then
       ((ramo_novo)) && git -C "$raiz" branch -d "$ramo"
     fi
     exit 1

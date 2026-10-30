@@ -190,6 +190,9 @@ roteamento_id="${JANGADA_DELEGAR_ROTEAMENTO_ID:-$delegacao_id}"
 pasta="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 projeto="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 projeto="$(basename "$(dirname "${projeto:-$pasta/.}")")"
+# No clone da sessão o nome é o da raiz gravada no config dele.
+raiz_clone="$(git config --local --get jangada.raiz 2>/dev/null || true)"
+[[ "$raiz_clone" != /* ]] || projeto="$(basename "$raiz_clone")"
 
 if [[ "$destino" == local ]]; then
   modelo="${JANGADA_LOCAL_MODELO:-qwen3:4b}"
@@ -1000,7 +1003,9 @@ conferir_conta() {
   if ! jangada_agy_confia "$pasta"; then
     # Só diagnóstico: quem sincroniza a confiança é a abertura ou a retomada da
     # tarefa, fora do isolamento.
-    principal="$(jangada_git_seguro -C "$pasta" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p' || true)"
+    principal="$raiz_clone"
+    [[ "$principal" == /* ]] \
+      || principal="$(jangada_git_seguro -C "$pasta" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p' || true)"
     retomar="fora da sessão isolada, rode jangada-agentes --confianca ${JANGADA_SESSAO:-SESSAO}"
     if [[ -n "$principal" && "$principal" != "$pasta" ]]; then
       if jangada_agy_confia "$principal"; then

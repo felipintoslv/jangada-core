@@ -11,7 +11,8 @@
 #                  (agy, claude, nativo ou local) e o Codex, se os modelos do
 #                  Codex econômico estão configurados
 #
-# Graváveis: a pasta atual, do .git comum só o que um commit precisa, as
+# Graváveis: a pasta atual (o clone da sessão, com .git próprio; num
+# worktree antigo, do .git comum só o que um commit precisa), as
 # pastas do Claude e do agy, o estado dos agentes, as métricas do
 # jangada-validar, o histórico de estados, o registro de delegações e o que
 # estiver em JANGADA_ISOLAR_ESCRITA (caminhos separados por ":"). O ~/.cache,
@@ -673,17 +674,30 @@ if gitdir="$(jangada_git_seguro -C "$pasta" rev-parse --path-format=absolute --a
       somente_leitura "$gitdir/$f"
     done
   else
-    # Repositório principal (--direto): o HEAD e o index ficam na raiz do
-    # .git, que precisa seguir gravável. Um commondir ausente seria criado
-    # pelo agente; em seu lugar fica um commondir que aponta para o próprio
-    # .git, que o git trata como se não existisse, e ele fica somente leitura.
+    # Clone da sessão ou repositório principal (--direto): o HEAD e o index
+    # ficam na raiz do .git, que precisa seguir gravável. Um commondir
+    # ausente seria criado pelo agente; em seu lugar fica um commondir que
+    # aponta para o próprio .git, que o git trata como se não existisse, e
+    # ele fica somente leitura.
     gravavel "$comum"
     [[ -e "$comum/commondir" || -L "$comum/commondir" ]] \
       || printf '.\n' 2>/dev/null >"$comum/commondir" || true
     ((wt_config)) && { [[ -e "$comum/config.worktree" ]] || : 2>/dev/null >>"$comum/config.worktree" || true; }
-    for f in config hooks commondir config.worktree worktrees modules; do
+    for f in config hooks commondir config.worktree worktrees modules objects/info/alternates; do
       somente_leitura "$comum/$f"
     done
+    # O clone lê os objetos da raiz pelo alternates, que o jangada-agente
+    # grava. Cada pasta de objetos citada ali aparece somente leitura, por
+    # cima da casa mínima; o agente não grava objeto da base nem de outra
+    # sessão. Linha que não é pasta de objetos existente fica de fora, e os
+    # ocultos abaixo prevalecem.
+    if [[ -f "$comum/objects/info/alternates" ]]; then
+      while IFS= read -r alvo || [[ -n "$alvo" ]]; do
+        [[ "$alvo" == /*/objects && "$alvo" != *[[:cntrl:]]* ]] || continue
+        alvo="$(realpath -e -- "$alvo" 2>/dev/null)" && [[ -d "$alvo" ]] || continue
+        args+=(--ro-bind "$alvo" "$alvo")
+      done <"$comum/objects/info/alternates"
+    fi
   fi
   [[ -f "$raiz/.git" ]] && somente_leitura "$raiz/.git"
 fi

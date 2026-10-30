@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Encerra uma sessão de agente e remove o worktree, conferindo alterações pendentes.
-# O ramo agente/<nome> é mantido; apague-o com git branch -d quando quiser.
+# Encerra uma sessão de agente e remove a pasta dela, conferindo alterações
+# pendentes. A pasta é um clone próprio (sessões desde 30/10/2026) ou um
+# worktree antigo. O ramo agente/<nome> fica na raiz; no clone, ele é antes
+# trazido para lá por fetch. Apague-o com git branch -d quando quiser.
 # Com --integrar, avança a base até o commit do ramo (merge --ff-only na cópia
 # principal) e para: não encerra a sessão, não remove worktree nem ramo, não
 # envia ao remoto e não atualiza a cópia instalada. Exige, nesta ordem:
@@ -58,9 +60,10 @@ fi
 #   estado encerraria qualquer processo do usuário;
 # - ramo e worktree vêm juntos, no formato que o jangada-agente cria:
 #   agente/NOME e $JANGADA_WORKTREES/REPO/NOME, sem link simbólico no caminho;
-# - com o worktree no disco, ele precisa estar registrado no repositório da
-#   raiz e os dois precisam ter o mesmo diretório git comum; sem ele, a raiz
-#   precisa ser a raiz de um repositório com o nome que deu REPO;
+# - com a pasta no disco, ela precisa ser clone de sessão da raiz
+#   (jangada_clone_da_raiz) ou worktree registrado no repositório da raiz,
+#   com o mesmo diretório git comum; sem ela, a raiz precisa ser a raiz de um
+#   repositório com o nome que deu REPO;
 # - a base precisa ser um nome de ramo válido que não comece com "-", para
 #   não virar opção do git log.
 recusar() {
@@ -83,6 +86,11 @@ dir_comum() {
   realpath -e -- "$d" 2>/dev/null
 }
 
+# fonte: o repositório onde o ramo da sessão mora. No clone é ele, cujos
+# objetos e refs o agente grava; num worktree antigo é a raiz, que divide
+# as refs com ele.
+modo_clone=0
+fonte=""
 conferir_estado() {
   local c
   for c in "$worktree" "$ramo" "$base" "$raiz"; do
@@ -117,8 +125,15 @@ conferir_estado() {
   [[ "$(realpath -m -- "$topo")" == "$(realpath -m -- "$raiz")" ]] \
     || recusar "raiz não é a raiz do repositório: $raiz"
 
+  fonte="$raiz"
   if [[ -e "$worktree" || -L "$worktree" ]]; then
     [[ -d "$worktree" && ! -L "$worktree" ]] || recusar "worktree não é pasta: $worktree"
+    if jangada_clone_da_raiz "$(realpath -e -- "$raiz")" "$real"; then
+      modo_clone=1
+      fonte="$worktree"
+      return 0
+    fi
+    [[ ! -d "$worktree/.git" ]] || recusar "$worktree não é clone de sessão de $raiz"
     local comum_wt comum_raiz linha registrado=0
     comum_wt="$(dir_comum "$worktree")" || recusar "worktree sem repositório git: $worktree"
     comum_raiz="$(dir_comum "$raiz")" || recusar "raiz sem repositório git: $raiz"
@@ -199,7 +214,7 @@ aprovada() {
     | [.candidate_sha, .limpo, .base_sha, .candidate_tree, .independent, .local_verified]
     | map(tostring) | @tsv' "$marca" 2>/dev/null) || return 1
   [[ "$c" == "$cabeca" && "$l" == true && "$v" == true ]] || return 1
-  [[ "$t" == "$(jangada_git_seguro -C "$raiz" rev-parse --verify --quiet "$cabeca^{tree}" || true)" ]] || return 1
+  [[ "$t" == "$(jangada_git_seguro -C "$fonte" rev-parse --verify --quiet "$cabeca^{tree}" || true)" ]] || return 1
   if [[ "$b" != "$ponta_base" ]]; then
     motivo_marca="o parecer do commit ${cabeca:0:12} foi dado contra $base em ${b:0:12}, e ela está em ${ponta_base:0:12}"
     return 1
@@ -214,12 +229,25 @@ aprovada() {
 # solto ao ler: um blob trocado entraria na base com o nome do original. O
 # espelho recebe o ramo e a base por fetch, que recalcula cada hash, e o
 # conteúdo de cada objeto que o avanço lê tem de ser igual nos dois lados.
+# No clone, a entrega vem dele e a base, da raiz; o ramo da sessão na raiz
+# passa a apontar para a entrega, e os objetos dela entram na raiz pelo
+# espelho, nunca direto do clone.
 objetos_integros() {
   local comum espelho chave lista rc=0
   comum="$(dir_comum "$raiz")" && espelho="$(jangada_espelho "$comum")" || return 1
   chave="$(printf '%s' "$s" | sha256sum | cut -c1-16)"
-  jangada_git_seguro --git-dir="$espelho" fetch -q --no-tags "$comum" \
-    "+$cabeca:refs/jangada/$chave/candidato" "+$ponta_base:refs/jangada/$chave/base" || return 1
+  if ((modo_clone)); then
+    jangada_git_seguro --git-dir="$espelho" fetch -q --no-tags "$comum" \
+      "+$ponta_base:refs/jangada/$chave/base" || return 1
+    jangada_git_seguro --git-dir="$espelho" -c transfer.fsckObjects=true fetch -q --no-tags "$fonte" \
+      "+$cabeca:refs/jangada/$chave/candidato" || return 1
+    jangada_git_seguro -C "$raiz" -c core.logAllRefUpdates=true fetch -q --no-tags "$espelho" \
+      "+refs/jangada/$chave/candidato:refs/heads/$ramo" || return 1
+    [[ "$(jangada_git_seguro -C "$raiz" rev-parse --verify --quiet "refs/heads/$ramo^{commit}" || true)" == "$cabeca" ]] || return 1
+  else
+    jangada_git_seguro --git-dir="$espelho" fetch -q --no-tags "$comum" \
+      "+$cabeca:refs/jangada/$chave/candidato" "+$ponta_base:refs/jangada/$chave/base" || return 1
+  fi
   lista="$(umask 077; mktemp "$JANGADA_ESTADO/revisoes/objetos-XXXXXX")" || return 1
   { jangada_git_seguro --git-dir="$espelho" rev-list --objects "$ponta_base..$cabeca"
     jangada_git_seguro --git-dir="$espelho" rev-list --objects --no-walk "$ponta_base" "$cabeca"
@@ -351,7 +379,7 @@ integrar_sob_trava() {
     echo "$motivo_marca" >&2
     return 11
   fi
-  if [[ "$(jangada_git_seguro -C "$raiz" rev-parse --verify --quiet "$ramo^{commit}" || true)" != "$cabeca" ]]; then
+  if [[ "$(jangada_git_seguro -C "$fonte" rev-parse --verify --quiet "refs/heads/$ramo^{commit}" || true)" != "$cabeca" ]]; then
     echo "o ramo $ramo mudou depois da conferência (era ${cabeca:0:12})" >&2
     return 11
   fi
@@ -423,28 +451,34 @@ if ((integrar)); then
   fi
   # A sessão continua aberta: o agente pode mover o ramo. O commit é
   # resolvido uma vez, e é ele que se lista, se confere, se testa e se integra.
-  cabeca="$(jangada_git_seguro -C "$raiz" rev-parse --verify --quiet "$ramo^{commit}" || true)"
+  cabeca="$(jangada_git_seguro -C "$fonte" rev-parse --verify --quiet "refs/heads/$ramo^{commit}" || true)"
   ponta_base="$(jangada_git_seguro -C "$raiz" rev-parse --verify --quiet HEAD || true)"
   [[ -n "$cabeca" && -n "$ponta_base" ]] || negar "o ramo $ramo ou a base $base não tem commit"
+  # Clone com cópia dos objetos (raiz que já tinha alternates) não enxerga
+  # os commits novos da base; eles entram por fetch, que confere cada hash.
+  if ((modo_clone)) && ! jangada_git_seguro -C "$fonte" cat-file -e "$ponta_base^{commit}" 2>/dev/null; then
+    jangada_git_seguro -C "$fonte" -c transfer.fsckObjects=true fetch -q --no-tags "$raiz" "$ponta_base" \
+      || negar "não foi possível levar a base ${ponta_base:0:12} ao clone $worktree"
+  fi
   if [[ -n "$gui_base" ]] && [[ "$gui_base" != "$ponta_base" || "$gui_candidato" != "$cabeca" ]]; then
     negar "os commits mudaram desde a confirmação gráfica"
   fi
-  if [[ "$cabeca" == "$ponta_base" ]] || jangada_git_seguro -C "$raiz" merge-base --is-ancestor "$cabeca" "$ponta_base"; then
+  if [[ "$cabeca" == "$ponta_base" ]] || jangada_git_seguro -C "$fonte" merge-base --is-ancestor "$cabeca" "$ponta_base"; then
     echo "o ramo $ramo não tem commits além de $base; nada a integrar"
     exit 0
   fi
-  if ! jangada_git_seguro -C "$raiz" merge-base --is-ancestor "$ponta_base" "$cabeca"; then
+  if ! jangada_git_seguro -C "$fonte" merge-base --is-ancestor "$ponta_base" "$cabeca"; then
     [[ -n "$worktree" && -d "$worktree" ]] || negar "a base $base andou e não há worktree para o rebase de $ramo"
     [[ "$(jangada_git_seguro -C "$worktree" symbolic-ref -q HEAD || true)" == "refs/heads/$ramo" ]] \
       || negar "a base $base andou e o worktree $worktree não está em $ramo"
     echo "a base $base andou (está em ${ponta_base:0:12}); rebase de $ramo em $worktree"
     jangada_git_seguro -C "$worktree" rebase "$ponta_base" >&2 \
       || negar "o rebase de $ramo parou em $worktree; resolva lá (git rebase --continue) ou desfaça (git rebase --abort) e peça nova revisão"
-    nova="$(jangada_git_seguro -C "$raiz" rev-parse --verify --quiet "$ramo^{commit}" || true)"
+    nova="$(jangada_git_seguro -C "$fonte" rev-parse --verify --quiet "refs/heads/$ramo^{commit}" || true)"
     negar "o rebase mudou $ramo de ${cabeca:0:12} para ${nova:0:12}, e o parecer tem de ser do commit novo; rode fora do isolamento: JANGADA_SESSAO=$s jangada-validar --base $base $worktree"
   fi
   echo "commits de $ramo a integrar em $base ($raiz):"
-  jangada_git_seguro -C "$raiz" log --oneline "$ponta_base..$cabeca" | tr -d '\000-\010\013-\037\177' | head -30
+  jangada_git_seguro -C "$fonte" log --oneline "$ponta_base..$cabeca" | tr -d '\000-\010\013-\037\177' | head -30
   aprovada || negar "$motivo_marca; rode fora do isolamento: JANGADA_SESSAO=$s jangada-validar --base $base $worktree"
   echo "aprovado fora do isolamento no commit ${cabeca:0:12}, contra $base em ${ponta_base:0:12}"
   if [[ -z "$gui_base" ]]; then
@@ -478,11 +512,31 @@ if [[ -n "$worktree" && -d "$worktree" ]]; then
     confirmar "descartar essas alterações e remover o worktree?" || { echo "nada foi feito"; exit 1; }
     forcar=1
   fi
-  if ((!integrar)) && [[ -n "$base" && -n "$ramo" ]]; then
-    novos="$(jangada_git_seguro -C "$raiz" log --oneline "$base..$ramo" 2>/dev/null | tr -d '\000-\010\013-\037\177' || true)"
+  ponta_raiz=""
+  [[ -z "$base" ]] || ponta_raiz="$(jangada_git_seguro -C "$raiz" rev-parse --verify --quiet "refs/heads/$base^{commit}" || true)"
+  if ((!integrar)) && [[ -n "$ponta_raiz" && -n "$ramo" ]]; then
+    novos="$(jangada_git_seguro -C "$fonte" log --oneline "$ponta_raiz..refs/heads/$ramo" 2>/dev/null | tr -d '\000-\010\013-\037\177' || true)"
     if [[ -n "$novos" ]]; then
       echo "commits no ramo $ramo que não estão em $base (continuarão no ramo):"
       printf '%s\n' "$novos" | head -20
+    fi
+  fi
+  # O clone some inteiro, e só o ramo da sessão vai para a raiz. Ramo, tag
+  # ou stash com commit fora dele e da base seria perdido; uma falha do git
+  # conta como commit de fora.
+  if ((modo_clone)); then
+    outros=""
+    while IFS= read -r ref; do
+      [[ "$ref" != "refs/heads/$ramo" ]] || continue
+      if ! fora="$(jangada_git_seguro -C "$fonte" rev-list -n1 "$ref" --not "refs/heads/$ramo" ${ponta_raiz:+"$ponta_raiz"} 2>/dev/null)" \
+         || [[ -n "$fora" ]]; then
+        outros+="$ref"$'\n'
+      fi
+    done < <(jangada_git_seguro -C "$fonte" for-each-ref --format='%(refname)' refs/heads refs/tags refs/stash 2>/dev/null)
+    if [[ -n "$outros" ]]; then
+      echo "o clone $worktree tem refs com commits fora de $ramo e de $base, que não vão para a raiz:"
+      printf '%s' "$outros" | tr -d '\000-\010\013-\037\177' | head -20
+      confirmar "descartar esses commits junto com o clone?" || { echo "nada foi feito"; exit 1; }
     fi
   fi
 fi
@@ -510,7 +564,20 @@ limpar() {
     || { echo "encerramento bloqueado: evidências originais mantidas" >&2; return 1; }
   echo "evidências preservadas: $arquivo_historico"
   registrar_consumo_tarefa || true
-  if [[ -n "$worktree" && -d "$worktree" ]]; then
+  if ((modo_clone)) && [[ -d "$worktree" ]]; then
+    # O ramo da sessão vai para a raiz por fetch, que confere cada objeto, e
+    # só então o clone sai do disco. O reflog guarda a ponta anterior.
+    if jangada_git_seguro -C "$fonte" rev-parse --verify --quiet "refs/heads/$ramo^{commit}" >/dev/null; then
+      jangada_git_seguro -C "$raiz" -c transfer.fsckObjects=true -c core.logAllRefUpdates=true \
+        fetch -q --no-tags "$fonte" "+refs/heads/$ramo:refs/heads/$ramo" \
+        || { echo "não foi possível levar $ramo do clone para $raiz; clone mantido em $worktree" >&2; return 1; }
+    else
+      echo "aviso: o clone não tem mais o ramo $ramo; em $raiz ele fica como estava" >&2
+    fi
+    chmod -R u+w -- "$worktree" 2>/dev/null || true
+    rm -rf -- "$worktree" || { echo "não foi possível remover o clone $worktree" >&2; return 1; }
+    echo "clone removido: $worktree"
+  elif [[ -n "$worktree" && -d "$worktree" ]]; then
     if ((forcar)); then
       jangada_git_seguro -C "$raiz" worktree remove --force "$worktree"
     else
@@ -623,7 +690,7 @@ if [[ "${JANGADA_SESSAO:-}" == "$s" ]]; then
     echo "!! a integração ficou sem assinatura; rode jangada-assinar num terminal comum antes do push" >&2
     assinar=0
   fi
-  export s worktree ramo raiz arq forcar apagar_ramo integrado assinar
+  export s worktree ramo raiz arq forcar apagar_ramo integrado assinar modo_clone fonte
   export -f limpar registrar_consumo_tarefa
   if command -v setsid >/dev/null 2>&1; then
     # shellcheck disable=SC1090,SC2016

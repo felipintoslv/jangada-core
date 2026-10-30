@@ -169,7 +169,9 @@ if [[ -n "$atendido" ]]; then
   pasta_atendida="${worktree_atendido:-$raiz_atendida}"
   [[ "$pasta_atendida" == /* && -n "$ramo_atendido" ]] && git check-ref-format --branch "$ramo_atendido" >/dev/null 2>&1 \
     || { echo "jangada-validar: a cópia protegida da sessão não traz pasta e ramo válidos" >&2; exit 1; }
-  if [[ "$(jangada_git_seguro -C "$raiz_atendida" rev-parse --verify --quiet "refs/heads/$ramo_atendido^{commit}" 2>/dev/null)" != "$atendido" ]]; then
+  # No clone da sessão o ramo mora nele; num worktree antigo, na raiz.
+  if [[ "$(jangada_git_seguro -C "$(jangada_repo_do_ramo "$raiz_atendida" "$worktree_atendido")" \
+           rev-parse --verify --quiet "refs/heads/$ramo_atendido^{commit}" 2>/dev/null)" != "$atendido" ]]; then
     echo "jangada-validar: pedido recusado: $atendido não é a cabeça do ramo $ramo_atendido da sessão" >&2
     exit 1
   fi
@@ -329,6 +331,16 @@ origem_dir="$dir"
 # da pasta .git comum.
 projeto="$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)"
 projeto="$(basename "$(dirname "$projeto")")"
+# No clone de uma sessão, o repositório é a raiz gravada no config dele, e a
+# base é a da raiz: o ramo base do clone é do agente, que o move.
+raiz_clone=""
+if raiz_clone="$(git config --file "$dir/.git/config" --get jangada.raiz 2>/dev/null)" \
+   && raiz_clone="$(realpath -e -- "$raiz_clone" 2>/dev/null)" \
+   && jangada_clone_da_raiz "$raiz_clone" "$(realpath -e -- "$dir")"; then
+  projeto="$(basename "$raiz_clone")"
+else
+  raiz_clone=""
+fi
 
 rodadas_max="${JANGADA_VALIDAR_RODADAS:-3}"
 [[ "$rodadas_max" =~ ^[0-9]+$ ]] || rodadas_max=3
@@ -467,11 +479,21 @@ if [[ -n "$pasta_revisor" && -d "$pasta_revisor" && ! -w "$pasta_revisor" ]]; th
 fi
 if [[ -z "$base" ]]; then
   for r in main master; do
-    git -C "$dir" rev-parse --verify --quiet "$r" >/dev/null && { base="$r"; break; }
+    git -C "${raiz_clone:-$dir}" rev-parse --verify --quiet "refs/heads/$r" >/dev/null && { base="$r"; break; }
   done
 fi
+# base_rev: o que se lê como base no repositório da pasta. No clone, o
+# commit da base na raiz, trazido ao clone se ele ainda não o tem.
+base_rev="$base"
+if [[ -n "$raiz_clone" && -n "$base" ]]; then
+  base_rev="$(jangada_git_seguro -C "$raiz_clone" rev-parse --verify --quiet "refs/heads/$base^{commit}")" \
+    || { echo "jangada-validar: a base $base não existe em $raiz_clone" >&2; exit 1; }
+  git -C "$dir" cat-file -e "$base_rev^{commit}" 2>/dev/null \
+    || jangada_git_seguro -C "$dir" -c transfer.fsckObjects=true fetch -q --no-tags "$raiz_clone" "$base_rev" \
+    || { echo "jangada-validar: não foi possível levar a base $base ao clone $dir" >&2; exit 1; }
+fi
 ponto=""
-[[ -n "$base" ]] && ponto="$(git -C "$dir" merge-base "$base" HEAD 2>/dev/null || true)"
+[[ -n "$base" ]] && ponto="$(git -C "$dir" merge-base "$base_rev" HEAD 2>/dev/null || true)"
 # No próprio ramo base (trabalho direto no repositório, --direto), o merge-base
 # é o HEAD. Aí vale o commit em que a sessão começou, gravado pelo
 # jangada-agente, para os commits do agente entrarem na revisão; sem ele, só o
@@ -502,7 +524,7 @@ if ((fora)) && [[ -f "$arq_aprovado" ]]; then
   [[ "$aprovado_num" =~ ^[0-9]+$ ]] || aprovado_num=0
   if [[ "$aprovado_estado" != sujo && -n "$aprovado_commit" ]] \
      && [[ "$(jq -r '.candidate_tree' "$arq_aprovado")" == "$(git -C "$dir" rev-parse --verify "$aprovado_commit^{tree}" 2>/dev/null)" ]] \
-     && [[ "$(jq -r '.base_sha' "$arq_aprovado")" == "$(git -C "$dir" rev-parse --verify "${base:-HEAD}^{commit}" 2>/dev/null)" ]] \
+     && [[ "$(jq -r '.base_sha' "$arq_aprovado")" == "$(git -C "$dir" rev-parse --verify "${base_rev:-HEAD}^{commit}" 2>/dev/null)" ]] \
      && git -C "$dir" merge-base --is-ancestor "$ponto" "$aprovado_commit" 2>/dev/null \
      && git -C "$dir" merge-base --is-ancestor "$aprovado_commit" HEAD 2>/dev/null; then
     ponto="$(git -C "$dir" rev-parse "$aprovado_commit")"
@@ -551,12 +573,18 @@ congelar() {
       || return 1
   fi
   base_sha=""
-  [[ -z "$base" ]] || base_sha="$(git -C "$origem_dir" rev-parse --verify --quiet "$base^{commit}" || true)"
+  [[ -z "$base" ]] || base_sha="$(git -C "$origem_dir" rev-parse --verify --quiet "$base_rev^{commit}" || true)"
 
   local objetos="$comum/objects"
   if ((fora)); then
     local espelho
-    espelho="$(jangada_espelho "$comum")" || return 1
+    # Um espelho por repositório: o do clone é o da raiz, que já tem a
+    # história e recebe só o que a entrega traz de novo.
+    if [[ -n "$raiz_clone" ]]; then
+      espelho="$(jangada_espelho "$(realpath -e -- "$(jangada_git_seguro -C "$raiz_clone" rev-parse --path-format=absolute --git-common-dir)")")" || return 1
+    else
+      espelho="$(jangada_espelho "$comum")" || return 1
+    fi
     chave="$(printf '%s' "$rotulo" | sha256sum | cut -c1-16)"
     git --git-dir="$espelho" fetch -q --no-tags "$comum" \
       "+$candidato:refs/jangada/$chave/candidato" "+$rastreados:refs/jangada/$chave/rastreados" \
