@@ -1509,6 +1509,64 @@ conferir "consulta interrompida: recusa estruturada" jqok -e '.motivo_codigo == 
 conferir "consulta interrompida: temporário ao lado do cache removido" \
   bash -c '! compgen -G "$1.*" >/dev/null' _ "$cache_cota"
 
+# O timeout da chamada tem grupo de processos próprio. Fechar a janela do pai
+# (SIGHUP ao grupo dele, como faz o tmux) deixava o agy órfão e a trava livre.
+# Processos da chamada (timeout, isolar, agy) com FALSO_ESPERA=$1; o próprio
+# jangada-delegar também leva a variável e fica de fora.
+vivos_do_falso() {
+  local f
+  for f in $(set +o pipefail; grep -lsaF "FALSO_DIR=$tmp/falso" /proc/[0-9]*/environ \
+               | xargs -r grep -lsaF "FALSO_ESPERA=$1"); do
+    tr '\0' ' ' <"${f%/environ}/cmdline" 2>/dev/null | grep -qF bin/jangada-delegar || return 0
+  done
+  return 1
+}
+trava_agy_livre() { flock -n "$tmp/home/.local/state/jangada/agentes/.agy-execucao.lock" true; }
+sem_pasta_delegacao() {
+  [ -z "$(find "$tmp/home/.local/state/jangada/provedores" -mindepth 2 -maxdepth 2 -name 'delegacao-*' 2>/dev/null)" ]
+}
+ate() { local _; for _ in $(seq 1 100); do "$@" && return 0; sleep 0.1; done; return 1; }
+# O PID do jangada-delegar está no nome da pasta da chamada, delegacao-PID-...
+principal_delegar() {
+  find "$tmp/home/.local/state/jangada/provedores" -mindepth 2 -maxdepth 2 -name 'delegacao-*' -printf '%f\n' \
+    | sed -E 's/^delegacao-([0-9]+)-.*/\1/'
+}
+rm -f "$tmp/home/.cache/jangada/agy-usage.json"
+rm -f "$tmp/falso/agy.args"
+(set -m; ESPERA_AGY=41 delegar --permitir-remoto explorador "mapeie" &
+ echo "$!" >"$tmp/grupo-pai"; wait) &
+pai_hup=$!
+conferir "pai fechado: a chamada começou" ate test -f "$tmp/falso/agy.args"
+conferir "pai fechado: o agy está vivo" vivos_do_falso 41
+conferir "pai fechado: a trava fica ocupada durante a chamada" nao trava_agy_livre
+kill -HUP -- "-$(cat "$tmp/grupo-pai")"
+wait "$pai_hup" 2>/dev/null
+conferir "pai fechado: o agy não segue órfão" ate nao vivos_do_falso 41
+conferir "pai fechado: a trava é liberada" ate trava_agy_livre
+conferir "pai fechado: a pasta de dados da chamada é apagada" ate sem_pasta_delegacao
+
+# Com o pai morto por SIGKILL nada é repassado: o agy segue até sair, mas a
+# trava continua com o timeout dele, e outra execução não abre ao mesmo tempo.
+rm -f "$tmp/home/.cache/jangada/agy-usage.json"
+rm -f "$tmp/falso/agy.args"
+ESPERA_AGY=8 delegar --permitir-remoto explorador "mapeie" &
+pai_kill=$!
+conferir "pai morto: a chamada começou" ate test -f "$tmp/falso/agy.args"
+kill -KILL "$(principal_delegar)"
+wait "$pai_kill" 2>/dev/null
+conferir "pai morto: o agy segue com a trava ocupada" bash -c '! flock -n "$1" true' _ \
+  "$tmp/home/.local/state/jangada/agentes/.agy-execucao.lock"
+rm -f "$tmp/home/.cache/jangada/agy-usage.json"
+RESPOSTA='Relatório em doc1.txt:1' delegar leitor "leia" --destino agy --permitir-remoto --arquivos "$tmp/projeto/doc1.txt"
+conferir "pai morto: outra execução é recusada enquanto o órfão vive" grep -q "execução agy já em andamento" "$tmp/erro"
+conferir "pai morto: o órfão sai no tempo dele" ate nao vivos_do_falso 8
+conferir "pai morto: a trava é liberada quando o órfão sai" ate trava_agy_livre
+conferir "pai morto: a pasta da chamada sobra até a próxima abertura" nao sem_pasta_delegacao
+rm -f "$tmp/home/.cache/jangada/agy-usage.json"
+RESPOSTA='Relatório em doc1.txt:1' delegar leitor "leia" --destino agy --permitir-remoto --arquivos "$tmp/projeto/doc1.txt"
+conferir "pai morto: a próxima execução roda" [ "$(codigo)" = 0 ]
+conferir "pai morto: a próxima abertura apaga a pasta que sobrou" sem_pasta_delegacao
+
 # Um executor sem resultado JSON não pode produzir uma entrega aceita.
 cat >"$tmp/bin/bash" <<'EOF'
 #!/bin/sh
