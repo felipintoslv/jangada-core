@@ -10,10 +10,12 @@ O Core funciona sozinho. O [jangada-shell](https://github.com/felipintoslv/janga
 comandos deles no PATH e segue sem erro quando não os acha. Os indicadores
 locais ficam no comando `jangada-indicadores`.
 
-Última versão: v1.0.0, de 18/10/2026, com tag publicada. O `main` seguiu com
-correções sem tag nova; `jangada-versao` mostra a distância (por exemplo,
-`1.0.0-92-g2372bd1`). A [página da versão](docs/versao-1.0.0.md) separa o
-estado atual, os limites conhecidos e o histórico do lançamento.
+Última versão: v1.1.0, de 30/10/2026. A tag nasce quando o dono assina e
+publica, conforme o [roteiro da versão](docs/versao-1.1.0.md#roteiro-do-dono);
+até lá, a última tag publicada é a v1.0.0. A
+[página da 1.1.0](docs/versao-1.1.0.md) traz as mudanças principais, os
+limites conhecidos e a verificação; a da [1.0.0](docs/versao-1.0.0.md) guarda o
+histórico do primeiro lançamento estável.
 
 ## Dependências
 
@@ -63,6 +65,7 @@ Leia as regras do [AGENTS.md](AGENTS.md) e o guia do assunto da tarefa.
 | Assunto | Documento |
 |---|---|
 | Instalação, várias máquinas e assinatura | [Instalação e uso](docs/instalacao-e-uso.md) |
+| Versão atual e roteiro de lançamento | [Core 1.1.0](docs/versao-1.1.0.md) |
 | Entrega e lançamento da v1.0.0 | [Core 1.0.0](docs/versao-1.0.0.md) |
 | Comandos | [Comandos](docs/comandos.md) |
 | Abertura, revisão e encerramento | [Ciclo da tarefa](docs/ciclo-da-tarefa.md) |

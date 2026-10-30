@@ -3,6 +3,112 @@
 Gerado das mensagens de commit por `jangada-versao --lancar`; não edite
 à mão. A versão instalada aparece em `jangada-versao`.
 
+## 1.1.0 (2026-10-30)
+
+### Novidades
+
+- cotas: uma só medida por grupo, a mais recente, e só depois a validade
+- cotas: a medida válida e mais nova do cotas.json anterior é republicada
+- cotas: o cotas.json guarda a última medida conhecida quando a medida vence
+- agente: a sessão abre com a conta do agy de maior saldo
+- cotas: jangada-router cotas junta a cota de agy, Codex e Claude em cotas.json
+- delegacao: registra contas e corrige o cliente falso
+- delegacao: seleciona e isola contas do agy
+- delegação: registra o contrato e as provas do Flash
+- delegação: delimita fontes e pesquisa do Flash
+- coordenador: compartilha a skill com o agy
+- coordenador: prepara Argon com identidade persistente
+
+### Correções
+
+- agy: fechar a janela do pai encerra a chamada e a trava acompanha o agy
+- docs: fecha a documentacao no estado instalado 2372bd1
+- docs: registra a homologacao real do coordenador agy e a delegacao dentro dele
+- agy: coordenador reconhece o catalogo do agy 1.4.11 e delegacao dentro do coordenador agy abre
+- docs: registra a homologacao real de Claude e Codex e os estados presos sem hook
+- docs: separa estado atual e historico da v1.0.0 e registra limites da revisao e do agy
+- hooks: hooks do Claude e do Codex declaram o proprio provedor ao registrar no coordenador
+- isolamento: procura de uso da pasta de delegacao nao imprime erro de environ alheio
+- atualizacao: documenta e testa a retomada de atualizacao interrompida e a volta a versao anterior
+- isolamento: limpeza de delegacao confere o nome inteiro e nao toca a do formato anterior
+- orquestracao: temporario de execucao e supervisao leva o dono da reserva no nome
+- isolamento: pasta de delegacao de controlador morto some na proxima abertura, sem tocar a de processo vivo
+- agentes: delegacao do agy le log e conversa na pasta propria da chamada
+- isolamento: dados do Claude e do agy por sessao, com transicao restrita a propria conversa
+- agentes: documenta clone de sessao, transicao e limitacoes com migracao de aviso
+- agentes: teste real de git separado entre sessoes isoladas
+- agentes: sessao em clone proprio, com objetos da raiz pelo alternates somente leitura
+- isolamento: documenta padroes, transicao e limitacoes com migracao de aviso
+- isolamento: teste real de isolamento por provedor com credenciais ficticias
+- isolamento: login so dos provedores concedidos, casa e ambiente minimos e keyring fechado por padrao
+- credenciais: move copia do login do Codex para pasta privada com trava e recuperacao
+- arquitetura: desacopla contratos de tarefas da persistencia
+- testes: acompanha vigia nas consultas de cota
+- execucao: recupera reservas e encerra descendentes apos falhas
+- diagnostico: ajusta contrato para registro valido do agy
+- execucao: exige opcoes compativeis com revisao independente
+- fila: valida dependencias profundas sem recursao
+- revisao: recusa politicas sem caminho de conclusao
+- diagnostico: reconhece coordenadores no registro de provedores
+- fila: limita execucao e sondagens pelo prazo global
+- sessoes: valida a raiz antes de qualquer anexo
+- execucao: encerra delegados também no modo sequencial
+- instalacao: o install.sh recusa também qualquer pasta dentro de JANGADA_PROJETOS
+- cotas: a menor validade do segundo vale para a medida escolhida, em qualquer ordem
+- cotas: o ultimo publicado traz os metadados da mesma medida e só aceita data válida
+- cotas: a validade compara o instante publicado e a mesma medição vale pela menor
+- cotas: a validade republicada do cotas.json anterior nunca passa da do cache
+- cotas: o teste do cotas.json anterior compara com a data gravada, não com o relógio
+- agente: a escolha da conta lê o delegacoes.jsonl inteiro
+- agente: a retomada e a restauração mantêm a conta do agy registrada
+- migracoes: importação das contas do agy pula links em vez de recusar
+- isolar: confere o ponto de montagem do soquete com os escapes do mountinfo
+- isolar: o soquete do implementador só vale se for montagem trazida de fora
+- isolar: teste do keyring confere o proxy do autor e o do implementador em arquivos separados
+- isolar: implementador chamado de dentro da sessão isolada lê o keyring pelo soquete do autor
+- cotas: grava todo instante do cotas.json em UTC
+- cotas: fecha as demais entradas de fora que ainda derrubavam o comando
+- cotas: confere todo número externo por uma só função e põe renova_em do Codex em UTC
+- cotas: converte todo instante externo por um só caminho protegido
+- cotas: datas fora do intervalo não derrubam o comando e o doctor não depende do UID
+- cotas: confere a validade na entrega e trata data de renovação fora do intervalo
+- coordenador: devolve o aviso das aprovações do Codex antes de abrir
+- coordenador: leva as lições da T1 e da MOD-03 para a skill
+- testes: fixture fora da casa grava o catálogo onde o jangada-config lê
+- delegacao: exige pasta principal sem link para gravar na caixa
+- delegacao: fecha desvios do destino de gravação das contas do agy
+- delegacao: contas do agy só na principal ou no estado do jangada
+- delegacao: não monta bin em conta secundária que não o tem
+- delegacao: fecha a origem da conta escolhida e corrige diagnósticos de conta
+- delegacao: esconde contas fora da casa e corrige conta e aviso de confiança
+- delegacao: filtra confiança e preserva a execução sem catálogo
+- delegacao: evita colisão de nomes na análise do shell
+- delegacao: confere confiança por conta e preserva montagens
+- delegacao: preserva a identidade da conta nos executores
+- delegacao: importa a pasta do agy sem bloquear migrações
+- testes: reconhece bloqueio do SQLite oculto
+- delegação: preserva cota e fontes na execução isolada
+- delegação: restringe pesquisa e explicita limites das fontes
+- delegação: protege controles e alinha contrato da pesquisa
+- delegação: remove variável sem uso após revisão
+- docs: mantém no guia o procedimento das provas
+- delegação: valida fontes remotas antes da chamada
+- delegação: alinha contrato dos registros e teste privado
+- coordenador: mantém a skill no limite de linhas
+- delegação: separa cotas Flash e Argon
+- coordenador: limpa a origem herdada nos testes
+- coordenador: comprova recusa de origem divergente
+- coordenador: exige ociosidade confirmada no Stop do agy
+
+### Outras mudanças
+
+- docs(agy): trava com o timeout, janela fechada e SIGKILL do pai com a homologação real
+- test(orquestracao): matriz de recuperacao conjunta com sessao vizinha e segunda recuperacao
+- docs: dados por sessao dos provedores, credenciais compartilhadas e migracao de aviso
+- docs(implementador): adoção opcional do Flash em tarefa pequena
+- docs(implementador): escreve o escopo de sem_login_agy e o que sai como erro_execucao
+- docs(isolar): registra o risco residual aceito do soquete do implementador
+
 ## 1.0.0 (2026-10-18)
 
 ### Novidades
