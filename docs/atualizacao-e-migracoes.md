@@ -123,6 +123,92 @@ flowchart TD
   sessão e ganchos `pos-update` ficam com o Shell. Código recusado não
   impede o sistema, mas o comando termina com erro.
 
+## Atualização interrompida
+
+O `jangada-update` grava em duas etapas: o avanço da cópia instalada
+(`merge --ff-only`) e as migrações. Rodar o comando de novo resolve as
+interrupções que não deixam arquivo alterado fora de commit:
+
+| Onde parou | Como fica | O que fazer |
+|---|---|---|
+| antes do avanço (busca, confirmação) | cópia instalada no commit antigo | rodar `jangada-update` de novo |
+| depois do avanço, antes ou durante as migrações | código novo; migração sem marca em `$JANGADA_ESTADO/migracoes/` | rodar `jangada-update` de novo: ele diz "jangada já atualizado" e roda o `jangada-migrar`, que aplica só as que não têm marca |
+| migração que falhou | código novo; a que falhou e as seguintes sem marca | corrigir a causa mostrada e rodar `jangada-migrar` (ou `jangada-update`) de novo |
+| no meio da troca de arquivos | cópia instalada com arquivo alterado fora de commit | ver abaixo |
+| no `jangada-sistema-update` | código já atualizado | é do jangada-shell; rodar `jangada-update` de novo repete só a parte do sistema |
+
+A trava do `jangada-migrar` é um `flock`, que o sistema solta quando o
+processo morre; não há arquivo de trava para apagar. Uma migração
+interrompida no meio roda de novo por inteiro, e por isso precisa poder
+rodar de novo sem estragar nada (regra 2 das migrações).
+
+Se a troca de arquivos parou no meio, o `jangada-update` recusa a cópia
+suja, lista os arquivos e não mexe neles. Confira antes de desfazer:
+
+```sh
+git -C ~/.local/share/jangada-core status
+git -C ~/.local/share/jangada-core diff
+```
+
+Se a lista mostra só arquivos do próprio Core e nenhuma alteração sua, volte
+a cópia ao commit em que ela está e rode a atualização de novo:
+
+```sh
+git -C ~/.local/share/jangada-core reset --hard HEAD
+```
+
+Um `index.lock` deixado pelo git interrompido não aparece no `status`: o
+avanço (ou o `reset`) para com "não foi possível atualizar o repositório" e
+a mensagem do git de que o `index.lock` já existe. Apague-o (`~/.local/share/jangada-core/.git/index.lock`) só
+depois de conferir que nenhum git está rodando sobre a cópia. Alteração sua
+na cópia instalada sai antes por um `git diff` salvo em outro lugar, já que
+o `reset --hard` a descarta. O `testes/update.sh` reproduz os três primeiros
+casos e o da cópia suja.
+
+## Voltar à versão anterior
+
+Desfazer commits na cópia instalada só é seguro quando o estado gravado pela
+versão nova é aceito pela antiga. Confira as migrações entre as duas
+versões (`git -C ~/.local/share/jangada-core log --oneline ANTIGA..HEAD --
+migrations/`) e o que cada uma diz no topo, antes de voltar. Migração que
+converte dados não se desfaz voltando o código: a versão antiga leria o
+formato novo. Nesse caso, a volta precisa de um passo próprio, descrito na
+própria migração.
+
+As migrações de 30/10/2026 só avisam, e o banco das tarefas
+(`tarefas.sqlite`) não mudou de formato. O que muda são lugares e nomes que
+a versão antiga não conhece:
+
+| Gravado pela versão nova | Na versão anterior a ela | Antes de voltar |
+|---|---|---|
+| sessões em clone (Git separado) | o `jangada-agente-fim` antigo recusa: "não é worktree registrado" | encerrar todas com o `jangada-agente-fim` da versão nova |
+| `$JANGADA_ESTADO/provedores/` e `$JANGADA_ESTADO/codex/` (conversas e memória por sessão) | o `$JANGADA_ESTADO` inteiro fica legível dentro do isolamento, e essas pastas não estão ocultas: todo agente leria as conversas de todas as sessões | mover as duas pastas para fora do `$JANGADA_ESTADO` e fora do que o isolamento mostra; elas não são apagadas |
+| pastas `delegacao-<pid>-*` e temporários `execucao-<dono>-*` | nomes diferentes, que a versão antiga não apaga | nada; ficam para conferência |
+| marcas das migrações novas | sem efeito | nada; ao voltar à versão nova, elas não repetem o aviso |
+
+Os passos, com nenhuma sessão nem executor aberto:
+
+```sh
+git -C ~/.local/share/jangada-core status
+```
+
+```sh
+mkdir -m 700 ~/jangada-preservado-AAAAMMDD
+mv ~/.local/state/jangada/provedores ~/.local/state/jangada/codex ~/jangada-preservado-AAAAMMDD/
+```
+
+```sh
+git -C ~/.local/share/jangada-core reset --hard COMMIT_ANTERIOR
+```
+
+Com `JANGADA_ISOLAR_CASA=inteira`, a pasta pessoal toda fica legível no
+isolamento, inclusive a pasta preservada; nesse modo, guarde-a num disco ou
+lugar fora da pasta pessoal. Na versão anterior, as conversas abertas
+depois da atualização não aparecem, porque o cliente volta a usar a pasta
+de sempre (`~/.claude`, `~/.gemini`). Para voltar à versão nova, rode o
+`jangada-update` (ele oferece de novo os commits, com confirmação) e, antes
+de abrir sessão, devolva as duas pastas ao `$JANGADA_ESTADO`.
+
 ## jangada-migrar
 
 ```mermaid
@@ -172,7 +258,7 @@ atualização segue com o modo antigo até ser reaberta. Detalhes em
 
 | Arquivo | O que cobre |
 |---|---|
-| `testes/update.sh` | resposta `n` e sem terminal não aplicam; `s` avança, roda a migração e grava a marca; filtro de caracteres de controle; origem reescrita recusada; com `allowed_signers`, commit sem assinatura ou com chave de fora não é aplicado; `gpg.ssh.program`, fsmonitor e ganchos da cópia instalada não rodam; canal `estavel`; `jangada-migrar` com a pasta vazia, em simulação e com falha; `--so-core` não chama o `jangada-sistema-update`, e sem ele o comando é chamado e o código de saída repassado |
+| `testes/update.sh` | resposta `n` e sem terminal não aplicam; `s` avança, roda a migração e grava a marca; atualização interrompida (avanço sem migração, migração que falhou, cópia suja) retomada sem reaplicar; filtro de caracteres de controle; origem reescrita recusada; com `allowed_signers`, commit sem assinatura ou com chave de fora não é aplicado; `gpg.ssh.program`, fsmonitor e ganchos da cópia instalada não rodam; canal `estavel`; `jangada-migrar` com a pasta vazia, em simulação e com falha; `--so-core` não chama o `jangada-sistema-update`, e sem ele o comando é chamado e o código de saída repassado |
 | `testes/update-codigo.py` | em clones descartáveis e com bubblewrap: recusa com árvore suja, sessão ativa, processo da instalação, isolamento e simulação, sem chamar pacote nem migração |
 | `testes/consumo.sh` | `jangada-consumo` com registros sintéticos e a dica da barra |
 | `testes/hooks.sh` | `mesclar_hooks_claude` e `mesclar_hooks_agy` com o arquivo vazio gravam os hooks (o vazio conta como `{}`); com JSON inválido, avisam e não gravam; o `jangada-verificar` aponta o arquivo vazio ou inválido |

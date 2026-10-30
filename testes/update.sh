@@ -121,6 +121,61 @@ conferir "origem reescrita: cópia instalada não muda" test "$(head_instalado)"
 conferir "origem reescrita: explica a recusa" grep -q 'não avança em linha reta' "$tmp/saida"
 git -C "$origem" reset --quiet --hard "$novo"
 
+echo "== atualização interrompida"
+
+# Parou depois do avanço e antes das migrações: rodar de novo aplica a que
+# ficou sem marca, uma vez só.
+cat >"$origem/migrations/910-contar.sh" <<'EOF'
+echo x >>"$HOME/contagem-910"
+EOF
+git -C "$origem" add -A
+git -C "$origem" commit --quiet -m "feat(teste): migração 910"
+git -C "$instalado" fetch --quiet origin
+git -C "$instalado" merge --quiet --ff-only origin/main
+atualizar --so-core </dev/null
+conferir "avanço sem migração: termina sem erro ($rc)" test "$rc" -eq 0
+conferir "avanço sem migração: já atualizado" grep -q 'jangada já atualizado' "$tmp/saida"
+conferir "avanço sem migração: aplica a pendente" test "$(wc -l <"$HOME/contagem-910")" -eq 1
+atualizar --so-core </dev/null
+conferir "avanço sem migração: a segunda vez não reaplica" test "$(wc -l <"$HOME/contagem-910")" -eq 1
+
+# Migração que falhou no meio: o código já avançou, a marca não foi gravada e,
+# corrigida a causa, rodar de novo a aplica.
+cat >"$origem/migrations/920-falha.sh" <<'EOF'
+[ -e "$HOME/consertado" ] || exit 4
+echo x >>"$HOME/contagem-920"
+EOF
+git -C "$origem" add -A
+git -C "$origem" commit --quiet -m "feat(teste): migração 920"
+atualizar --so-core <<<s
+conferir "migração falhou: termina com erro ($rc)" test "$rc" -ne 0
+conferir "migração falhou: o código avançou" test "$(head_instalado)" = "$(git -C "$origem" rev-parse HEAD)"
+conferir "migração falhou: sem marca" test ! -e "$XDG_STATE_HOME/jangada/migracoes/920-falha.sh"
+conferir "migração falhou: pede para rodar de novo" grep -q 'rode jangada-migrar de novo' "$tmp/saida"
+touch "$HOME/consertado"
+atualizar --so-core </dev/null
+conferir "migração corrigida: termina sem erro ($rc)" test "$rc" -eq 0
+conferir "migração corrigida: aplicada uma vez" test "$(wc -l <"$HOME/contagem-920")" -eq 1
+conferir "migração corrigida: marca gravada" test -e "$XDG_STATE_HOME/jangada/migracoes/920-falha.sh"
+
+# Troca de arquivos interrompida: a cópia instalada fica com arquivo alterado
+# fora de commit. O comando recusa e não mexe nele; depois da conferência, o
+# reset volta ao commit atual e a atualização segue.
+echo parcial >"$origem/parcial.txt"
+git -C "$origem" add -A
+git -C "$origem" commit --quiet -m "feat(teste): parcial"
+parado="$(head_instalado)"
+echo "meio escrito" >"$instalado/migrations/README.md"
+atualizar --so-core <<<s
+conferir "cópia suja: termina com erro ($rc)" test "$rc" -ne 0
+conferir "cópia suja: não avança" test "$(head_instalado)" = "$parado"
+conferir "cópia suja: mostra o arquivo" grep -q 'migrations/README.md' "$tmp/saida"
+conferir "cópia suja: preserva o arquivo" grep -qx 'meio escrito' "$instalado/migrations/README.md"
+git -C "$instalado" reset --quiet --hard HEAD
+atualizar --so-core <<<s
+conferir "depois do reset: avança ($rc)" \
+  bash -c '[ "$1" -eq 0 ] && [ "$(git -C "$2" rev-parse HEAD)" = "$(git -C "$3" rev-parse HEAD)" ]' _ "$rc" "$instalado" "$origem"
+
 echo "== opções"
 
 atualizar --ajuda
