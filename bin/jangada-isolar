@@ -168,10 +168,16 @@ claude_casa="$(realpath -m -- "$claude_casa")"
 if concedido agy; then
   for v in ANTIGRAVITY_GEMINI_DIR ANTIGRAVITY_APP_DATA_DIR ANTIGRAVITY_CONFIG_REL_DIR \
            ANTIGRAVITY_EXECUTABLE_DATA_DIR GEMINI_DIR; do
-    [[ -z "${!v+x}" ]] || {
-      echo "jangada-isolar: $v definida; os dados do agy por sessão só valem na pasta padrão" >&2
-      exit 1
-    }
+    [[ -n "${!v+x}" ]] || continue
+    # O agy põe ANTIGRAVITY_APP_DATA_DIR com a pasta padrão nos comandos que
+    # roda; vinda de um coordenador agy, ela não desvia nada e sai daqui.
+    if [[ "$v" == ANTIGRAVITY_APP_DATA_DIR && -n "${!v}" \
+          && "$(realpath -m -- "${!v}")" == "$(realpath -m -- "$cli_agy")" ]]; then
+      unset ANTIGRAVITY_APP_DATA_DIR
+      continue
+    fi
+    echo "jangada-isolar: $v definida; os dados do agy por sessão só valem na pasta padrão" >&2
+    exit 1
   done
 fi
 conta_configurada=0

@@ -125,11 +125,12 @@ executar_codex() {
 
 # Consultas auxiliares não pertencem à atuação e não atualizam seus hooks.
 # A cota Argon é separada da Flash; catálogo sozinho não comprova execução.
+# O catálogo traz id, tabulação e nome legível: só o id vale.
 conferir_agy() {
   local raiz="$1" catalogo uso
   catalogo="$(cd "$raiz" && timeout 65 env -u JANGADA_SESSAO -u JANGADA_COORDENADOR \
     JANGADA_HOOK_DESLIGADO=1 agy models 2>/dev/null)" \
-    && grep -Fx 'gemini-4-argon-high' <<<"$catalogo" >/dev/null \
+    && grep -E $'^gemini-4-argon-high(\t|$)' <<<"$catalogo" >/dev/null \
     || { echo "jangada-coordenador: gemini-4-argon-high ausente ou catálogo indisponível; nenhuma sessão criada" >&2; return 1; }
   uso="$(cd "$raiz" && timeout 65 env -u JANGADA_SESSAO -u JANGADA_COORDENADOR \
     JANGADA_HOOK_DESLIGADO=1 agy -p /usage --output-format json --print-timeout 60s 2>/dev/null)" \

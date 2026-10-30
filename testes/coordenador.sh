@@ -191,7 +191,10 @@ import json, os, sys, tty
 from pathlib import Path
 pasta = Path(os.environ['FALSO_DIR'])
 if sys.argv[1:] == ['models']:
-    print((pasta / 'argon.catalogo').read_text() if (pasta / 'argon.catalogo').exists() else 'gemini-4-argon-high')
+    # Formato do agy 1.4.11: aviso inicial e id, tabulação e nome por linha.
+    print((pasta / 'argon.catalogo').read_text() if (pasta / 'argon.catalogo').exists()
+          else 'Fetching available models...\ngemini-4-argon-medium\tGemini 4 Argon (Medium)\n'
+               'gemini-4-argon-high\tGemini 4 Argon (High)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)')
     sys.exit(0)
 if '-p' in sys.argv:
     assert sys.argv[sys.argv.index('-p') + 1] == '/usage'
@@ -1041,6 +1044,11 @@ printf 'gemini-4-argon-medium' >"$tmp/argon.catalogo"
 rodar "${cmd_argon[@]}" >"$tmp/saida" 2>&1
 conferir "Argon: modelo indisponível recusa sem tentar outro" test "$?" = 1
 conferir "Argon: modelo ausente não cria registro" test ! -e "$reg/argon--coordenador.json"
+# O nome legível depois da tabulação não serve de id, nem id que só começa igual.
+printf 'Fetching available models...\ngemini-4-argon-high-preview\tGemini 4 Argon (High)\nx\tgemini-4-argon-high\n' >"$tmp/argon.catalogo"
+rodar "${cmd_argon[@]}" >"$tmp/saida" 2>&1
+conferir "Argon: id parecido ou só no nome legível recusa" test "$?" = 1
+conferir "Argon: id parecido não cria registro" test ! -e "$reg/argon--coordenador.json"
 rm "$tmp/argon.catalogo"
 for cota_invalida in 0.19 -1 1.1 nan; do
   printf '%s' "$cota_invalida" >"$tmp/argon.cota"

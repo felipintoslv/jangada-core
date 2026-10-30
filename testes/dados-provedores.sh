@@ -287,6 +287,21 @@ rodar delta escrever agy ANTIGRAVITY_GEMINI_DIR="$casa/outro" >"$tmp/rodar-recus
 r=$?
 conferir "caso 5: ANTIGRAVITY_GEMINI_DIR recusada ($r)" \
   bash -c 'test "$1" -ne 0 && grep -q "ANTIGRAVITY_GEMINI_DIR definida" "$2"' _ "$r" "$tmp/rodar-recusa1"
+rodar delta escrever agy ANTIGRAVITY_APP_DATA_DIR="$casa/outro" >"$tmp/rodar-recusa1b" 2>&1
+r=$?
+conferir "caso 5: ANTIGRAVITY_APP_DATA_DIR fora do padrão recusada ($r)" \
+  bash -c 'test "$1" -ne 0 && grep -q "ANTIGRAVITY_APP_DATA_DIR definida" "$2"' _ "$r" "$tmp/rodar-recusa1b"
+# O agy define ANTIGRAVITY_APP_DATA_DIR com a pasta padrão nos comandos que
+# roda: delegar de dentro de um coordenador agy precisa abrir, sem a variável.
+mkdir -p "$tmp/proj-padrao"
+(cd "$tmp/proj-padrao" && env -u JANGADA_SESSAO -u JANGADA_ISOLADO JANGADA_SESSAO=omega \
+  JANGADA_MARCA_ISOLADO="$marca_isolado" JANGADA_ISOLAR_PROVEDORES=agy \
+  ANTIGRAVITY_APP_DATA_DIR="$casa/.gemini/antigravity-cli/" \
+  "$repo_jangada/bin/jangada-isolar" --provedor claude -- \
+  bash -c 'printf "%s\n" "${ANTIGRAVITY_APP_DATA_DIR-ausente}"') >"$tmp/rodar-padrao" 2>&1
+r=$?
+conferir "caso 5: ANTIGRAVITY_APP_DATA_DIR na pasta padrão aceita e retirada ($r)" \
+  bash -c 'test "$1" -eq 0 && test "$(tail -1 "$2")" = ausente' _ "$r" "$tmp/rodar-padrao"
 rodar delta escrever agy CLAUDE_CONFIG_DIR=relativo >"$tmp/rodar-recusa2" 2>&1
 r=$?
 conferir "caso 5: CLAUDE_CONFIG_DIR relativo recusado ($r)" \
