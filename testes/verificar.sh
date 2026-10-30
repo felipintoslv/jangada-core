@@ -115,6 +115,7 @@ testes/isolar.sh || falha "testes/isolar.sh"
 python3 -B testes/isolar-provedores.py || falha "testes/isolar-provedores.py"
 testes/restaurar.sh || falha "testes/restaurar.sh"
 testes/fim.sh || falha "testes/fim.sh"
+testes/git-separado.sh || falha "testes/git-separado.sh"
 
 passo "histórico de estados dos agentes"
 testes/eventos.sh || falha "testes/eventos.sh"
