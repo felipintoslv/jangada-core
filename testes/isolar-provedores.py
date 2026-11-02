@@ -11,6 +11,7 @@ Uso: python3 testes/isolar-provedores.py
 import json
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -48,6 +49,9 @@ if espera:
     (cli / "marca").write_text(os.urandom(8).hex())
     time.sleep(espera)
     saida["marca"] = (cli / "marca").read_text()
+login = os.environ.get("JANGADA_SONDA_LOGIN")
+if login:
+    (casa / ".gemini/antigravity-cli/antigravity-oauth-token").write_text(login)
 aninhado = os.environ.get("JANGADA_SONDA_ANINHADO")
 if aninhado:
     ambiente = {**os.environ, "JANGADA_SONDA_ANINHADO": ""}
@@ -209,6 +213,61 @@ class Provedores(unittest.TestCase):
         r = self.rodar("--conta", "conta2", "--", "claude")
         for nome in ("agy", "conta1", "conta2"):
             self.assertIsNone(r["arquivos"][nome], nome)
+
+    def test_login_e_renovacao_da_conta_sem_keyring(self):
+        self.contas()
+        if not shutil.which("dbus-daemon") or not shutil.which("xdg-dbus-proxy"):
+            if EXIGIR:
+                self.fail("dbus-daemon e xdg-dbus-proxy são exigidos neste caso")
+            self.skipTest("dbus-daemon ou xdg-dbus-proxy ausente")
+        runtime = self.tmp / "runtime"
+        runtime.mkdir(mode=0o700)
+        bus = subprocess.run(["dbus-daemon", "--session", "--fork", "--print-address=1", "--print-pid=1",
+                              f"--address=unix:path={runtime}/original"],
+                             capture_output=True, text=True, check=True)
+        endereco, pid = bus.stdout.splitlines()
+        self.addCleanup(os.kill, int(pid), signal.SIGTERM)
+        registro = self.tmp / "proxy.jsonl"
+        busca = self.tmp / "busca-keyring"
+        # O proxy real aplica o filtro; o invólucro registra só argumentos,
+        # sem segredos. A busca externa falsa acusa qualquer consulta indevida.
+        proxy = self.bin / "xdg-dbus-proxy"
+        proxy.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
+                         "with open(os.environ['JANGADA_SONDA_PROXY'], 'a') as f: "
+                         "f.write(json.dumps(sys.argv[1:])+'\\n')\n"
+                         f"os.execv({shutil.which('xdg-dbus-proxy')!r}, sys.argv)\n")
+        proxy.chmod(0o755)
+        gdbus = self.bin / "gdbus"
+        gdbus.write_text(f"#!/bin/sh\ntouch '{busca}'\nexit 1\n")
+        gdbus.chmod(0o755)
+        ambiente = {"XDG_RUNTIME_DIR": str(runtime), "DBUS_SESSION_BUS_ADDRESS": endereco,
+                    "JANGADA_SONDA_PROXY": str(registro),
+                    "JANGADA_ISOLAR_KEYRING_ITEM": "service=gemini username=antigravity"}
+        # Primeiro login com arquivo ausente; em seguida, renovação no mesmo
+        # arquivo, outra conta e modo legado servico com atributos vazios.
+        self.arquivos["conta1"].unlink()
+        for conta, modo, atributos, login in (
+                ("conta1", "itens", ambiente["JANGADA_ISOLAR_KEYRING_ITEM"], "login-ficticio"),
+                ("conta1", "servico", ambiente["JANGADA_ISOLAR_KEYRING_ITEM"], "renovado-ficticio"),
+                ("conta2", "servico", "", "outro-login-ficticio")):
+            with self.subTest(conta=conta, modo=modo, atributos=atributos):
+                antes = {n: p.read_bytes() if p.exists() else None for n, p in self.arquivos.items()}
+                self.rodar("--conta", conta, "--", "agy", env={**ambiente,
+                           "JANGADA_ISOLAR_KEYRING": modo, "JANGADA_ISOLAR_KEYRING_ITEM": atributos,
+                           "JANGADA_SONDA_LOGIN": login})
+                self.assertEqual(self.arquivos[conta].read_text(), login)
+                if conta == "conta1":
+                    self.assertEqual(self.arquivos[conta].stat().st_mode & 0o777, 0o600)
+                for nome in ("agy", "conta2" if conta == "conta1" else "conta1"):
+                    self.assertEqual(self.arquivos[nome].read_bytes(), antes[nome], nome)
+                r = self.rodar("--conta", conta, "--", "agy", env=ambiente)
+                self.assertEqual(r["arquivos"]["agy"], login, "login perdido ao reabrir")
+        filtros = [json.loads(l) for l in registro.read_text().splitlines()]
+        self.assertEqual(len(filtros), 6, filtros)
+        for filtro in filtros:
+            self.assertIn("--talk=org.freedesktop.Notifications", filtro)
+            self.assertFalse(any("org.freedesktop.secrets" in arg for arg in filtro), filtro)
+        self.assertFalse(busca.exists(), "o catálogo não deve buscar o item global")
 
     def test_execucoes_simultaneas_ficam_separadas(self):
         self.contas()

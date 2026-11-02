@@ -383,6 +383,34 @@ continuam ocultos nesse modo.
 
 ## Keyring por item
 
+Com catálogo de contas do agy, o keyring fica fechado em todos os perfis,
+mesmo com `JANGADA_ISOLAR_KEYRING_ITEM` ou `JANGADA_ISOLAR_KEYRING=servico`.
+O proxy não busca nem libera itens, coleções ou `CreateItem`. O agy prefere
+um item global (`service=gemini username=antigravity`) ao arquivo da conta;
+liberar esse item faria um login sobrescrever os demais e o login padrão.
+Sem acesso ao serviço, ele usa `antigravity-oauth-token`.
+
+No perfil `agente`, esse arquivo vem da conta escolhida e é gravável, para
+persistir login e renovação. Se faltar, o isolador cria `{}` com permissão
+0600 antes de montar, para o primeiro login não ficar só na sessão efêmera.
+Nos executores privados ele continua somente leitura; com catálogo, o
+implementador dispensa o soquete de keyring do autor. As restrições de
+keyring e soquete descritas abaixo valem para instalações sem catálogo.
+O roteiro para refazer o login está em
+[subagentes e delegação](subagentes-e-delegacao.md#login-de-cada-conta).
+
+A investigação de 02/11/2026 usou o agy 1.4.12 numa casa temporária com
+credencial fictícia, sem rede, sem `/home` real e sem o barramento da sessão.
+O registro informou `Failed to load stored token from keyring, falling back
+to file`, e `inotifywait` confirmou abertura e leitura do arquivo. A análise
+das funções `fileTokenStorage.SaveToken` e `updateStoredToken` do binário
+confirmou gravação por `os.WriteFile` com permissão 0600, sem troca por
+`rename`. A renovação com OAuth real não foi executada. Os testes com
+cliente fictício conferem primeiro login, renovação e persistência ao
+reabrir, sem alterar outra conta nem o login padrão.
+
+Sem catálogo, mantém-se a política a seguir.
+
 `JANGADA_ISOLAR_KEYRING_ITEM` recebe os atributos do item do agy no keyring,
 em pares `atributo=valor` separados por espaço. Na abertura, fora do
 isolamento, o `jangada-isolar` procura os itens com esses atributos e o proxy
@@ -519,8 +547,6 @@ também [atualização e migrações](atualizacao-e-migracoes.md).
 - Não é certificação de segurança geral nem homologação dos provedores
   reais: os testes usam provedores e credenciais fictícios.
 - O agente lê o login dos provedores concedidos e pode enviá-lo pela rede.
-- `JANGADA_ISOLAR_KEYRING_ITEM` vale para todas as contas do agy: o item
-  liberado não muda com a conta escolhida no catálogo.
 - O filtro de variáveis olha o nome, não o valor.
 - Um SIGKILL no `jangada-isolar` não deixa o próprio processo limpar nada.
   O `bwrap` com `--die-with-parent` encerra o agente, e o proxy do D-Bus sai
@@ -536,7 +562,7 @@ também [atualização e migrações](atualizacao-e-migracoes.md).
 - Sem `bwrap`: o `jangada-isolar` recusa com código 1 e nenhum agente abre;
   instale o pacote `bubblewrap`.
 - Sem proxy do D-Bus (programa ausente ou sem resposta em 5 segundos): o
-  agente abre sem D-Bus, e o agy não acha o login.
+  agente abre sem D-Bus; o agy depende do arquivo de login.
 - Apagar ramo ou tag e o `git gc` falham dentro de um worktree, porque
   regravam o `packed-refs`, que fica na raiz somente leitura.
 - Dentro de um worktree, o agente não move `main` nem outro ramo fora de
@@ -598,7 +624,9 @@ da skill em `agentes/claude/skills/jangada/agentes.md`.
 
 O perfil `implementacao` sempre cria outro isolamento. Ele expõe fontes
 copiadas e arquivos exatos, sem liberar worktree, Git ou estado persistente.
-O estado do CLI é temporário e o keyring selecionado é somente leitura.
+O estado do CLI é temporário. Com catálogo, o token da conta é somente
+leitura e o keyring fica fechado; sem catálogo, o item selecionado do
+keyring é somente leitura.
 Veja o [contrato do piloto](coordenacao-central/10-executor-agy.md).
 
 ## Ajustes pessoais das montagens

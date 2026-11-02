@@ -644,6 +644,19 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
 
 ## agy como suporte
 
+- Em 02/11/2026, o agy 1.4.12 confirmou a preferência pelo keyring global
+  (`service=gemini username=antigravity`), mesmo havendo token em arquivo.
+  Com catálogo, não liberar esse item nem `CreateItem`, inclusive no modo
+  `servico`: sem keyring, o agy lê o arquivo da conta. A gravação usa
+  `os.WriteFile`, então o bind gravável do arquivo persiste a renovação.
+  O primeiro login exige criar `{}` com 0600 na origem antes do bind; sem
+  isso, o token novo fica só nos dados efêmeros. Nos executores privados,
+  manter o token somente leitura e dispensar o soquete de keyring quando
+  há catálogo. Sem catálogo, preservar a política anterior. `/logout` pode
+  tentar remover o ponto de montagem; para refazer o login, fechar as
+  sessões da conta e reinicializar só seu arquivo fora do isolamento,
+  conforme `docs/subagentes-e-delegacao.md`, seção Login de cada conta.
+
 - Em 24/10/2026, o coordenador conferiu pelos nomes de arquivo:
   o login de cada conta fica em `antigravity-oauth-token`, dentro de
   `antigravity-cli`, inclusive nas contas

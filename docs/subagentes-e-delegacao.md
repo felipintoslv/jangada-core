@@ -439,6 +439,13 @@ gravar ali não persiste. Um `bin` que seja link recusa a abertura.
 Sem opção, usa `JANGADA_AGY_CONTA` ou a primeira conta do catálogo.
 Dentro de uma sessão isolada, somente a conta montada participa da seleção;
 pedir outra conta com `--conta` recusa antes de ler seu cache ou chamar o agy.
+Com catálogo, o keyring fica fechado, inclusive se a configuração pessoal
+libera um item ou o serviço inteiro. O agy usa o `antigravity-oauth-token`
+da conta escolhida. Login e renovação dentro do perfil `agente` persistem
+só nesse arquivo. Se ele faltar, o isolador cria um arquivo vazio de login
+(`{}`, permissão 0600) antes de abrir o agy. Sem catálogo, permanece a
+política de keyring existente.
+
 A seleção também chega à leitura e à implementação privadas da MOD-03:
 com catálogo, o arquivo `antigravity-oauth-token` da conta é montado somente para leitura.
 Esses executores escondem a casa; a pasta de cada conta que fica fora dela recebe um `tmpfs`,
@@ -472,6 +479,48 @@ própria pasta da conta recusa a importação.
 
 Catálogo ou destino existente são preservados. Nada é movido ou apagado
 na origem.
+
+### Login de cada conta
+
+Depois de instalar a correção, feche as sessões antigas: elas mantêm o
+filtro de keyring com que foram abertas. Num terminal fora do isolamento,
+abra uma pasta de projeto e execute:
+
+```sh
+jangada-isolar --conta conta1 -- agy
+# Conclua o login da conta1 e saia do agy.
+jangada-isolar --conta conta2 -- agy
+# Conclua o login da conta2 e saia do agy.
+```
+
+Se já houver token no arquivo, o agy pode retomá-lo sem pedir login. Para
+escolher outra identidade, feche antes todas as sessões daquela conta e
+reinicialize só o arquivo dela, fora do isolamento. Para as pastas do
+catálogo usado neste exemplo:
+
+```sh
+printf '{}\n' > "$HOME/.local/state/jangada/contas/conta1/antigravity-oauth-token"
+jangada-isolar --conta conta1 -- agy
+printf '{}\n' > "$HOME/.local/state/jangada/contas/conta2/antigravity-oauth-token"
+jangada-isolar --conta conta2 -- agy
+```
+
+Use os caminhos da configuração pessoal se forem diferentes. Não apague
+nem altere o login padrão em `~/.gemini/antigravity-cli`. Evite `/logout`
+para essa reinicialização: ele pode tentar remover o arquivo que é ponto
+de montagem, operação que o kernel recusa. A gravação do login e da
+renovação é direta no arquivo e funciona nesse ponto de montagem.
+
+Para conferir depois de sair e reabrir cada conta:
+
+```sh
+jangada-isolar --conta conta1 -- agy -p /usage --output-format json
+jangada-isolar --conta conta2 -- agy -p /usage --output-format json
+```
+
+A consulta usa só a conta escolhida. Cotas iguais, por si só, não comprovam
+identidade compartilhada; o teste de regressão confere arquivos e filtro do
+D-Bus com credenciais fictícias.
 
 ## Avaliação controlada do Ollama
 

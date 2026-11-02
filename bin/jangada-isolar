@@ -23,7 +23,8 @@
 # só deixa falar com as notificações e, com o agy concedido, com os itens
 # do keyring de JANGADA_ISOLAR_KEYRING_ITEM (pares atributo=valor separados
 # por espaço). Sem essa lista o keyring fica fechado;
-# JANGADA_ISOLAR_KEYRING=servico abre o serviço inteiro, com aviso. O
+# JANGADA_ISOLAR_KEYRING=servico abre o serviço inteiro, com aviso. Com
+# catálogo do agy, o keyring sempre fica fechado e o login vem do arquivo. O
 # agente não vê os processos de fora (namespace de PID próprio) nem o Docker.
 #
 # Provedores concedidos: no perfil agente, o login (arquivos, variáveis e a
@@ -327,7 +328,9 @@ soquete_montado() {
   M="$alvo" awk '$5 == ENVIRON["M"] { achou = 1 } END { exit !achou }' /proc/self/mountinfo 2>/dev/null
 }
 chamada_aninhada=0
-[[ "$perfil" != implementacao ]] || ! ja_isolado || chamada_aninhada=1
+if ((!conta_configurada)) && [[ "$perfil" == implementacao ]] && ja_isolado; then
+  chamada_aninhada=1
+fi
 soquete_impl="${XDG_RUNTIME_DIR:-}/bus-implementacao"
 if ((chamada_aninhada && !mostrar)) \
    && { [[ -z "${XDG_RUNTIME_DIR:-}" || -L "$soquete_impl" || ! -S "$soquete_impl" ]] \
@@ -401,7 +404,7 @@ if ((!chamada_aninhada)) && [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR
         [[ "$1" == implementacao ]] || politica+=(--call="$segredos=org.freedesktop.Secret.Collection.CreateItem@$colecao")
       done
     }
-    if [[ "$perfil" == implementacao && -z "${JANGADA_ISOLAR_KEYRING_ITEM:-}" ]]; then
+    if ((!conta_configurada)) && [[ "$perfil" == implementacao && -z "${JANGADA_ISOLAR_KEYRING_ITEM:-}" ]]; then
       recusar_sem_login 'implementação exige atributos de keyring já configurados; não liberar o serviço inteiro'
     fi
     # Só o agy usa o keyring, e só quando ele é concedido. Sem
@@ -411,12 +414,17 @@ if ((!chamada_aninhada)) && [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR
     falar=(--talk=org.freedesktop.Notifications)
     falar_impl=()
     if command -v agy >/dev/null 2>&1 && { [[ "$perfil" == implementacao ]] || concedido agy; }; then
-      if [[ -z "${JANGADA_ISOLAR_KEYRING_ITEM:-}" ]]; then
+      if ((conta_configurada)); then
+        # O agy prefere o item global ao arquivo. Fechar todo o serviço
+        # força leitura e gravação no token da conta, inclusive no modo
+        # legado servico. Nem buscar nem CreateItem podem chegar ao host.
+        echo "jangada-isolar: keyring fechado para a conta $CONTA_AGY_NOME do catálogo; login em arquivo" >&2
+      elif [[ -z "${JANGADA_ISOLAR_KEYRING_ITEM:-}" ]]; then
         if [[ "$keyring_modo" == servico ]]; then
           echo "jangada-isolar: JANGADA_ISOLAR_KEYRING=servico: o agente alcança todo o keyring aberto" >&2
           falar+=(--talk=org.freedesktop.secrets)
         else
-          echo "jangada-isolar: keyring fechado ao agente: defina JANGADA_ISOLAR_KEYRING_ITEM (o agy que guarda o login em arquivo, por conta do catálogo, não precisa dele)" >&2
+          echo "jangada-isolar: keyring fechado ao agente: defina JANGADA_ISOLAR_KEYRING_ITEM ou use login em arquivo" >&2
         fi
       else
         achar_itens_keyring
@@ -1157,6 +1165,17 @@ dados_agy() {
     [[ ! -L "$origem/$f" ]] || { echo "jangada-isolar: $f da conta $CONTA_AGY_NOME é link ($origem/$f)" >&2; exit 1; }
     [[ ! -L "$dados_alvo/$f" ]] || { echo "jangada-isolar: link em $dados_alvo/$f" >&2; exit 1; }
   done
+  # No primeiro login, o arquivo também precisa vir de fora. Sem ele, o
+  # agy criaria o token só na pasta efêmera da sessão. Não substituir arquivo
+  # existente, e nunca criar login da conta implícita sem catálogo.
+  if ((conta_configurada)) && [[ ! -e "$origem/antigravity-oauth-token" ]]; then
+    (umask 077; set -o noclobber; printf '{}\n' >"$origem/antigravity-oauth-token") || {
+      echo "jangada-isolar: falha ao preparar o login da conta $CONTA_AGY_NOME" >&2; exit 1;
+    }
+  fi
+  if ((conta_configurada)) && [[ ! -f "$origem/antigravity-oauth-token" ]]; then
+    echo "jangada-isolar: login da conta $CONTA_AGY_NOME não é arquivo regular" >&2; exit 1
+  fi
   args+=(--bind "$dados_alvo" "$destino")
   [[ ! -f "$origem/antigravity-oauth-token" ]] \
     || args+=(--bind "$origem/antigravity-oauth-token" "$destino/antigravity-oauth-token")
