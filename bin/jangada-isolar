@@ -17,8 +17,8 @@
 # jangada-validar, o histórico de estados, o registro de delegações e o que
 # estiver em JANGADA_ISOLAR_ESCRITA (caminhos separados por ":"). O ~/.cache,
 # os retratos do shell e o ambiente das sessões do Claude aparecem com o
-# conteúdo de fora, mas o que o agente grava neles some no fim. O /tmp e o
-# XDG_RUNTIME_DIR são próprios; com eles somem o socket do tmux, do Hyprland,
+# conteúdo de fora, mas o que o agente grava neles some no fim. O /tmp, o
+# /run/user e o XDG_RUNTIME_DIR são próprios; com eles somem o socket do tmux, do Hyprland,
 # do Wayland e do gpg-agent. O D-Bus da sessão passa pelo xdg-dbus-proxy, que
 # só deixa falar com as notificações e, com o agy concedido, com os itens
 # do keyring de JANGADA_ISOLAR_KEYRING_ITEM (pares atributo=valor separados
@@ -339,6 +339,11 @@ if ((chamada_aninhada && !mostrar)) \
         || ! soquete_montado "$soquete_impl"; }; then
   recusar_sem_login 'a sessão do autor não trouxe o soquete do implementador (item do keyring ausente ou sessão aberta sem ele)'
 fi
+# /run/user inteiro em memória, antes de qualquer montagem dentro dele: sem
+# XDG_RUNTIME_DIR, ou com ele fora de /run/user, a pasta normal do usuário
+# (bus, gpg-agent, Wayland) ficaria à vista. As origens dos binds abaixo são
+# lidas fora do isolamento e não somem com esta pasta.
+[[ -d /run/user ]] && args+=(--tmpfs /run/user)
 if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]]; then
   args+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")
   if ((chamada_aninhada)); then
