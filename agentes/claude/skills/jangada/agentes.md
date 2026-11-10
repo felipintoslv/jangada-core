@@ -797,12 +797,11 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
   (`jangada_gravar_atomico`), que não segue link.
 - Com catálogo de contas, a oferta da conferência abre o agy pelo
   `jangada-isolar --conta`, que também entrega uma cópia do `settings.json`.
-  Até 10/11/2026 a resposta "confiar" dada ali sumia com os dados efêmeros e
-  a pendência voltava a cada oferta (vista em 06/11 e 10/11). Agora a oferta
-  passa `JANGADA_ISOLAR_DADOS=confianca-PID-HEX`, lê a cópia depois que o agy
-  sai e leva à conta só a raiz, comparada como texto
+  A oferta passa `JANGADA_ISOLAR_DADOS=confianca-PID-HEX`, lê a cópia depois
+  que o agy sai e leva à conta só a raiz, comparada como texto
   (`_jangada_agy_trazer_raiz`); link, JSON inválido ou arquivo grande não
-  levam nada. Teste de confiança com conta precisa de agy falso que grave na
+  levam nada. Sem essa leitura, a resposta "confiar" some com os dados
+  efêmeros e a pendência volta a cada oferta (visto em 06/11 e 10/11/2026). Teste de confiança com conta precisa de agy falso que grave na
   cópia, não no `settings.json` da conta: gravar direto na conta escondia o
   defeito.
 - Para testar hooks sem tocar no estado real, mude `XDG_STATE_HOME`; o
