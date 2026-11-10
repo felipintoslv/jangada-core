@@ -513,6 +513,23 @@ EOF
   conferir "caso 3: hyprctl não alcança o Hyprland" roda '! hyprctl version'
   conferir "caso 3: sem socket do Wayland" roda '! ls "${XDG_RUNTIME_DIR:-/nada}"/wayland-*'
   conferir "caso 3: systemd-run --user falha" roda '! systemd-run --user true'
+  # /run/user de fora (bus sem o filtro do proxy, gpg-agent) não aparece,
+  # com XDG_RUNTIME_DIR ausente ou fora de /run/user.
+  run_uid="/run/user/$(id -u)"
+  if [[ -d "$run_uid" && -n "$(ls -A "$run_uid" 2>/dev/null)" ]]; then
+    mkdir -m 0700 "$tmp/run-fora"
+    run_vazio="[ -z \"\$(ls -A /run/user 2>/dev/null)\" ] && ! test -e '$run_uid'"
+    conferir "caso 3: sem XDG_RUNTIME_DIR, /run/user de fora não aparece" \
+      isolar "$tmp/wt" env -u XDG_RUNTIME_DIR "$repo_jangada/bin/jangada-isolar" -- bash -c "$run_vazio"
+    conferir "caso 3: XDG_RUNTIME_DIR fora de /run/user, /run/user de fora não aparece" \
+      isolar "$tmp/wt" XDG_RUNTIME_DIR="$tmp/run-fora" "$repo_jangada/bin/jangada-isolar" -- bash -c "$run_vazio"
+    if [[ "${XDG_RUNTIME_DIR:-}" == "$run_uid" ]]; then
+      conferir "caso 3: com XDG_RUNTIME_DIR normal, /run/user só tem a pasta dele" \
+        roda "[ \"\$(ls -A /run/user)\" = '$(id -u)' ]"
+    fi
+  else
+    pular "caso 3 do /run/user: $run_uid ausente ou vazio aqui"
+  fi
   if [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] && command -v xdg-dbus-proxy >/dev/null 2>&1 \
      && command -v busctl >/dev/null 2>&1; then
     conferir "caso 3: D-Bus só com o keyring e as notificações" \
