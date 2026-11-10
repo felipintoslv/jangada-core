@@ -1432,6 +1432,71 @@ print(json.dumps({"status":"SUCCESS","response":"fronteira conferida sem modelo"
         self.assertFalse(chamada.exists(), "o implementador chegou a ser isolado com o soquete forjado")
         self.assertFalse(proxies.exists())
 
+    def catalogo_com_conta(self):
+        """Catálogo com uma conta montada; devolve o token dela."""
+        pasta = Path(self.env["JANGADA_ESTADO"]) / "contas/conta1"
+        pasta.mkdir(parents=True)
+        token = pasta / "antigravity-oauth-token"
+        token.write_text("falso-conta1")
+        (pasta / "settings.json").write_text(json.dumps({"trustedWorkspaces": [str(self.raiz)]}))
+        (pasta.parent / "agy.json").write_text(json.dumps([{"nome": "conta1", "pasta": str(pasta), "argon": False}]))
+        return token, {"JANGADA_AGY_CONTA_MONTADA": "conta1", "JANGADA_AGY_PASTA": str(pasta)}
+
+    def conferir_login_so_leitura(self, argumentos, token):
+        destino = str(self.casa / ".gemini/antigravity-cli/antigravity-oauth-token")
+        i = argumentos.index(str(token))
+        self.assertEqual(argumentos[i - 1:i + 2], ["--ro-bind", str(token), destino])
+        for j, arg in enumerate(argumentos):
+            if arg == destino:
+                self.assertEqual(argumentos[j - 2], "--ro-bind", "login da conta gravável no executor privado")
+
+    def test_catalogo_implementador_aninhado_abre_sem_dbus_nem_soquete_do_autor(self):
+        # Com catálogo o login vem do arquivo. O soquete do implementador que o
+        # autor forjou e o bus dele não chegam ao implementador, e nenhum proxy
+        # sobe na pasta em memória do autor.
+        runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=True)
+        token, conta = self.catalogo_com_conta()
+        soquetes = []
+        for nome in ("bus", "bus-implementacao"):
+            servidor = socket.socket(socket.AF_UNIX)
+            self.addCleanup(servidor.close)
+            servidor.bind(str(runtime / nome))
+            servidor.listen()
+            soquetes.append(str(runtime / nome))
+        for extras in ({}, {"JANGADA_ISOLAR_KEYRING": "servico"}, {"JANGADA_ISOLAR_KEYRING_ITEM": ""}):
+            with self.subTest(**extras):
+                chamada.unlink(missing_ok=True)
+                p = self.isolar_implementacao(runtime, {"JANGADA_ISOLADO": "1", "JANGADA_MARCA_ISOLADO": "/",
+                                                        **conta, **extras})
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertFalse(proxies.exists(), "a chamada aninhada subiu proxy na pasta do autor")
+                self.assertFalse((runtime / "jangada-isolar").exists())
+                argumentos = chamada.read_text().splitlines()
+                for soquete in soquetes:
+                    self.assertNotIn(soquete, argumentos)
+                self.assertNotIn(str(runtime / "bus"), argumentos)
+                pares = list(zip(argumentos, argumentos[1:]))
+                self.assertIn(("--unsetenv", "DBUS_SESSION_BUS_ADDRESS"), pares)
+                self.assertNotIn(("--setenv", "DBUS_SESSION_BUS_ADDRESS"), pares)
+                self.assertFalse(any("unix:path=" in a for a in argumentos), argumentos)
+                self.conferir_login_so_leitura(argumentos, token)
+
+    def test_catalogo_implementador_fecha_o_keyring_e_le_o_login_so_para_leitura(self):
+        runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=False)
+        token, conta = self.catalogo_com_conta()
+        for extras in ({}, {"JANGADA_ISOLAR_KEYRING": "servico"}, {"JANGADA_ISOLAR_KEYRING_ITEM": ""}):
+            with self.subTest(**extras):
+                proxies.unlink(missing_ok=True)
+                chamada.unlink(missing_ok=True)
+                p = self.isolar_implementacao(runtime, {**conta, **extras})
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertIn("keyring fechado para a conta conta1", p.stderr)
+                registros = proxies.read_text().splitlines()
+                self.assertEqual(len(registros), 1, registros)
+                self.assertIn("--talk=org.freedesktop.Notifications", registros[0])
+                self.assertNotIn("org.freedesktop.secrets", registros[0])
+                self.conferir_login_so_leitura(chamada.read_text().splitlines(), token)
+
     def test_autor_recebe_segundo_soquete_com_o_filtro_do_implementador(self):
         runtime, proxies, chamada = self.preparar_keyring_falso(nega_busca_do_servico=False)
         ambiente = {**self.env, "XDG_RUNTIME_DIR": str(runtime),
