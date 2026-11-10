@@ -62,7 +62,10 @@ cache = casa / ".gemini/antigravity-cli/cache"
 saida["cache"] = sorted(os.listdir(cache)) if cache.is_dir() else None
 assistente = os.environ.get("JANGADA_SONDA_ASSISTENTE")
 if assistente:
-    (cache / "onboarding.json").write_text(assistente)
+    try:
+        (cache / "onboarding.json").write_text(assistente)
+    except OSError:
+        pass
 aninhado = os.environ.get("JANGADA_SONDA_ANINHADO")
 if aninhado:
     ambiente = {**os.environ, "JANGADA_SONDA_ANINHADO": ""}
@@ -464,6 +467,9 @@ class Provedores(unittest.TestCase):
     def test_assistente_da_conta_fora_do_formato_nao_e_copiado(self):
         self.contas()
         pasta = self.estado / "contas/conta1"
+        # O isolamento cria bin/ na conta a cada abertura; existir antes deixa
+        # a comparação da conta inteira valer desde a primeira.
+        (pasta / "bin").mkdir()
         dentro = self.casa / ".gemini/antigravity-cli/cache/onboarding.json"
         ambiente = {"JANGADA_SONDA_ARQUIVOS": json.dumps({"assistente": str(dentro), "agy": str(self.arquivos["agy"])})}
         fora = self.tmp / "fora"
