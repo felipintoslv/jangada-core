@@ -327,10 +327,12 @@ soquete_montado() {
   alvo="${alvo//\\/\\134}"; alvo="${alvo// /\\040}"; alvo="${alvo//$'\t'/\\011}"; alvo="${alvo//$'\n'/\\012}"
   M="$alvo" awk '$5 == ENVIRON["M"] { achou = 1 } END { exit !achou }' /proc/self/mountinfo 2>/dev/null
 }
-chamada_aninhada=0
-if ((!conta_configurada)) && [[ "$perfil" == implementacao ]] && ja_isolado; then
-  chamada_aninhada=1
-fi
+# Com catálogo, o implementador aninhado não tem D-Bus: o login vem do arquivo
+# da conta, e um proxy novo ficaria na pasta em memória do autor, que pode
+# trocar o soquete pelo bus dele antes do bind.
+implementacao_aninhada=0 chamada_aninhada=0
+[[ "$perfil" != implementacao ]] || ! ja_isolado || implementacao_aninhada=1
+((!implementacao_aninhada || conta_configurada)) || chamada_aninhada=1
 soquete_impl="${XDG_RUNTIME_DIR:-}/bus-implementacao"
 if ((chamada_aninhada && !mostrar)) \
    && { [[ -z "${XDG_RUNTIME_DIR:-}" || -L "$soquete_impl" || ! -S "$soquete_impl" ]] \
@@ -347,7 +349,7 @@ if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]]; then
     fi
   fi
 fi
-if ((!chamada_aninhada)) && [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]]; then
+if ((!implementacao_aninhada)) && [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]]; then
   pasta_proxy="$XDG_RUNTIME_DIR/jangada-isolar"
   if ((!mostrar)) && [[ ( "$perfil" == agente || "$perfil" == implementacao ) && -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] \
      && command -v xdg-dbus-proxy >/dev/null 2>&1 \
@@ -424,7 +426,7 @@ if ((!chamada_aninhada)) && [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR
           echo "jangada-isolar: JANGADA_ISOLAR_KEYRING=servico: o agente alcança todo o keyring aberto" >&2
           falar+=(--talk=org.freedesktop.secrets)
         else
-          echo "jangada-isolar: keyring fechado ao agente: defina JANGADA_ISOLAR_KEYRING_ITEM ou use login em arquivo" >&2
+          echo "jangada-isolar: keyring fechado ao agente: defina JANGADA_ISOLAR_KEYRING_ITEM (o agy que guarda o login em arquivo, por conta do catálogo, não precisa dele)" >&2
         fi
       else
         achar_itens_keyring
@@ -1167,13 +1169,18 @@ dados_agy() {
   done
   # No primeiro login, o arquivo também precisa vir de fora. Sem ele, o
   # agy criaria o token só na pasta efêmera da sessão. Não substituir arquivo
-  # existente, e nunca criar login da conta implícita sem catálogo.
+  # existente, e nunca criar login da conta implícita sem catálogo. Só na
+  # área de contas do estado: a pasta padrão do agy não entra na regra 1.
   if ((conta_configurada)) && [[ ! -e "$origem/antigravity-oauth-token" ]]; then
-    (umask 077; set -o noclobber; printf '{}\n' >"$origem/antigravity-oauth-token") || {
-      echo "jangada-isolar: falha ao preparar o login da conta $CONTA_AGY_NOME" >&2; exit 1;
-    }
+    if [[ "$origem" != "$JANGADA_ESTADO/contas/"?* ]]; then
+      echo "jangada-isolar: a conta $CONTA_AGY_NOME usa a pasta padrão do agy sem arquivo de login; o login feito nesta sessão some no fim" >&2
+    elif ((!mostrar)); then
+      (umask 077; set -o noclobber; printf '{}\n' >"$origem/antigravity-oauth-token") || {
+        echo "jangada-isolar: falha ao preparar o login da conta $CONTA_AGY_NOME" >&2; exit 1;
+      }
+    fi
   fi
-  if ((conta_configurada)) && [[ ! -f "$origem/antigravity-oauth-token" ]]; then
+  if ((conta_configurada)) && [[ -e "$origem/antigravity-oauth-token" && ! -f "$origem/antigravity-oauth-token" ]]; then
     echo "jangada-isolar: login da conta $CONTA_AGY_NOME não é arquivo regular" >&2; exit 1
   fi
   args+=(--bind "$dados_alvo" "$destino")

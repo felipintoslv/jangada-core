@@ -393,8 +393,11 @@ Sem acesso ao serviço, ele usa `antigravity-oauth-token`.
 No perfil `agente`, esse arquivo vem da conta escolhida e é gravável, para
 persistir login e renovação. Se faltar, o isolador cria `{}` com permissão
 0600 antes de montar, para o primeiro login não ficar só na sessão efêmera.
+Isso só acontece em conta da área `contas/` do estado e fora de `--mostrar`;
+conta do catálogo apontada para a pasta padrão do agy só recebe um aviso.
 Nos executores privados ele continua somente leitura; com catálogo, o
-implementador dispensa o soquete de keyring do autor. As restrições de
+implementador aninhado dispensa o soquete de keyring do autor e abre sem
+D-Bus, sem proxy na pasta em memória do autor. As restrições de
 keyring e soquete descritas abaixo valem para instalações sem catálogo.
 O roteiro para refazer o login está em
 [subagentes e delegação](subagentes-e-delegacao.md#login-de-cada-conta).
