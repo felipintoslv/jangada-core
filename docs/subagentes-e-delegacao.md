@@ -381,8 +381,8 @@ flowchart TD
 O catálogo opcional `$JANGADA_ESTADO/contas/agy.json` contém uma lista:
 
 ```json
-[{"nome":"argon","pasta":"/home/USUARIO/.local/state/jangada/contas/argon","argon":true},
- {"nome":"flash","pasta":"/home/USUARIO/.local/state/jangada/contas/flash","argon":false}]
+[{"nome":"conta1","pasta":"/home/USUARIO/.local/state/jangada/contas/conta1"},
+ {"nome":"conta2","pasta":"/home/USUARIO/.local/state/jangada/contas/conta2"}]
 ```
 
 Sem esse arquivo, permanece a conta implícita `principal`, em
@@ -394,11 +394,19 @@ recusa o catálogo: o jangada grava na pasta da conta (confiança, `bin`), e só
 essas duas áreas já estão na regra 1. A pasta `contas` não pode ser link, e
 com catálogo a escrita de confiança só vai ao `settings.json` da conta escolhida.
 O arquivo é lido como dados. O dono o configura fora da sessão isolada.
+O campo `argon` de cada conta é opcional e ignorado: catálogo antigo com ele
+continua válido, desde que o valor seja booleano. Quem diz se a conta tem Argon
+é o `/usage` dela, que só traz o grupo `gemini-argon-wtu` nas contas com acesso.
 
 `jangada-delegar PAPEL "pedido" --conta NOME` fixa uma conta. Sem a opção,
 o comando preserva a prioridade dos modelos e escolhe, para cada família,
 a conta habilitada que confia na pasta e tem maior saldo real. A confiança
-é conferida antes de consultar cota. Argon exige `argon: true`.
+é conferida antes de consultar cota. Para `gemini-4-argon-*`, a conta só é
+elegível com leitura do `/usage` válida e atual (consulta nova ou cache dentro
+do prazo) que traga algum balde `gemini-argon-wtu*`. Consulta que falhou,
+cache vencido sem nova leitura ou grupo ausente deixam a conta de fora, e o
+saldo mínimo continua o de `JANGADA_DELEGAR_COTA_MIN`. Sem nenhuma conta com o
+grupo, a recusa sai com `capacidade_incompativel`.
 Medida ausente fica atrás de qualquer saldo conhecido, inclusive zero;
 continua desconhecida e não autoriza chamar o modelo. Empates preservam a
 ordem do catálogo. Cada conta tem cache de cota próprio. O registro inclui
@@ -467,7 +475,8 @@ exige que a raiz já seja confiável naquela conta.
 
 `jangada-migrar` oferece copiar `conta1` e `conta2` do estado do Catamarã.
 Copia a subpasta `antigravity-cli` de cada conta. Exige confirmação em terminal
-e pergunta quais contas têm Argon. Sem terminal ou com recusa, apenas informa
+e pergunta quais contas têm Argon; a resposta vai para o campo `argon`, que
+não decide mais nada. Sem terminal ou com recusa, apenas informa
 e permite as migrações seguintes; em simulação, apenas informa.
 Para importar depois, o dono executa em terminal:
 

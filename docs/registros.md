@@ -886,8 +886,8 @@ bordas para conferir assinaturas não entra nessas contagens.
       de contas inválido traz `consulta_falhou`, sem conta inventada.
     - `grupos`: um objeto por grupo de consumo (`gemini`, `3p`, `gemini-argon-wtu`
       no agy, `codex` no Codex). No agy entram os grupos dos modelos de
-      `JANGADA_DELEGAR_MODELOS` (o Argon só nas contas com `argon`) e os que
-      o `/usage` trouxer.
+      `JANGADA_DELEGAR_MODELOS` (com catálogo, o Argon só quando o `/usage` da
+      conta traz o grupo) e os que o `/usage` trouxer.
       - `grupo`: identificador, só `a-z`, `0-9` e `-`.
       - `percentual`: cota restante de 0 a 100, duas casas, a menor entre as
         janelas ativas do grupo (a mesma conta do `cota_do_grupo` do

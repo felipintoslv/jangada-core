@@ -858,6 +858,11 @@ Testes de 27/09/2026, agy 1.2.12:
   O delegador seleciona os identificadores exatos do grupo do modelo.
   Grupo ausente ou inválido não usa a cota de outro; janelas desativadas não contam.
   Claude e GPT do agy usam `3p-weekly` e `3p-5h`.
+- **Quem tem Argon é o `/usage` da conta, não o catálogo**: o grupo
+  `gemini-argon-wtu` só aparece nas contas com acesso. Em 10/11/2026 o campo
+  manual `argon` do `contas/agy.json` foi trocado e destrocado no mesmo dia, e
+  conta sem o grupo chegava a ser escolhida com saldo vazio. Desde então o
+  `jangada-delegar` ignora o campo e exige leitura válida e atual com o grupo.
 - Falha ao iniciar `agy agents` não comprova ausência de um papel.
   No sandbox do Codex, soquete local proibido e logs somente leitura fizeram
   a consulta sair com código 1, sem catálogo. Capture código e erro antes
