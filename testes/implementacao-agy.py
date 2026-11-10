@@ -607,7 +607,8 @@ pasta=Path(next(c["pasta"] for c in contas if c["nome"]=="conta2"))
              f"--ro-bind\n/dev/null\n/tmp/.jangada-sem-autoridade\n--bind\n{ref}/agy-principal/sintetica\n{cli}\n"
              f"--ro-bind\n{cli}/bin\n{cli}/bin\n"),
         ]
-        # /run/user inteiro em memória (10/11/2026), onde a máquina o tem.
+        # O jangada-isolar só cobre /run/user onde ele existe: o esperado
+        # depende da máquina que roda o teste.
         if Path("/run/user").is_dir():
             trocas.append(("--unsetenv\nDBUS_SESSION_BUS_ADDRESS\n",
                            "--tmpfs\n/run/user\n--unsetenv\nDBUS_SESSION_BUS_ADDRESS\n"))
