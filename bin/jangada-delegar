@@ -971,7 +971,8 @@ ativar_conta() {
 # contas com acesso. O campo argon do catálogo não decide nada.
 conta_tem_argon() {
   ((cota_atual)) && jq -e '[.command.data.groups[]?.buckets[]?
-      | select((.id | type == "string") and (.id | startswith("gemini-argon-wtu")))] | length > 0' \
+      | select((.id | type == "string") and (.id | startswith("gemini-argon-wtu"))
+          and (.remaining_fraction | type == "number"))] | length > 0' \
     "$cache" >/dev/null 2>&1
 }
 selecionar_conta() {

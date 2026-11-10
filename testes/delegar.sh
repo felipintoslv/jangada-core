@@ -364,6 +364,23 @@ conferir "contas Argon: sem conta com o grupo recusa por capacidade" jqok -e \
 conferir "contas Argon: a recusa diz que nenhuma conta tem o grupo" \
   grep -q 'nenhuma conta trouxe o grupo gemini-argon-wtu' "$tmp/erro"
 
+# Bucket Argon sem saldo numérico não conta como Argon: a conta fica fora. O
+# cache fresco não passa pela validação da leitura nova do /usage.
+catalogo_contas true false
+for saldo in ausente null '"0.6"'; do
+  limpar_contas; uso_conta conta2 0.9
+  mkdir -p "$tmp/home/.cache/jangada"
+  jq -c --arg s "$saldo" '.command.data.groups += [{buckets: [{id: "gemini-argon-wtu-weekly"}
+      + (if $s == "ausente" then {} else {remaining_fraction: ($s | fromjson)} end)]}]' \
+    "$tmp/falso/usage-conta2.json" >"$tmp/home/.cache/jangada/agy-usage-conta1.json"
+  ISOLADO=1 MODELOS=gemini-4-argon-high delegar --permitir-remoto explorador "mapeie" --json
+  conferir "contas Argon: saldo $saldo no grupo recusa por capacidade" jqok -e \
+    '.codigo_saida == 4 and .motivo_codigo == "capacidade_incompativel" and .chamadas_executor == 0
+     and ([.cotas_modelos[]?.conta] | index("conta1") == null)' "$tmp/saida"
+  conferir "contas Argon: saldo $saldo no grupo, a conta veio do cache" \
+    bash -c '! grep -qx conta1 "$1" 2>/dev/null' _ "$tmp/falso/usage.contas"
+done
+
 # Catálogo: argon opcional; quando presente, booleano.
 catalogo_contas - -
 conferir "catálogo sem argon é aceito, com a terceira coluna vazia" test \
