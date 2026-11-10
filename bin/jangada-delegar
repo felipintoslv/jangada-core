@@ -954,7 +954,7 @@ ler_cota() {
 
 # Cada conta tem cache próprio; uma falha de leitura não recupera dado expirado.
 declare -A consultas_contas=() cotas_atuais=()
-contas_sem_confianca=""; alguma_conta_confiavel=0
+contas_sem_confianca=""; alguma_conta_confiavel=0; sem_argon=0
 ativar_conta() {
   jangada_conta_agy "$1" || recusar "conta do agy inválida: $1" entrada_invalida
   conta_usada="$CONTA_AGY_NOME"
@@ -967,12 +967,19 @@ ativar_conta() {
   cota_consultada="${consultas_contas[$conta_usada]:-0}"
   cota_atual="${cotas_atuais[$conta_usada]:-0}"
 }
+# O Argon da conta vem do /usage dela: o grupo gemini-argon-wtu só aparece nas
+# contas com acesso. O campo argon do catálogo não decide nada.
+conta_tem_argon() {
+  ((cota_atual)) && jq -e '[.command.data.groups[]?.buckets[]?
+      | select((.id | type == "string") and (.id | startswith("gemini-argon-wtu")))] | length > 0' \
+    "$cache" >/dev/null 2>&1
+}
 selecionar_conta() {
-  local n _p argon melhor="" saldo="" melhor_saldo="" anterior="$conta_usada"
-  while IFS=$'\t' read -r n _p argon; do
+  local n _p _argon melhor="" saldo="" melhor_saldo="" anterior="$conta_usada"
+  sem_argon=0
+  while IFS=$'\t' read -r n _p _argon; do
     [[ -z "$conta_opt" || "$n" == "$conta_opt" ]] || continue
     [[ -z "${JANGADA_AGY_CONTA_MONTADA:-}" || "$n" == "$JANGADA_AGY_CONTA_MONTADA" ]] || continue
-    [[ "$1" != gemini-4-argon-* || "$argon" == true ]] || continue
     ativar_conta "$n"
     if ! jangada_agy_confia "$pasta"; then
       [[ " $contas_sem_confianca " == *" $n "* ]] || contas_sem_confianca+="${contas_sem_confianca:+ }$n"
@@ -981,6 +988,11 @@ selecionar_conta() {
     alguma_conta_confiavel=1
     ler_cota "$1"
     consultas_contas[$n]="$cota_consultada"; cotas_atuais[$n]="$cota_atual"
+    # Falha fechada: consulta falha, cache vencido sem nova leitura ou grupo ausente.
+    if [[ "$1" == gemini-4-argon-* ]] && ! conta_tem_argon; then
+      sem_argon=1
+      continue
+    fi
     saldo="$cota_lida"
     cotas_modelos="$(jq -c --arg m "$1" --arg conta "$n" --arg g "$(grupo_do_modelo "$1")" --arg c "$saldo" \
       '. + [{modelo:$m, conta:$conta, grupo:$g, percentual:(if $c == "" then null else ($c|tonumber) end)}]' <<<"$cotas_modelos")"
@@ -1107,7 +1119,13 @@ minimo="${JANGADA_DELEGAR_COTA_MIN:-20}"
 sem_cota=""; sem_cota_codigo=""; atendido=0; cota_primeira=""
 for modelo in "${modelos_agy[@]}"; do
   if ((contas_configuradas)); then
-    selecionar_conta "$modelo" || continue
+    if ! selecionar_conta "$modelo"; then
+      if ((sem_argon)); then
+        : "${sem_cota:=nenhuma conta habilitada para $modelo: nenhuma conta trouxe o grupo gemini-argon-wtu numa leitura válida e atual do /usage}"
+        : "${sem_cota_codigo:=capacidade_incompativel}"
+      fi
+      continue
+    fi
     if [[ "$conta_conferida" != "$conta_usada" ]]; then
       conferir_conta
       conta_conferida="$conta_usada"

@@ -357,9 +357,10 @@ def contas_agy(core):
     contas = []
     for linha in resposta.stdout.splitlines():
         partes = linha.split('\t')
-        if len(partes) != 4 or not NOME_CONTA.fullmatch(partes[0]) or partes[1] not in ('true', 'false'):
+        # A segunda coluna é o campo argon do catálogo, opcional e sem efeito.
+        if len(partes) != 4 or not NOME_CONTA.fullmatch(partes[0]) or partes[1] not in ('true', 'false', ''):
             raise ValueError('lista de contas do agy inválida')
-        contas.append({'nome': partes[0], 'argon': partes[1] == 'true', 'confia': partes[2] == '1', 'pasta': partes[3]})
+        contas.append({'nome': partes[0], 'confia': partes[2] == '1', 'pasta': partes[3]})
     if not contas:
         raise ValueError('lista de contas do agy vazia')
     return contas
@@ -380,7 +381,9 @@ def consultar_agy(core, conta, catalogo):
 
 
 def medir_agy(core, conta, catalogo, atualizar, cache, agora, candidatas):
-    esperados = grupos_esperados(conta['argon'])
+    # Com catálogo, o grupo Argon só aparece se o /usage da conta o trouxer; a
+    # conta implícita mantém o grupo esperado de antes.
+    esperados = grupos_esperados(not catalogo)
     if not conta['confia']:
         return [grupo_nulo(g, 'conta_sem_confianca') for g in esperados]
     validade = validade_cache()

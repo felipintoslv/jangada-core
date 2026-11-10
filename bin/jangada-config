@@ -260,7 +260,9 @@ try:
     if area.resolve() != area:
         raise ValueError("a pasta de contas do estado não pode ter links no caminho")
     for conta in contas:
-        nome, pasta, argon = conta["nome"], conta["pasta"], conta["argon"]
+        nome, pasta = conta["nome"], conta["pasta"]
+        # argon é opcional e não decide nada: o Argon vem do /usage da conta.
+        argon = conta.get("argon", False)
         if not isinstance(nome, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", nome) or nome in nomes:
             raise ValueError("nome inválido ou repetido")
         if not isinstance(pasta, str) or any(ord(c) < 32 for c in pasta) or type(argon) is not bool:
@@ -281,7 +283,7 @@ try:
         nomes.add(nome)
         pastas.append(p)
     for conta in contas:
-        print(conta["nome"], conta["pasta"], str(conta["argon"]).lower(), sep="\t")
+        print(conta["nome"], conta["pasta"], str(conta["argon"]).lower() if "argon" in conta else "", sep="\t")
 except (OSError, ValueError, KeyError, TypeError) as erro:
     sys.exit("catálogo de contas do agy inválido: " + str(erro))
 PY
