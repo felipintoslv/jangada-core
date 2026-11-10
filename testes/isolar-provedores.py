@@ -332,8 +332,8 @@ class Provedores(unittest.TestCase):
                 self.arquivos["agy"].unlink()
             registro.unlink(missing_ok=True)
             busca.unlink(missing_ok=True)
-            env = dict(self.env, **ambiente, **extras,
-                       JANGADA_SONDA_ARQUIVOS=json.dumps({k: str(v) for k, v in self.arquivos.items()}))
+            env = {**self.env, **ambiente, **extras,
+                   "JANGADA_SONDA_ARQUIVOS": json.dumps({k: str(v) for k, v in self.arquivos.items()})}
             p = subprocess.run([str(isolar), "--", "agy"], cwd=self.raiz, env=env, stdin=subprocess.DEVNULL,
                                capture_output=True, text=True, timeout=60)
             filtros = [[a for a in json.loads(l) if a.startswith("--") and not a.startswith("--fd")]
