@@ -309,14 +309,27 @@ essa autorização ao worktree da tarefa.
   confiança dentro do agy e sai; o jangada relê o `settings.json` e sincroniza
   o worktree se a raiz estiver lá. Fechar o agy sem responder não autoriza
   nada.
+- Com catálogo de contas (`contas/agy.json`), a oferta vale para cada conta
+  sem a raiz e abre `jangada-isolar --conta CONTA -- agy` na raiz. O agy usa
+  ali uma cópia do `settings.json` da conta, guardada sob a chave
+  `confianca-PID-HEX` até ele sair. Se a cópia passou a ter a raiz (caminho
+  resolvido ou como veio) em `trustedWorkspaces`, o jangada grava na conta
+  só essa raiz; outros caminhos e outras chaves da cópia não saem dela. A
+  cópia foi gravada por um processo isolado: vale só como arquivo regular,
+  sem link a partir do estado, com até 1 MiB e JSON lido pelo `jq`, e
+  qualquer falha mantém a pendência. A pasta da cópia é apagada em seguida.
+  Dentro do isolamento a chave é recusada e a conferência não age.
 - Pendência: sem terminal, sem o agy instalado, com a oferta recusada ou com a
   pergunta sem resposta, a tarefa abre do mesmo jeito. O `jangada-delegar`
   recusa o agy nela e a sessão principal faz o trabalho.
 - Para retomar depois, numa tarefa já aberta: abra o agy na raiz do projeto,
   responda à pergunta e rode `jangada-agentes --confianca SESSAO` num terminal
-  fora da sessão do agente. O comando não recria a tarefa, não copia arquivos
+  fora da sessão do agente. Com catálogo, rode só o
+  `jangada-agentes --confianca SESSAO`: ele repete a oferta em cada conta
+  pendente. O comando não recria a tarefa, não copia arquivos
   e não roda `.jangada/preparar.sh`.
-- O que o jangada não faz: gravar a raiz, confiar em pasta que o Git não
+- O que o jangada não faz: gravar a raiz sem a resposta dada pelo usuário no
+  agy aberto pela oferta, confiar em pasta que o Git não
   aponta como worktree da raiz autorizada, ler a raiz ou o worktree do estado
   da sessão (gravável pelo agente; vale a cópia em `revisoes/`) e sincronizar
   de dentro do isolamento.

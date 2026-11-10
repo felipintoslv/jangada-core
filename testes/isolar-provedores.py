@@ -52,9 +52,17 @@ if espera:
 login = os.environ.get("JANGADA_SONDA_LOGIN")
 if login:
     (casa / ".gemini/antigravity-cli/antigravity-oauth-token").write_text(login)
+confia = os.environ.get("JANGADA_SONDA_CONFIA")
+if confia:
+    settings = casa / ".gemini/antigravity-cli/settings.json"
+    dados = json.loads(settings.read_text())
+    dados["trustedWorkspaces"].append(confia)
+    settings.write_text(json.dumps(dados))
 aninhado = os.environ.get("JANGADA_SONDA_ANINHADO")
 if aninhado:
     ambiente = {**os.environ, "JANGADA_SONDA_ANINHADO": ""}
+    if os.environ.get("JANGADA_SONDA_DADOS_ANINHADO"):
+        ambiente["JANGADA_ISOLAR_DADOS"] = os.environ["JANGADA_SONDA_DADOS_ANINHADO"]
     if os.environ.get("JANGADA_SONDA_SESSAO_ANTIGA"):
         ambiente.pop("JANGADA_ISOLAR_CONCEDIDOS", None)
     p = subprocess.run([os.environ["JANGADA_CORE_PATH"] + "/bin/jangada-isolar", "--", *json.loads(aninhado)],
@@ -372,6 +380,39 @@ class Provedores(unittest.TestCase):
             self.assertFalse((self.estado / "contas" / conta / "marca").exists(), conta)
         self.assertEqual(list((self.estado / "provedores").glob("*/efemera-*")), [])
         self.assertFalse((self.casa / ".gemini/antigravity-cli/marca").exists(), "a execução do claude gravou no agy")
+
+    def test_oferta_de_confianca_guarda_a_copia_para_o_chamador(self):
+        # jangada_agy_conferir_tarefa passa confianca-PID-HEX para ler, depois
+        # que o agy sai, a cópia do settings.json que ele usou.
+        self.contas()
+        chave = f"confianca-{os.getpid()}-0123456789abcdef"
+        provedor = self.estado / "provedores/agy-conta1"
+        self.rodar("--conta", "conta1", "--", "agy",
+                   env={"JANGADA_ISOLAR_DADOS": chave, "JANGADA_SONDA_CONFIA": "/nova/raiz"})
+        copia = json.loads((provedor / chave / "settings.json").read_text())
+        self.assertEqual(copia["trustedWorkspaces"], [str(self.raiz), "/nova/raiz"])
+        conta = json.loads((self.estado / "contas/conta1/settings.json").read_text())
+        self.assertEqual(conta["trustedWorkspaces"], [str(self.raiz)], "o isolador gravou a conta")
+        for args, outra in ((("--conta", "conta1"), "confianca-x-0123456789abcdef"),
+                            (("--conta", "conta1"), "confianca-1-0123"), ((), chave)):
+            with self.subTest(args=args, chave=outra):
+                p, _ = self.iniciar(*args, "--", "agy", env={"JANGADA_ISOLAR_DADOS": outra})
+                _, erro = p.communicate(timeout=60)
+                self.assertEqual(p.returncode, 1, erro)
+                self.assertIn("JANGADA_ISOLAR_DADOS aceita", erro)
+        # De dentro do isolamento a chave é recusada.
+        r = self.rodar("--conta", "conta1", "--", "agy",
+                       env={"JANGADA_SONDA_ANINHADO": json.dumps(["agy"]), "JANGADA_SONDA_DADOS_ANINHADO": chave})
+        self.assertEqual(r["aninhado"]["rc"], 1, r)
+        self.assertIn("não vale dentro do isolamento", r["aninhado"]["erro"])
+        # A pasta de um chamador morto some na próxima abertura; a de um vivo fica.
+        morto = subprocess.Popen(["true"])
+        morto.wait()
+        sobra = provedor / f"confianca-{morto.pid}-0123456789abcdef"
+        sobra.mkdir()
+        self.rodar("--conta", "conta1", "--", "agy")
+        self.assertFalse(sobra.exists(), "pasta de chamador morto ficou")
+        self.assertTrue((provedor / chave).exists(), "pasta de chamador vivo sumiu")
 
     def test_aninhado_recusa_provedor_que_a_sessao_nao_recebeu(self):
         aninhado = {"JANGADA_SONDA_ANINHADO": json.dumps(["codex"])}

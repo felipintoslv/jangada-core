@@ -787,14 +787,24 @@ commits e atualize a cópia instalada com `git merge --ff-only`.
   A sincronização exige que o Git aponte o worktree como registrado na raiz
   autorizada, lê a raiz da cópia em `revisoes/` (o estado em `agentes/` é
   gravável pelo agente) e relê o `settings.json` depois de gravar. A raiz
-  nunca é gravada pelo jangada: fechar o agy sem responder não vale como
-  autorização.
+  só é gravada pelo jangada quando o usuário a autorizou na pergunta do agy
+  aberto pela oferta: fechar o agy sem responder não vale como autorização.
   Dentro do isolamento o `settings.json` do agy é uma cópia nova a cada
   abertura: a resposta à pergunta de confiança dada dentro vale só naquela
   sessão, e a confiança que conta é a gravada fora. O fim da sessão regrava o
   `settings.json` de fora do isolamento: se o arquivo
   virou link simbólico, o jangada não mexe nele, e a troca é por rename
   (`jangada_gravar_atomico`), que não segue link.
+- Com catálogo de contas, a oferta da conferência abre o agy pelo
+  `jangada-isolar --conta`, que também entrega uma cópia do `settings.json`.
+  Até 10/11/2026 a resposta "confiar" dada ali sumia com os dados efêmeros e
+  a pendência voltava a cada oferta (vista em 06/11 e 10/11). Agora a oferta
+  passa `JANGADA_ISOLAR_DADOS=confianca-PID-HEX`, lê a cópia depois que o agy
+  sai e leva à conta só a raiz, comparada como texto
+  (`_jangada_agy_trazer_raiz`); link, JSON inválido ou arquivo grande não
+  levam nada. Teste de confiança com conta precisa de agy falso que grave na
+  cópia, não no `settings.json` da conta: gravar direto na conta escondia o
+  defeito.
 - Para testar hooks sem tocar no estado real, mude `XDG_STATE_HOME`; o
   `jangada-config` recalcula `JANGADA_ESTADO` a partir dele.
 - Clones de referência em subpastas (como `referencia/`): se contiverem

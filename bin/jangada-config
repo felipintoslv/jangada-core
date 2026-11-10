@@ -801,6 +801,29 @@ jangada_agy_tarefa_usa() {
   [[ "$delegar" == agy || "$revisor" == agy ]]
 }
 
+# Leva à conta CONTA a confiança na RAIZ que o dono deu na pergunta do agy,
+# aberto pela oferta de jangada_agy_conferir_tarefa com JANGADA_ISOLAR_DADOS
+# igual a CHAVE. A cópia do settings.json foi gravada pelo processo isolado e
+# é dado: arquivo regular, sem link a partir do estado, até 1 MiB, lido pelo
+# jq, e só a raiz exata (resolvida ou como veio) conta. Nada mais sai dela.
+# O agy já saiu e o namespace de PID dele acabou: ninguém troca o arquivo
+# entre a conferência e a leitura. Qualquer falha não grava nada.
+_jangada_agy_trazer_raiz() {
+  local conta="$1" chave="$2" raiz="$3" copia esperado real tam
+  [[ -z "${JANGADA_ISOLADO:-}${JANGADA_AGY_SETTINGS:-}" ]] || return 1
+  [[ "$conta" =~ ^[A-Za-z0-9_-]+$ && "$chave" =~ ^confianca-[0-9]+-[0-9a-f]{16}$ ]] || return 1
+  copia="$JANGADA_ESTADO/provedores/agy-$conta/$chave/settings.json"
+  esperado="$(realpath -e -- "$JANGADA_ESTADO" 2>/dev/null)/provedores/agy-$conta/$chave/settings.json" || return 1
+  [[ -f "$copia" && ! -L "$copia" && "$(realpath -e -- "$copia" 2>/dev/null)" == "$esperado" ]] || return 1
+  tam="$(stat -c %s -- "$copia" 2>/dev/null)" || return 1
+  [[ "$tam" =~ ^[0-9]+$ ]] && ((tam <= 1048576)) || return 1
+  real="$(realpath -e -- "$raiz" 2>/dev/null)" || return 1
+  head -c 1048576 -- "$copia" | jq -e --arg w "$real" --arg o "$raiz" \
+    '(.trustedWorkspaces | type == "array") and any(.trustedWorkspaces[]; . == $w or . == $o)' >/dev/null 2>&1 || return 1
+  (export JANGADA_AGY_CONTA="$conta"; unset JANGADA_AGY_SETTINGS
+   jangada_agy_confia "$raiz" || jangada_agy_ajustar_confianca adicionar "$real")
+}
+
 # Conferência da confiança do agy ao abrir ou retomar uma tarefa que delega
 # ou revisa pelo agy. WORKTREE vazio é sessão direta na raiz. Com PERGUNTAR=1,
 # terminal e agy instalado, oferece abrir o agy na raiz; a resposta à pergunta
@@ -845,8 +868,18 @@ jangada_agy_conferir_tarefa() {
         echo "responda à pergunta do agy e saia dele para continuar" >&2
         if [[ -f "$JANGADA_ESTADO/contas/agy.json" ]]; then
           jangada_conta_agy || return 1
-          (cd "$raiz" && env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 \
+          # O isolador entrega ao agy uma cópia do settings.json da conta e,
+          # com esta chave, a guarda até aqui; a resposta dada ali só chega à
+          # conta por _jangada_agy_trazer_raiz.
+          local chave_dados
+          chave_dados="confianca-$BASHPID-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+          (cd "$raiz" && env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 JANGADA_ISOLAR_DADOS="$chave_dados" \
             "$JANGADA_CORE_PATH/bin/jangada-isolar" --conta "$CONTA_AGY_NOME" -- agy) || true
+          _jangada_agy_trazer_raiz "$CONTA_AGY_NOME" "$chave_dados" "$raiz" || true
+          local d
+          for d in "$JANGADA_ESTADO"/provedores/*/"$chave_dados"; do
+            [[ ! -d "$d" || -L "$d" ]] || rm -rf -- "$d"
+          done
         else
           (cd "$raiz" && env -u JANGADA_SESSAO JANGADA_HOOK_DESLIGADO=1 agy) || true
         fi
@@ -865,7 +898,7 @@ jangada_agy_conferir_tarefa() {
   fi
   if ((r == 2)); then
     if [[ -f "$JANGADA_ESTADO/contas/agy.json" ]]; then
-      echo "Na raiz $raiz, execute jangada-isolar --conta ${JANGADA_AGY_CONTA:-NOME} -- agy, responda à pergunta de confiança e rode: jangada-agentes --confianca $sessao" >&2
+      echo "Para repetir a oferta, rode num terminal fora da sessão: jangada-agentes --confianca $sessao" >&2
     else
       echo "Para retomar, abra o agy em $raiz, responda à pergunta de confiança e rode: jangada-agentes --confianca $sessao" >&2
     fi

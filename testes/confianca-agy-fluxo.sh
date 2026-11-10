@@ -27,13 +27,21 @@ wts="$tmp/home/.local/share/jangada-worktrees/app"
 mkdir -p "$tmp/bin" "$tmp/sem-agy" "${conf_agy%/*}" "$tmp/config/jangada/agentes" "$estado/agentes" \
   "$estado/revisoes" "$raiz" "$tmp/arbitraria" "$tmp/outro"
 
+# Com catálogo, o isolador falso passa em FALSO_SETTINGS a cópia que o agy
+# recebe. FALSO_AUTORIZA=extra grava também outro caminho e outra chave;
+# link troca a cópia por um link e invalido deixa nela JSON quebrado.
 cat >"$tmp/bin/agy" <<'EOF'
 #!/usr/bin/env bash
 pwd >>"$FALSO_DIR/agy.chamadas"
-if [[ "${FALSO_AUTORIZA:-0}" == 1 ]]; then
-  c="$HOME/.gemini/antigravity-cli/settings.json"
-  jq --arg w "$PWD" '.trustedWorkspaces += [$w]' "$c" >"$c.novo" && mv "$c.novo" "$c"
-fi
+c="${FALSO_SETTINGS:-$HOME/.gemini/antigravity-cli/settings.json}"
+case "${FALSO_AUTORIZA:-0}" in
+  1) jq --arg w "$PWD" '.trustedWorkspaces += [$w]' "$c" >"$c.novo" && mv "$c.novo" "$c" ;;
+  extra) jq --arg w "$PWD" '.trustedWorkspaces += [$w, "/outro/caminho"] | .chave_nova = 1' "$c" >"$c.novo" \
+           && mv "$c.novo" "$c" ;;
+  link) jq -n --arg w "$PWD" '{trustedWorkspaces: [$w]}' >"$FALSO_DIR/alvo-link.json"
+        ln -sf "$FALSO_DIR/alvo-link.json" "$c" ;;
+  invalido) printf '{"trustedWorkspaces": ["%s"' "$PWD" >"$c" ;;
+esac
 exit 0
 EOF
 cat >"$tmp/bin/tmux" <<'EOF'
@@ -79,7 +87,7 @@ rodar() {
   env -u JANGADA_ISOLADO -u JANGADA_SESSAO -u JANGADA_DELEGAR -u JANGADA_VALIDAR_REVISOR \
     -u JANGADA_AGY_SETTINGS -u JANGADA_AGY_CONTA -u JANGADA_AGY_CONTA_MONTADA -u JANGADA_AGY_PASTA -u TMUX -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" \
-    PATH="${CAMINHO:-$tmp/bin:$PATH}" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp" \
+    PATH="${CAMINHO:-$tmp/bin:$PATH}" JANGADA_CORE_PATH="${CORE:-$repo_jangada}" FALSO_DIR="$tmp" \
     JANGADA_AGENTE_ESCOLHER=0 "$@" </dev/null >"$tmp/saida" 2>&1
 }
 # O mesmo num pseudoterminal, com RESPOSTA digitada na pergunta.
@@ -89,7 +97,7 @@ rodar_tty() {
     -u JANGADA_VALIDAR_REVISOR -u JANGADA_AGY_SETTINGS -u JANGADA_AGY_CONTA -u JANGADA_AGY_CONTA_MONTADA \
     -u JANGADA_AGY_PASTA -u TMUX -u WAYLAND_DISPLAY \
     -u HYPRLAND_INSTANCE_SIGNATURE HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" \
-    XDG_STATE_HOME="$tmp/state" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" \
+    XDG_STATE_HOME="$tmp/state" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="${CORE:-$repo_jangada}" \
     FALSO_DIR="$tmp" JANGADA_AGENTE_ESCOLHER=0 \
     script -qec "$(printf '%q ' "$@")" /dev/null >"$tmp/saida" 2>&1
 }
@@ -539,6 +547,124 @@ registro app--t1 "$raiz" "$wts/t1"
 restaurar_t1
 conferir "caso 14: restauração com registro válido sincroniza" \
   jqok -e --arg a "$raiz" --arg b "$raiz_b" --arg w "$wts/t1" '.trustedWorkspaces == [$a, $b, $w]' "$conf_agy"
+
+# Caso 15: catálogo de contas. O agy aberto pela oferta usa uma cópia do
+# settings.json da conta, entregue pelo jangada-isolar; só a raiz respondida
+# ali chega à conta. O isolador falso cumpre o contrato dos dados do agy: a
+# chave efemera-* some na saída e a confianca-* fica para o chamador.
+# CORE é o núcleo com o isolador falso; BASE_CORE, quando definido, troca o
+# jangada-config pelo da base, para comparar.
+nucleo_falso() {
+  local destino="$1" config="$2" f
+  mkdir -p "$destino/bin"
+  for f in "$repo_jangada"/*; do
+    [[ "${f##*/}" == bin ]] || ln -s "$f" "$destino/${f##*/}"
+  done
+  for f in "$repo_jangada"/bin/*; do ln -s "$f" "$destino/bin/${f##*/}"; done
+  rm "$destino/bin/jangada-config" "$destino/bin/jangada-isolar"
+  cp "$config" "$destino/bin/jangada-config"
+  cat >"$destino/bin/jangada-isolar" <<'EOF'
+#!/usr/bin/env bash
+[[ "$1" == --conta && "$3" == -- ]] || exit 9
+conta="$2"; shift 3
+estado="$XDG_STATE_HOME/jangada"
+chave="efemera-$$"
+if [[ -n "${JANGADA_ISOLAR_DADOS+x}" ]]; then
+  [[ -z "${JANGADA_ISOLADO:-}" && "$JANGADA_ISOLAR_DADOS" =~ ^confianca-[0-9]+-[0-9a-f]{16}$ ]] || exit 1
+  chave="$JANGADA_ISOLAR_DADOS"
+fi
+pasta="$estado/provedores/agy-$conta/$chave"
+mkdir -p "$pasta"
+cp "$estado/contas/$conta/settings.json" "$pasta/settings.json"
+FALSO_SETTINGS="$pasta/settings.json" "$@"; rc=$?
+[[ "$chave" != efemera-* ]] || rm -rf "$pasta"
+exit "$rc"
+EOF
+  chmod +x "$destino/bin/jangada-isolar"
+}
+nucleo_falso "$tmp/core" "$repo_jangada/bin/jangada-config"
+conta_agy="$estado/contas/c1/settings.json"
+git -C "$raiz" worktree add -q -b agente/c1 "$wts/c1"
+registro app--c1 "$raiz" "$wts/c1"
+catalogo() {
+  mkdir -p "$estado/contas/c1"
+  jq -n --arg p "$estado/contas/c1" '[{nome: "c1", pasta: $p}]' >"$estado/contas/agy.json"
+  echo '{"trustedWorkspaces": [], "outra": 1}' >"$conta_agy"
+  rm -rf "$estado/provedores"
+}
+sem_copias() { [[ -z "$(find "$estado/provedores" -mindepth 2 -maxdepth 2 2>/dev/null)" ]]; }
+conta_intacta() { jqok -e '. == {"trustedWorkspaces": [], "outra": 1}' "$conta_agy"; }
+oferta() { CORE="$tmp/core" rodar_tty s "$tmp/core/bin/jangada-agentes" --confianca app--c1; }
+if command -v script >/dev/null 2>&1 && script -qec true /dev/null >/dev/null 2>&1; then
+  catalogo
+  FALSO_AUTORIZA=1 oferta
+  conferir "caso 15: com catálogo, a raiz respondida no agy chega à conta" \
+    jqok -e --arg r "$raiz" --arg w "$wts/c1" '.trustedWorkspaces == [$r, $w] and .outra == 1' "$conta_agy"
+  conferir "caso 15: com catálogo, a pendência some" bash -c '! grep -q pendente "$1"' _ "$tmp/saida"
+  conferir "caso 15: a cópia da sessão é apagada" sem_copias
+  catalogo
+  FALSO_AUTORIZA=extra oferta
+  conferir "caso 15: só a raiz sai da cópia, sem outro caminho nem outra chave" \
+    jqok -e --arg r "$raiz" --arg w "$wts/c1" '. == {"trustedWorkspaces": [$r, $w], "outra": 1}' "$conta_agy"
+  for modo in 0 link invalido; do
+    catalogo
+    FALSO_AUTORIZA="$modo" oferta
+    conferir "caso 15: agy com $modo deixa a conta intacta" conta_intacta
+    conferir "caso 15: agy com $modo mantém a pendência" grep -q "confiança do agy pendente na conta c1" "$tmp/saida"
+    conferir "caso 15: agy com $modo diz como repetir a oferta" \
+      grep -qF "num terminal fora da sessão: jangada-agentes --confianca app--c1" "$tmp/saida"
+    conferir "caso 15: agy com $modo não deixa a cópia" sem_copias
+  done
+  conferir "caso 15: o alvo do link fica como estava" \
+    jqok -e --arg r "$raiz" '. == {"trustedWorkspaces": [$r]}' "$tmp/alvo-link.json"
+else
+  echo "aviso: sem pseudoterminal (script); caso 15 com oferta pulado"
+fi
+# Dentro do isolamento o caminho novo não age, nem com a cópia pronta.
+catalogo
+chave_teste="confianca-$$-0123456789abcdef"
+mkdir -p "$estado/provedores/agy-c1/$chave_teste"
+jq -n --arg r "$raiz" '{trustedWorkspaces: [$r]}' >"$estado/provedores/agy-c1/$chave_teste/settings.json"
+trazer() {
+  rodar env "$@" bash -c 'source "$1/bin/jangada-config"; _jangada_agy_trazer_raiz c1 "$2" "$3"' _ \
+    "$tmp/core" "$chave_teste" "$raiz"
+}
+trazer JANGADA_ISOLADO=1
+conferir "caso 15: isolado, a cópia não chega à conta" conta_intacta
+rm -f "$tmp/agy.chamadas"
+rodar env JANGADA_ISOLADO=1 FALSO_AUTORIZA=1 bash -c 'source "$1/bin/jangada-config"
+  jangada_agy_conferir_tarefa "$2" "$3" 1 app--c1' _ "$tmp/core" "$raiz" "$wts/c1"
+conferir "caso 15: isolado, a conferência não abre o agy nem grava" \
+  test "$(chamadas_agy)" = 0
+conferir "caso 15: isolado, a conta fica intacta" conta_intacta
+trazer
+conferir "caso 15: fora do isolamento, a mesma cópia chega à conta" \
+  jqok -e --arg r "$raiz" '.trustedWorkspaces == [$r]' "$conta_agy"
+rm -rf "$estado/provedores" "$estado/contas" "$tmp/agy.chamadas"
+
+# Caso 16: sem catálogo nada muda: a mesma oferta, com o jangada-config da
+# base, dá a mesma saída e o mesmo settings.json.
+base_config="$tmp/jangada-config.base"
+if git -C "$repo_jangada" show 1938037:bin/jangada-config >"$base_config" 2>/dev/null \
+   && command -v script >/dev/null 2>&1 && script -qec true /dev/null >/dev/null 2>&1; then
+  nucleo_falso "$tmp/core-base" "$base_config"
+  sem_catalogo() {
+    local nucleo="$1" modo="$2"
+    vazio
+    rm -f "$conf_agy.jangada-orig"
+    FALSO_AUTORIZA="$modo" CORE="$nucleo" rodar_tty s "$nucleo/bin/jangada-agentes" --confianca app--c1
+    sed "s#$nucleo#NUCLEO#g" "$tmp/saida"
+    cat "$conf_agy"
+  }
+  for modo in 0 1; do
+    conferir "caso 16: sem catálogo, oferta com agy $modo igual à base" \
+      test "$(sem_catalogo "$tmp/core-base" "$modo")" = "$(sem_catalogo "$tmp/core" "$modo")"
+  done
+  conferir "caso 16: sem catálogo, a raiz autorizada vale" \
+    jqok -e --arg r "$raiz" --arg w "$wts/c1" '.trustedWorkspaces == [$r, $w]' "$conf_agy"
+else
+  echo "aviso: sem a base 1938037 ou sem pseudoterminal; caso 16 pulado"
+fi
 
 if ((falhas)); then
   echo "$falhas falha(s)"

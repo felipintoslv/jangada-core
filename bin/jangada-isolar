@@ -87,6 +87,12 @@ while (($#)); do
   esac
 done
 (($#)) || { echo "uso: jangada-isolar [--mostrar] [--conta NOME] [--provedor NOME] [--delegar DESTINO] [--] COMANDO" >&2; exit 1; }
+# A chave confianca-* guarda, até o chamador apagá-la, a cópia do
+# settings.json que o agy usou; quem a lê de fora é jangada_agy_conferir_tarefa.
+# De dentro do isolamento ela não serve para nada e é recusada logo aqui.
+if [[ "${JANGADA_ISOLAR_DADOS:-}" == confianca-* && -n "${JANGADA_ISOLADO:-}" ]]; then
+  echo "jangada-isolar: JANGADA_ISOLAR_DADOS=confianca-* não vale dentro do isolamento" >&2; exit 1
+fi
 
 # Marca do isolamento: um ponto de montagem no /tmp próprio. Fora, qualquer
 # processo cria um arquivo no /tmp, mas só quem monta cria um ponto de
@@ -582,17 +588,20 @@ done
 # só na próxima abertura, quando o processo dono já não existe. Nada do
 # histórico pessoal de fora é copiado. O jangada-delegar, que chama o agy sem
 # sessão e lê o log e a conversa depois que ele sai, passa uma chave própria em
-# JANGADA_ISOLAR_DADOS (delegacao-*), e ele mesmo apaga a pasta.
+# JANGADA_ISOLAR_DADOS (delegacao-*), e ele mesmo apaga a pasta. A oferta de
+# confiança do agy faz o mesmo com confianca-PID-HEX, só com --conta, para ler
+# a cópia do settings.json depois que o agy sai.
 dados_raiz="$JANGADA_ESTADO/provedores"
 dados_chave="${JANGADA_SESSAO:-}"
 dados_efemeros=()
 if ! [[ "$dados_chave" =~ ^[A-Za-z0-9_.-]+$ && "$dados_chave" != . && "$dados_chave" != .. ]] \
-   || [[ "$dados_chave" == efemera-* || "$dados_chave" == delegacao-* ]]; then
+   || [[ "$dados_chave" == efemera-* || "$dados_chave" == delegacao-* || "$dados_chave" == confianca-* ]]; then
   dados_chave="efemera-$$"
 fi
 if [[ -n "${JANGADA_ISOLAR_DADOS+x}" ]]; then
-  [[ -z "${JANGADA_SESSAO:-}" && "$JANGADA_ISOLAR_DADOS" =~ ^delegacao-[A-Za-z0-9_.-]+$ ]] || {
-    echo "jangada-isolar: JANGADA_ISOLAR_DADOS aceita só delegacao-* e sem JANGADA_SESSAO" >&2; exit 1
+  [[ -z "${JANGADA_SESSAO:-}" && ( "$JANGADA_ISOLAR_DADOS" =~ ^delegacao-[A-Za-z0-9_.-]+$ \
+     || ( "$JANGADA_ISOLAR_DADOS" =~ ^confianca-[0-9]+-[0-9a-f]{16}$ && -n "$conta_opt" ) ) ]] || {
+    echo "jangada-isolar: JANGADA_ISOLAR_DADOS aceita só delegacao-* ou, com --conta, confianca-PID-HEX, e sem JANGADA_SESSAO" >&2; exit 1
   }
   dados_chave="$JANGADA_ISOLAR_DADOS"
 fi
@@ -619,12 +628,16 @@ dados_em_uso() {
 }
 dados_limpar_mortos() {
   local d pid
-  for d in "$dados_raiz"/*/efemera-* "$dados_raiz"/*/delegacao-*; do
+  for d in "$dados_raiz"/*/efemera-* "$dados_raiz"/*/delegacao-* "$dados_raiz"/*/confianca-*; do
     [[ -d "$d" && ! -L "$d" ]] || continue
     if [[ "${d##*/}" == efemera-* ]]; then
       pid="${d##*/efemera-}"
       [[ "$pid" =~ ^[0-9]+$ ]] || continue
       kill -0 "$pid" 2>/dev/null || rm -rf -- "$d"
+    elif [[ "${d##*/}" == confianca-* ]]; then
+      [[ "${d##*/}" =~ ^confianca-([0-9]+)-[0-9a-f]{16}$ ]] || continue
+      pid="${BASH_REMATCH[1]}"
+      kill -0 "$pid" 2>/dev/null || dados_em_uso "${d##*/}" || rm -rf -- "$d"
     else
       # O nome inteiro é conferido: o do formato anterior, delegacao-UUID-N,
       # não tem PID e fica, mesmo com o UUID começando por algarismos.

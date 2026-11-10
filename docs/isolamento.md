@@ -266,7 +266,7 @@ conversa depois que ele sai; por isso passa `JANGADA_ISOLAR_DADOS` com uma
 chave `delegacao-<pid>-<uuid>-<n>` própria de cada chamada, com o PID do
 `jangada-delegar`, e apaga a pasta no fim. O
 `jangada-isolar` só aceita essa variável sem `JANGADA_SESSAO` e com esse
-prefixo, e uma sessão com nome `delegacao-*` ou `efemera-*` vira efêmera,
+prefixo, e uma sessão com nome `delegacao-*`, `confianca-*` ou `efemera-*` vira efêmera,
 para não cair na pasta de outra. Depois de SIGKILL no `jangada-delegar`, a
 pasta da chamada é apagada na próxima abertura de agente, desde que esse PID
 não exista mais e nenhum processo vivo a tenha recebido em
@@ -275,7 +275,10 @@ ainda encerra no prazo). Esse agy órfão continua com a trava de execução e
 impede outra delegação agy até sair. Fechar a janela do `jangada-delegar`
 (SIGHUP) não deixa órfão: o sinal é repassado ao `timeout` e a pasta é
 apagada na saída. Se o PID for reaproveitado por outro processo, a pasta
-espera até ele sair. Uma pasta do formato anterior (`delegacao-<uuid>-<n>`, sem
+espera até ele sair. A oferta de confiança do agy com catálogo faz o mesmo com a
+chave `confianca-<pid>-<hex>`, aceita só com `--conta` e recusada com
+`JANGADA_ISOLADO`: lê a cópia do `settings.json` depois que o agy sai e apaga
+a pasta (veja [ciclo da tarefa](ciclo-da-tarefa.md)). Uma pasta do formato anterior (`delegacao-<uuid>-<n>`, sem
 PID) não é tocada e continua sendo apagada à mão. A pasta `provedores/` inteira fica oculta dentro de qualquer
 isolamento, assim como `codex/`, com as pastas do Codex por sessão.
 

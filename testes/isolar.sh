@@ -306,6 +306,18 @@ conferir "caso 2: JANGADA_ISOLADO sem a marca não dispensa o isolamento" [ "$(h
 conferir "caso 2: arquivo comum no lugar da marca não vale" \
   bash -c '! awk -v m="$1" '"'"'$5 == m { a = 1 } END { exit !a }'"'"' /proc/self/mountinfo' _ "$marca_teste"
 rm -f "$marca_teste"
+# A chave confianca-* (oferta de confiança do agy com conta) não vale de
+# dentro do isolamento nem sem --conta.
+saida="$(isolar "$tmp/wt" JANGADA_ISOLADO=1 JANGADA_ISOLAR_DADOS=confianca-1-0123456789abcdef \
+  "$repo_jangada/bin/jangada-isolar" --conta c1 -- sh -c 'echo rodou' 2>"$tmp/erro")"
+rc=$?
+conferir "caso 2: confianca-* com JANGADA_ISOLADO é recusada sem rodar" \
+  bash -c '[ "$1" = 1 ] && [ -z "$2" ] && grep -q "não vale dentro do isolamento" "$3"' _ "$rc" "$saida" "$tmp/erro"
+saida="$(isolar "$tmp/wt" JANGADA_ISOLAR_DADOS=confianca-1-0123456789abcdef \
+  "$repo_jangada/bin/jangada-isolar" -- sh -c 'echo rodou' 2>"$tmp/erro")"
+rc=$?
+conferir "caso 2: confianca-* sem --conta é recusada sem rodar" \
+  bash -c '[ "$1" = 1 ] && [ -z "$2" ] && grep -q "JANGADA_ISOLAR_DADOS aceita" "$3"' _ "$rc" "$saida" "$tmp/erro"
 
 # Caso 2b: sem o bwrap, recusa em vez de rodar sem isolamento.
 sem_bwrap="$tmp/sem-bwrap"
