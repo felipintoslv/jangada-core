@@ -359,8 +359,10 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
 - Sem tmux: o socket fica no `/tmp` de fora, e `TMUX` e `TMUX_PANE` saem do
   ambiente. Não há como comandar outra sessão, e a notificação sai sem o botão
   Abrir.
-- O `XDG_RUNTIME_DIR` é próprio: sem Hyprland (`hyprctl` falha), Wayland, X,
-  gpg-agent e systemd do usuário. O D-Bus da sessão vem pelo
+- O `/run/user` inteiro e o `XDG_RUNTIME_DIR` são próprios: sem Hyprland (`hyprctl` falha), Wayland, X,
+  gpg-agent e systemd do usuário. Cobrir só o `XDG_RUNTIME_DIR` não bastava:
+  sem a variável, ou com ela fora de `/run/user`, a pasta `/run/user/UID` de
+  fora ficava à vista, com o bus sem filtro e o gpg-agent. O D-Bus da sessão vem pelo
   `xdg-dbus-proxy`, que só fala com `org.freedesktop.Notifications` e, com
   o agy instalado, `org.freedesktop.secrets` (inteiro, ou só os itens de
   `JANGADA_ISOLAR_KEYRING_ITEM`); o proxy vive enquanto o bwrap guarda o

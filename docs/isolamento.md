@@ -104,7 +104,7 @@ flowchart TD
     P -- não --> C
     C -- não --> F[recusa, código 1]
     C -- sim --> D[base: / somente leitura,<br>/tmp e PID próprios]
-    D --> E[sockets de /run ocultos,<br>XDG_RUNTIME_DIR vazio,<br>D-Bus pelo proxy filtrado]
+    D --> E[sockets de /run ocultos,<br>/run/user e XDG_RUNTIME_DIR vazios,<br>D-Bus pelo proxy filtrado]
     E --> G[graváveis: pasta, ~/.claude,<br>estado dos agentes,<br>JANGADA_ISOLAR_ESCRITA;<br>dados do Claude e do agy por sessão]
     G --> H[somente leitura por cima:<br>config do Claude, bin do agy,<br>config e hooks do git]
     H --> I[ocultos: .ssh, .gnupg,<br>chaves de nuvem, navegador,<br>keyring, cliphist]
@@ -120,7 +120,7 @@ ficar somente leitura dentro deles vem depois.
 |---|---|---|
 | Base | `/` somente leitura, `/dev`, `/proc`, `/tmp` próprio, `--unshare-pid`, `--die-with-parent` | um `rm` no `/tmp` não apaga os temporários do sistema; o agente não vê nem mata os processos da sessão, e o que ele deixou rodando morre com ele |
 | `/run` | Docker, containerd, podman, tailscale, sshd local e D-Bus do sistema ocultos | esses sockets dão root ou mudam a máquina |
-| `XDG_RUNTIME_DIR` | pasta vazia; o D-Bus da sessão volta pelo `xdg-dbus-proxy`, que só deixa falar com `org.freedesktop.Notifications` e, com o agy instalado, `org.freedesktop.secrets` | some o socket do Hyprland (`hyprctl dispatch` rodaria comando fora), do Wayland, do gpg-agent e do systemd do usuário; o agy lê o login do keyring e os hooks avisam pelo `notify-send` |
+| `/run/user` e `XDG_RUNTIME_DIR` | `/run/user` inteiro coberto por uma pasta vazia em memória, com ou sem `XDG_RUNTIME_DIR`, e a pasta dele também vazia; o D-Bus da sessão volta pelo `xdg-dbus-proxy`, que só deixa falar com `org.freedesktop.Notifications` e, com o agy instalado, `org.freedesktop.secrets` | some o socket do Hyprland (`hyprctl dispatch` rodaria comando fora), do Wayland, do gpg-agent e do systemd do usuário, mesmo com `XDG_RUNTIME_DIR` vazio ou fora de `/run/user`; sem ele, o agente fica sem D-Bus; o agy lê o login do keyring e os hooks avisam pelo `notify-send` |
 | Graváveis | pasta da tarefa, `~/.claude` (ou `CLAUDE_CONFIG_DIR`), `agentes/`, `validar.jsonl`, `eventos-agentes.jsonl` e `delegacoes.jsonl` do estado, e o que estiver em `JANGADA_ISOLAR_ESCRITA`; por cima, as pastas de dados do Claude e a pasta do agy vêm de `provedores/` do estado, uma por sessão | o resto do estado (barra, marcas das migrações) alimenta código que roda fora; uma sessão não lê a conversa de outra |
 | Camada temporária | `~/.cache`; do Claude, `shell-snapshots`, `session-env` e `ide`; do agy, `bin`, `agents`, `builtin` e `updater` | o agente lê o conteúdo de fora, e o que grava some no fim (sobreposição do bwrap; sem suporte, o agente recebe uma pasta vazia em memória, e o `bin` do agy, somente leitura). O agy regrava o `agentapi` antes de cada comando, e o que ele regrava dentro não roda fora |
 | Somente leitura | do Claude: `settings*.json`, `CLAUDE.md`, `commands`, `agents`, `skills`, `hooks`, `plugins`, scripts soltos; clones do AUR | tudo isso define comando ou instrução que valeria numa sessão aberta fora |
