@@ -415,7 +415,12 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
   exporta nos comandos que roda: sem ela, delegar de dentro de um
   coordenador agy sempre falhava (achado da homologação de 30/10/2026).
   Ao conferir esse ambiente, não imprima `env` inteiro: o agy também exporta
-  um token local da sessão (`ANTIGRAVITY_CSRF_TOKEN`). O login
+  um token local da sessão (`ANTIGRAVITY_CSRF_TOKEN`). O agy guarda que o
+  assistente inicial (tema e termos de uso) acabou em
+  `cache/onboarding.json`, na pasta de dados dele, e não no `settings.json`:
+  pasta de sessão sem esse arquivo mostra o assistente de novo, às vezes com
+  a caixa de coleta de dados já marcada. O isolamento copia só esse arquivo
+  da conta (conferido no agy real em 10/11/2026). O login
   do Claude é regravado por rename, por isso a pasta do Claude continua
   gravável e só as pastas de dados vêm da sessão.
 - Nos testes, rode o `jangada-isolar` real com a entrada em `/dev/null`

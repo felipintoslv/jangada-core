@@ -1163,6 +1163,24 @@ done < <(compgen -e)
 # aparecem como estão, e o que o agente grava neles some no fim. O bin é o
 # mesmo de antes: o agy regrava o agentapi antes de cada comando, e sem a
 # camada em memória o agente deixaria ali um executável que roda fora.
+# Sem cache/onboarding.json, o agy abre o assistente inicial (tema e termos de
+# uso) em toda pasta nova de sessão. Da conta vem só esse arquivo, como dado:
+# regular, sem link e pequeno; fora disso a sessão segue sem ele.
+dados_agy_assistente() {
+  local origem="$1" f=cache/onboarding.json tamanho
+  [[ -e "$origem/$f" || -L "$origem/$f" || -L "$origem/cache" ]] || return 0
+  [[ ! -L "$dados_alvo/cache" && ! -L "$dados_alvo/$f" ]] \
+    || { echo "jangada-isolar: link em $dados_alvo/cache" >&2; exit 1; }
+  tamanho="$(stat -c %s -- "$origem/$f" 2>/dev/null)" || tamanho=""
+  if [[ -L "$origem/cache" || -L "$origem/$f" || ! -f "$origem/$f" || ! "$tamanho" =~ ^[0-9]+$ ]] \
+     || ((tamanho > 4096)); then
+    echo "jangada-isolar: $f da conta $CONTA_AGY_NOME não é arquivo regular pequeno; o agy mostra o assistente inicial" >&2
+    return 0
+  fi
+  (umask 077; rm -f -- "$dados_alvo/$f" && mkdir -p -- "$dados_alvo/cache" \
+     && cp -- "$origem/$f" "$dados_alvo/$f") 2>/dev/null \
+    || echo "jangada-isolar: falha ao copiar $f da conta $CONTA_AGY_NOME; o agy mostra o assistente inicial" >&2
+}
 dados_agy() {
   local origem="$1" destino="$2" f novo=0 id
   dados_transicao "agy-$CONTA_AGY_NOME" && novo=1
@@ -1210,6 +1228,7 @@ dados_agy() {
     rm -f -- "$dados_alvo/settings.json"
     (umask 077; cp -- "$origem/settings.json" "$dados_alvo/settings.json")
   fi
+  dados_agy_assistente "$origem"
   for f in agents builtin updater; do
     [[ ! -d "$origem/$f" ]] || { mkdir -p "$dados_alvo/$f"; temporario "$origem/$f" ro "$destino/$f"; }
   done

@@ -293,9 +293,14 @@ delas for link, o isolamento recusa abrir.
 **agy.** A pasta do CLI (`~/.gemini/antigravity-cli` ou a da conta) vem
 inteira da pasta da sessão. Voltam por cima: o token da conta, gravável
 para a renovação; o `installation_id`, somente leitura; uma cópia nova do
-`settings.json` a cada abertura; `agents`, `builtin`, `updater` e `bin` em
-camada temporária. Uma mudança do agy no `settings.json` (por exemplo,
-confiar numa pasta) vale só dentro da sessão. Os itens soltos do
+`settings.json` e do `cache/onboarding.json` a cada abertura; `agents`,
+`builtin`, `updater` e `bin` em camada temporária. Uma mudança do agy no
+`settings.json` (por exemplo, confiar numa pasta) vale só dentro da sessão.
+O `cache/onboarding.json` é a marca de que o assistente inicial do agy (tema
+e termos de uso) foi concluído na conta; o resto de `cache/` não vem. Se ele
+for link, estiver numa `cache/` que é link, não for arquivo regular ou passar
+de 4 KiB, a sessão abre sem ele, com aviso, e o agy mostra o assistente. Link
+em `cache/` nos dados da sessão faz o isolamento recusar abrir. Os itens soltos do
 `~/.gemini` que guardam conversa ou login de outro cliente (`antigravity`,
 `tmp`, `history`, `projects.json`, `oauth_creds.json`,
 `google_accounts.json`) ficam ocultos.

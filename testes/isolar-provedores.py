@@ -58,6 +58,11 @@ if confia:
     dados = json.loads(settings.read_text())
     dados["trustedWorkspaces"].append(confia)
     settings.write_text(json.dumps(dados))
+cache = casa / ".gemini/antigravity-cli/cache"
+saida["cache"] = sorted(os.listdir(cache)) if cache.is_dir() else None
+assistente = os.environ.get("JANGADA_SONDA_ASSISTENTE")
+if assistente:
+    (cache / "onboarding.json").write_text(assistente)
 aninhado = os.environ.get("JANGADA_SONDA_ANINHADO")
 if aninhado:
     ambiente = {**os.environ, "JANGADA_SONDA_ANINHADO": ""}
@@ -142,8 +147,8 @@ class Provedores(unittest.TestCase):
         (base / "agy.json").write_text(json.dumps(catalogo))
 
     def iniciar(self, *args, env=None):
-        ambiente = dict(self.env, JANGADA_SONDA_ARQUIVOS=json.dumps({k: str(v) for k, v in self.arquivos.items()}),
-                        **(env or {}))
+        ambiente = {**self.env, "JANGADA_SONDA_ARQUIVOS": json.dumps({k: str(v) for k, v in self.arquivos.items()}),
+                    **(env or {})}
         saida = open(self.tmp / f"saida-{time.monotonic_ns()}", "w+")
         self.addCleanup(saida.close)
         p = subprocess.Popen([str(REPO / "bin/jangada-isolar"), *args], cwd=self.raiz, env=ambiente,
@@ -413,6 +418,148 @@ class Provedores(unittest.TestCase):
         self.rodar("--conta", "conta1", "--", "agy")
         self.assertFalse(sobra.exists(), "pasta de chamador morto ficou")
         self.assertTrue((provedor / chave).exists(), "pasta de chamador vivo sumiu")
+
+    ASSISTENTE = ('{"consumerOnboardingComplete": true, "enterpriseOnboardingComplete": false, '
+                  '"onboardingComplete": true}')
+
+    def preparar_cache(self, pasta):
+        """cache/ de uma pasta do agy com a marca do assistente e outros dados."""
+        cache = pasta / "cache"
+        (cache / "marketplaces").mkdir(parents=True, exist_ok=True)
+        (cache / "onboarding.json").write_text(self.ASSISTENTE)
+        for nome in ("conversation_metadata.json", "last_conversations.json", "default_project_id.txt",
+                     "marketplaces/lista.json"):
+            (cache / nome).write_text("falso-" + nome)
+        return cache / "onboarding.json"
+
+    def test_assistente_inicial_concluido_vem_da_conta(self):
+        # O agy grava em cache/onboarding.json que o assistente inicial (tema e
+        # termos) acabou; sem o arquivo, toda pasta nova de sessão o mostra.
+        self.contas()
+        dentro = self.casa / ".gemini/antigravity-cli/cache/onboarding.json"
+        casos = (("catálogo", ("--conta", "conta1"), self.estado / "contas/conta1"),
+                 ("sem catálogo", (), self.casa / ".gemini/antigravity-cli"))
+        for nome, args, pasta in casos:
+            with self.subTest(caso=nome):
+                if not args:
+                    (self.estado / "contas/agy.json").unlink()
+                conta = self.preparar_cache(pasta)
+                ambiente = {"JANGADA_SONDA_ARQUIVOS": json.dumps({"assistente": str(dentro)}),
+                            "JANGADA_SONDA_ASSISTENTE": "alterado"}
+                for _ in range(2):
+                    r = self.rodar(*args, "--", "agy", env=ambiente)
+                    self.assertEqual(r["arquivos"]["assistente"], self.ASSISTENTE)
+                    self.assertEqual(r["cache"], ["onboarding.json"], "outros dados do cache vieram da conta")
+                    self.assertEqual(conta.read_text(), self.ASSISTENTE, "a cópia alterada voltou à conta")
+                if nome == "catálogo":
+                    # Numa sessão que persiste, a cópia é refeita a cada abertura.
+                    sessao = {**ambiente, "JANGADA_SESSAO": "tarefa1"}
+                    for _ in range(2):
+                        r = self.rodar(*args, "--", "agy", env=sessao)
+                        self.assertEqual(r["arquivos"]["assistente"], self.ASSISTENTE)
+                    copia = self.estado / "provedores/agy-conta1/tarefa1/cache/onboarding.json"
+                    self.assertEqual(copia.read_text(), "alterado")
+                    self.assertEqual(copia.stat().st_mode & 0o777, 0o600)
+
+    def test_assistente_da_conta_fora_do_formato_nao_e_copiado(self):
+        self.contas()
+        pasta = self.estado / "contas/conta1"
+        dentro = self.casa / ".gemini/antigravity-cli/cache/onboarding.json"
+        ambiente = {"JANGADA_SONDA_ARQUIVOS": json.dumps({"assistente": str(dentro), "agy": str(self.arquivos["agy"])})}
+        fora = self.tmp / "fora"
+        fora.mkdir()
+        (fora / "onboarding.json").write_text(self.ASSISTENTE)
+
+        def arquivo_link():
+            (pasta / "cache").mkdir()
+            (pasta / "cache/onboarding.json").symlink_to(fora / "onboarding.json")
+
+        def cache_link():
+            (pasta / "cache").symlink_to(fora)
+
+        def grande():
+            (pasta / "cache").mkdir()
+            (pasta / "cache/onboarding.json").write_text(" " * 4097)
+
+        def pasta_no_lugar():
+            (pasta / "cache/onboarding.json").mkdir(parents=True)
+
+        for nome, preparo in (("arquivo é link", arquivo_link), ("cache é link", cache_link),
+                              ("grande demais", grande), ("não é arquivo", pasta_no_lugar)):
+            with self.subTest(caso=nome):
+                if (pasta / "cache").is_symlink():
+                    (pasta / "cache").unlink()
+                shutil.rmtree(pasta / "cache", ignore_errors=True)
+                preparo()
+                antes = sorted((str(p.relative_to(self.tmp)), p.is_symlink(), p.is_file() and p.read_text())
+                               for p in [*pasta.rglob("*"), *fora.rglob("*")])
+                p, saida = self.iniciar("--conta", "conta1", "--", "agy", env=ambiente)
+                r, erro = self.resultado(p, saida)
+                self.assertIn("o agy mostra o assistente inicial", erro)
+                self.assertIsNone(r["arquivos"]["assistente"])
+                self.assertEqual(r["arquivos"]["agy"], "falso-conta1", "a abertura não seguiu")
+                depois = sorted((str(p.relative_to(self.tmp)), p.is_symlink(), p.is_file() and p.read_text())
+                                for p in [*pasta.rglob("*"), *fora.rglob("*")])
+                self.assertEqual(depois, antes, "a conta mudou")
+        # Link já posto pelo agente nos dados da sessão: recusa abrir.
+        shutil.rmtree(pasta / "cache")
+        self.preparar_cache(pasta)
+        sessao = self.estado / "provedores/agy-conta1/tarefa1"
+        for alvo in ("cache", "cache/onboarding.json"):
+            with self.subTest(destino=alvo):
+                shutil.rmtree(sessao, ignore_errors=True)
+                (sessao / alvo).parent.mkdir(parents=True, exist_ok=True)
+                (sessao / alvo).symlink_to(fora / "copia")
+                p, _ = self.iniciar("--conta", "conta1", "--", "agy", env={**ambiente, "JANGADA_SESSAO": "tarefa1"})
+                _, erro = p.communicate(timeout=60)
+                self.assertEqual(p.returncode, 1, erro)
+                self.assertIn("link em", erro)
+                self.assertFalse((fora / "copia").exists(), "a cópia seguiu o link")
+
+    def test_conta_sem_assistente_igual_a_base(self):
+        # Base anterior à cópia da marca do assistente: sem o arquivo na
+        # conta, saída, mensagens e dados da sessão ficam iguais.
+        base = "9c399e1"
+        original = subprocess.run(["git", "-C", str(REPO), "show", f"{base}:bin/jangada-isolar"],
+                                  capture_output=True, text=True)
+        if original.returncode:
+            if EXIGIR:
+                self.fail(f"commit {base} indisponível")
+            self.skipTest(f"commit {base} indisponível")
+        pasta_base = self.tmp / "base"
+        pasta_base.mkdir()
+        (pasta_base / "jangada-isolar").write_text(original.stdout)
+        (pasta_base / "jangada-isolar").chmod(0o755)
+        (pasta_base / "jangada-config").symlink_to(REPO / "bin/jangada-config")
+        self.contas()
+        for pasta in (self.estado / "contas/conta1", self.casa / ".gemini/antigravity-cli"):
+            (pasta / "cache").mkdir()
+            (pasta / "cache/last_conversations.json").write_text("falso-cache")
+        catalogo = self.estado / "contas/agy.json"
+        dentro = self.casa / ".gemini/antigravity-cli/cache/onboarding.json"
+
+        def arvore(pasta):
+            return sorted((str(p.relative_to(pasta)), p.is_dir(), p.stat().st_mode & 0o777,
+                           p.read_text() if p.is_file() else None) for p in pasta.rglob("*"))
+
+        for nome, args in (("catálogo", ("--conta", "conta1")), ("sem catálogo", ())):
+            with self.subTest(caso=nome):
+                if nome == "sem catálogo":
+                    catalogo.unlink()
+                provedor = self.estado / ("provedores/agy-conta1" if args else "provedores/agy-principal")
+                resultados = []
+                for isolar, sessao in ((pasta_base / "jangada-isolar", "base-" + str(len(args))),
+                                       (REPO / "bin/jangada-isolar", "novo-" + str(len(args)))):
+                    env = {**self.env, "JANGADA_SESSAO": sessao,
+                           "JANGADA_SONDA_ARQUIVOS": json.dumps({"assistente": str(dentro),
+                                                                 "agy": str(self.arquivos["agy"])})}
+                    p = subprocess.run([str(isolar), *args, "--", "agy"], cwd=self.raiz, env=env,
+                                       stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+                    resultados.append({"rc": p.returncode, "saida": p.stdout, "erro": p.stderr,
+                                       "arvore": arvore(provedor / sessao)})
+                self.assertEqual(resultados[1], resultados[0])
+                self.assertEqual(resultados[0]["rc"], 0, resultados[0]["erro"])
+                self.assertIsNone(json.loads(resultados[0]["saida"])["arquivos"]["assistente"])
 
     def test_aninhado_recusa_provedor_que_a_sessao_nao_recebeu(self):
         aninhado = {"JANGADA_SONDA_ANINHADO": json.dumps(["codex"])}
