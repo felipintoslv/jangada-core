@@ -299,8 +299,10 @@ para a renovação; o `installation_id`, somente leitura; uma cópia nova do
 O `cache/onboarding.json` é a marca de que o assistente inicial do agy (tema
 e termos de uso) foi concluído na conta; o resto de `cache/` não vem. Se ele
 for link, estiver numa `cache/` que é link, não for arquivo regular ou passar
-de 4 KiB, a sessão abre sem ele, com aviso, e o agy mostra o assistente. Link
-em `cache/` nos dados da sessão faz o isolamento recusar abrir. Os itens soltos do
+de 4 KiB, ele não é copiado e um aviso sai: uma sessão nova abre sem ele, e
+o agy mostra o assistente; uma sessão que já existia mantém a própria cópia,
+que não é apagada. Link em `cache/` nos dados da sessão faz o isolamento
+recusar abrir quando há cópia a fazer. Os itens soltos do
 `~/.gemini` que guardam conversa ou login de outro cliente (`antigravity`,
 `tmp`, `history`, `projects.json`, `oauth_creds.json`,
 `google_accounts.json`) ficam ocultos.

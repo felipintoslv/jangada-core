@@ -509,7 +509,19 @@ class Provedores(unittest.TestCase):
                 self.assertEqual(depois, antes, "a conta mudou")
         # Link já posto pelo agente nos dados da sessão: recusa abrir.
         shutil.rmtree(pasta / "cache")
-        self.preparar_cache(pasta)
+        conta = self.preparar_cache(pasta)
+        # Sessão que persiste: arquivo da conta recusado depois não apaga a
+        # cópia que a sessão já tem.
+        persistente = {**ambiente, "JANGADA_SESSAO": "tarefa2"}
+        r = self.rodar("--conta", "conta1", "--", "agy", env=persistente)
+        self.assertEqual(r["arquivos"]["assistente"], self.ASSISTENTE)
+        conta.write_text(" " * 4097)
+        p, saida = self.iniciar("--conta", "conta1", "--", "agy", env=persistente)
+        r, erro = self.resultado(p, saida)
+        self.assertIn("o agy mostra o assistente inicial", erro)
+        self.assertEqual(r["arquivos"]["assistente"], self.ASSISTENTE, "a cópia da sessão sumiu")
+        self.assertEqual(conta.read_text(), " " * 4097, "a conta mudou")
+        conta.write_text(self.ASSISTENTE)
         sessao = self.estado / "provedores/agy-conta1/tarefa1"
         for alvo in ("cache", "cache/onboarding.json"):
             with self.subTest(destino=alvo):
