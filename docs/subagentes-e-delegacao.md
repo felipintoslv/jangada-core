@@ -442,9 +442,12 @@ pedir outra conta com `--conta` recusa antes de ler seu cache ou chamar o agy.
 Com catálogo, o keyring fica fechado, inclusive se a configuração pessoal
 libera um item ou o serviço inteiro. O agy usa o `antigravity-oauth-token`
 da conta escolhida. Login e renovação dentro do perfil `agente` persistem
-só nesse arquivo. Se ele faltar, o isolador cria um arquivo vazio de login
-(`{}`, permissão 0600) antes de abrir o agy. Sem catálogo, permanece a
-política de keyring existente.
+só nesse arquivo. Se ele faltar e a conta estiver na área `contas/` do
+estado, o isolador cria um arquivo vazio de login (`{}`, permissão 0600)
+antes de abrir o agy, exceto com `--mostrar`. Conta apontada para a pasta
+padrão do agy não recebe o arquivo: o isolador só avisa que o login feito
+na sessão some no fim. Sem catálogo, permanece a política de keyring
+existente.
 
 A seleção também chega à leitura e à implementação privadas da MOD-03:
 com catálogo, o arquivo `antigravity-oauth-token` da conta é montado somente para leitura.
