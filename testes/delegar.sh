@@ -81,6 +81,14 @@ if [[ "$2" == /usage ]]; then
     sleep "$FALSO_ESPERA_USAGE"
   fi
   [[ "${FALSO_USAGE_FALHA:-0}" == 1 ]] && exit 1
+  # Com catálogo, o login montado diz a conta: usage-CONTA.json responde por
+  # ela, e usage-CONTA.falha faz a consulta dela falhar.
+  conta_falsa="$(cat "$HOME/.gemini/antigravity-cli/antigravity-oauth-token" 2>/dev/null)" || conta_falsa=""
+  if [[ "$conta_falsa" =~ ^conta[0-9]+$ ]]; then
+    echo "$conta_falsa" >>"$FALSO_DIR/usage.contas"
+    [[ -e "$FALSO_DIR/usage-$conta_falsa.falha" ]] && exit 1
+    [[ -f "$FALSO_DIR/usage-$conta_falsa.json" ]] && { cat "$FALSO_DIR/usage-$conta_falsa.json"; exit 0; }
+  fi
   if [[ -n "${FALSO_USAGE_JSON:-}" ]]; then
     printf '%s\n' "$FALSO_USAGE_JSON"
     exit 0
@@ -191,7 +199,7 @@ delegar() {
     ${LOCAL_VRAM_MIN:+JANGADA_LOCAL_VRAM_MIN="$LOCAL_VRAM_MIN"} \
     ${LOCAL_ESPERA:+JANGADA_LOCAL_ESPERA="$LOCAL_ESPERA"} \
     ${LOCAL_FATIAS_MAX:+JANGADA_LOCAL_FATIAS_MAX="$LOCAL_FATIAS_MAX"} \
-    "$repo_jangada/bin/jangada-delegar" "$@" >"$tmp/saida" 2>"$tmp/erro")
+    "${DELEGAR_BIN:-$repo_jangada/bin/jangada-delegar}" "$@" >"$tmp/saida" 2>"$tmp/erro")
   echo $? >"$tmp/codigo"
   local privado
   privado="$(tail -n 1 "$tmp/home/.local/state/jangada/delegacoes.jsonl" 2>/dev/null | jq -r '.registro_ferramentas // empty')"
@@ -290,6 +298,112 @@ for caso in flash_livre argon_livre flash_ausente argon_ausente flash_invalido a
 done
 unset MODELOS USAGE_JSON
 rm -f "$tmp/home/.cache/jangada/agy-usage.json"
+
+# Várias contas: o Argon de cada uma vem do /usage dela (grupo
+# gemini-argon-wtu), e o campo argon do catálogo não decide nada.
+contas_dir="$tmp/home/.local/state/jangada/contas"
+for c in conta1 conta2; do
+  mkdir -p "$contas_dir/$c"
+  printf '%s' "$c" >"$contas_dir/$c/antigravity-oauth-token"
+  jq -n --arg w "$(realpath "$tmp/projeto")" '{trustedWorkspaces: [$w]}' >"$contas_dir/$c/settings.json"
+done
+# catalogo_contas ARGON1 ARGON2: "-" omite o campo; outro valor vai como JSON.
+catalogo_contas() {
+  jq -n --arg d "$contas_dir" --arg a1 "$1" --arg a2 "$2" '
+    def conta($n; $a): {nome: $n, pasta: ($d + "/" + $n)} + (if $a == "-" then {} else {argon: ($a | fromjson)} end);
+    [conta("conta1"; $a1), conta("conta2"; $a2)]' >"$contas_dir/agy.json"
+}
+# uso_conta CONTA FLASH [ARGON]: /usage falso da conta; sem ARGON, sem o grupo.
+uso_conta() {
+  jq -nc --argjson f "$2" --arg a "${3:-}" '{command:{data:{groups:[
+      {buckets:[{id:"gemini-weekly",remaining_fraction:$f},{id:"gemini-5h",remaining_fraction:1}]}]
+      + (if $a == "" then [] else [{buckets:[{id:"gemini-argon-wtu-weekly",remaining_fraction:($a|tonumber)}]}] end)}}}' \
+    >"$tmp/falso/usage-$1.json"
+}
+jangada_contas_agy_em() {
+  (export HOME="$1/home" JANGADA_ESTADO="$1/home/.local/state/jangada" JANGADA_CORE_PATH="$repo_jangada"
+   jangada_contas_agy)
+}
+catalogo_recusado() { ! jangada_contas_agy_em "$1" >/dev/null 2>&1; }
+limpar_contas() {
+  rm -f "$tmp/home/.cache/jangada/"agy-usage-conta*.json "$tmp/falso/"usage-conta*.falha "$tmp/falso/usage.contas"
+}
+uso_conta conta1 0.5 0.6
+uso_conta conta2 0.9
+
+limpar_contas; catalogo_contas false true
+ISOLADO=1 MODELOS=gemini-4-argon-high delegar --permitir-remoto explorador "mapeie" --json
+conferir "contas Argon: conta com o grupo e argon:false é escolhida" jqok -e \
+  '.codigo_saida == 0 and .conta == "conta1" and .modelo == "gemini-4-argon-high" and .cota_antes == 60' "$tmp/saida"
+conferir "contas Argon: conta sem o grupo e argon:true fica fora da medida" jqok -e \
+  '[.cotas_modelos[].conta] == ["conta1"]' "$tmp/saida"
+
+limpar_contas
+ISOLADO=1 MODELOS=gemini-4-argon-high delegar --permitir-remoto explorador "mapeie" --conta conta2 --json
+conferir "contas Argon: conta sem o grupo e argon:true não é escolhida" jqok -e \
+  '.codigo_saida == 4 and .motivo_codigo == "capacidade_incompativel" and .chamadas_executor == 0' "$tmp/saida"
+conferir "contas Argon: recusa cita o grupo do /usage" grep -q 'gemini-argon-wtu' "$tmp/erro"
+conferir "contas Argon: sem chamada ao agy" test ! -e "$tmp/falso/agy.args"
+
+# Consulta da conta1 falha com cache vencido que trazia o grupo: falha fechada.
+limpar_contas; catalogo_contas true false
+mkdir -p "$tmp/home/.cache/jangada"
+cp "$tmp/falso/usage-conta1.json" "$tmp/home/.cache/jangada/agy-usage-conta1.json"
+touch -d '-1 hour' "$tmp/home/.cache/jangada/agy-usage-conta1.json"
+: >"$tmp/falso/usage-conta1.falha"
+uso_conta conta2 0.9 0.4
+ISOLADO=1 MODELOS=gemini-4-argon-high delegar --permitir-remoto explorador "mapeie" --json
+conferir "contas Argon: /usage com falha deixa a conta fora" jqok -e \
+  '.codigo_saida == 0 and .conta == "conta2" and .cota_antes == 40 and ([.cotas_modelos[].conta] == ["conta2"])' "$tmp/saida"
+conferir "contas Argon: a conta com falha foi consultada" grep -qx conta1 "$tmp/falso/usage.contas"
+rm -f "$tmp/falso/usage-conta2.json"
+limpar_contas; : >"$tmp/falso/usage-conta1.falha"; uso_conta conta2 0.9
+ISOLADO=1 MODELOS=gemini-4-argon-high delegar --permitir-remoto explorador "mapeie" --json
+conferir "contas Argon: sem conta com o grupo recusa por capacidade" jqok -e \
+  '.codigo_saida == 4 and .motivo_codigo == "capacidade_incompativel" and .chamadas_executor == 0' "$tmp/saida"
+conferir "contas Argon: a recusa diz que nenhuma conta tem o grupo" \
+  grep -q 'nenhuma conta trouxe o grupo gemini-argon-wtu' "$tmp/erro"
+
+# Catálogo: argon opcional; quando presente, booleano.
+catalogo_contas - -
+conferir "catálogo sem argon é aceito, com a terceira coluna vazia" test \
+  "$(jangada_contas_agy_em "$tmp" | cut -f1,3)" = $'conta1\t\nconta2\t'
+catalogo_contas '"sim"' -
+conferir "catálogo com argon não booleano é recusado" catalogo_recusado "$tmp"
+limpar_contas; uso_conta conta2 0.9; uso_conta conta1 0.5 0.6
+catalogo_contas - -
+ISOLADO=1 MODELOS=gemini-4-argon-high delegar --permitir-remoto explorador "mapeie" --json
+conferir "catálogo sem argon: o Argon vem do /usage" jqok -e '.codigo_saida == 0 and .conta == "conta1"' "$tmp/saida"
+
+# Flash: a escolha é a do jangada-delegar de aa86739 no mesmo cenário. A base
+# carrega o jangada-config da própria pasta; vai o atual, que lê o catálogo.
+mkdir -p "$tmp/base"
+ln -sf "$repo_jangada/bin/jangada-config" "$tmp/base/jangada-config"
+git -C "$repo_jangada" show aa86739:bin/jangada-delegar >"$tmp/base/jangada-delegar" 2>/dev/null \
+  && chmod +x "$tmp/base/jangada-delegar"
+# escolha_flash DELEGAR FALHA_CONTA2: o que decide a escolha, sem datas nem ids.
+escolha_flash() {
+  limpar_contas
+  [[ "$2" == 0 ]] || : >"$tmp/falso/usage-conta2.falha"
+  ISOLADO=1 MODELOS="gemini-3.8-flash-high gemini-4-argon-high" DELEGAR_BIN="$1" \
+    delegar --permitir-remoto explorador "mapeie" --json
+  jq -c '{codigo_saida, motivo_codigo, conta, modelo, cota_antes, cota_depois, chamadas_executor, cotas_modelos}' "$tmp/saida"
+}
+if [[ -s "$tmp/base/jangada-delegar" ]]; then
+  for cenario in "false true" "true false" "- -"; do
+    catalogo_contas $cenario
+    for falha_conta2 in 0 1; do
+      atual="$(escolha_flash "$repo_jangada/bin/jangada-delegar" "$falha_conta2")"
+      base="$(escolha_flash "$tmp/base/jangada-delegar" "$falha_conta2")"
+      conferir "Flash igual a aa86739 (argon: $cenario, falha da conta2: $falha_conta2)" \
+        test -n "$atual" -a "$atual" = "$base"
+    done
+  done
+else
+  falha "Flash igual a aa86739: commit indisponível"
+fi
+rm -f "$contas_dir/agy.json"
+limpar_contas
 
 ISOLADO=1 MODELOS=gemini-teste delegar --permitir-remoto explorador "mapeie" --json
 conferir "cota: identificador Gemini legado preserva o grupo comum" jqok -e \

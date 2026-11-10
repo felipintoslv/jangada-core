@@ -675,6 +675,57 @@ class Cotas(unittest.TestCase):
         self.assertEqual({g['motivo'] for g in grupos(documento, 'agy', 'b').values()}, {'conta_sem_confianca'})
         self.assertNotIn('gemini-argon-wtu', grupos(documento, 'agy', 'b'))
 
+    def test_catalogo_sem_argon_mostra_o_grupo_so_pelo_usage(self):
+        casa = self.casa(confia=False)
+        area = casa.estado / 'contas'
+        area.mkdir(parents=True)
+        pastas = {nome: area / nome for nome in ('a', 'b')}
+        (area / 'agy.json').write_text(json.dumps([
+            {'nome': 'a', 'pasta': str(pastas['a'])}, {'nome': 'b', 'pasta': str(pastas['b']), 'argon': True}]))
+        for pasta in pastas.values():
+            casa.confiar(RAIZ, pasta)
+        sem_argon = json.loads(json.dumps(AGY_USO))
+        sem_argon['command']['data']['groups'].pop()
+        casa.cache_agy(nome='agy-usage-a.json')
+        casa.cache_agy(sem_argon, nome='agy-usage-b.json')
+        resposta = casa.router('cotas', JANGADA_DELEGAR_MODELOS='gemini-3.8-flash-high gemini-4-argon-x')
+        self.assertEqual(resposta.returncode, 0, resposta.stderr)
+        documento = lido(casa)
+        self.assertEqual(grupos(documento, 'agy', 'a')['gemini-argon-wtu']['percentual'], 33.3)
+        self.assertEqual(set(grupos(documento, 'agy', 'b')), {'gemini', '3p'})
+        (area / 'agy.json').write_text(json.dumps([{'nome': 'a', 'pasta': str(pastas['a']), 'argon': 'sim'}]))
+        (casa.estado / 'cotas.json').unlink()
+        self.assertEqual(lido_apos(casa)['provedores'][0]['motivo'], 'consulta_falhou')
+
+    def test_sem_catalogo_exibicao_igual_a_de_aa86739(self):
+        base = 'aa86739'
+        with tempfile.TemporaryDirectory(prefix='jangada-cotas-base-') as pasta:
+            arquivo = subprocess.run(['git', 'archive', base], cwd=RAIZ, capture_output=True)
+            if arquivo.returncode != 0:
+                raise unittest.SkipTest('BLOQUEADO: commit %s ausente do repositório' % base)
+            subprocess.run(['tar', '-x', '-C', pasta], input=arquivo.stdout, check=True)
+            sem_argon = json.loads(json.dumps(AGY_USO))
+            sem_argon['command']['data']['groups'].pop()
+            cenarios = (('com o grupo', True, AGY_USO, 0), ('sem o grupo', True, sem_argon, 0),
+                        ('cache vencido', True, AGY_USO, 3600), ('sem cache', True, None, 0),
+                        ('sem confiança', False, AGY_USO, 0))
+            for nome, confia, dados, idade in cenarios:
+                with self.subTest(cenario=nome):
+                    casa = self.casa(confia=confia)
+                    if dados is not None:
+                        casa.cache_agy(dados, idade=idade)
+                    documentos = []
+                    for core in (pathlib.Path(pasta), RAIZ):
+                        (casa.estado / 'cotas.json').unlink(missing_ok=True)
+                        resposta = subprocess.run(
+                            [str(core / 'bin/jangada-router'), 'cotas'], cwd=RAIZ, capture_output=True, text=True,
+                            timeout=120, env=casa.env(JANGADA_CORE_PATH=str(core),
+                                                      JANGADA_DELEGAR_MODELOS='gemini-3.8-flash-high gemini-4-argon-x'))
+                        self.assertEqual(resposta.returncode, 0, resposta.stderr)
+                        documentos.append([e for e in lido(casa)['provedores'] if e['provedor'] == 'agy'])
+                    self.assertEqual([e['conta'] for e in documentos[0]], ['principal'])
+                    self.assertEqual(documentos[1], documentos[0])
+
     def test_catalogo_invalido_nao_inventa_conta(self):
         casa = self.casa()
         (casa.estado / 'contas').mkdir(parents=True)
