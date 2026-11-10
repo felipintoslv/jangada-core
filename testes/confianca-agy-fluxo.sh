@@ -77,7 +77,7 @@ git -C "$tmp/outro" worktree add -q -b agente/x "$tmp/outro-wt"
 rodar() {
   rm -f "$tmp/tmux.anexou"
   env -u JANGADA_ISOLADO -u JANGADA_SESSAO -u JANGADA_DELEGAR -u JANGADA_VALIDAR_REVISOR \
-    -u JANGADA_AGY_SETTINGS -u TMUX -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    -u JANGADA_AGY_SETTINGS -u JANGADA_AGY_CONTA -u JANGADA_AGY_CONTA_MONTADA -u JANGADA_AGY_PASTA -u TMUX -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state" \
     PATH="${CAMINHO:-$tmp/bin:$PATH}" JANGADA_CORE_PATH="$repo_jangada" FALSO_DIR="$tmp" \
     JANGADA_AGENTE_ESCOLHER=0 "$@" </dev/null >"$tmp/saida" 2>&1
@@ -86,7 +86,8 @@ rodar() {
 rodar_tty() {
   local resposta="$1"; shift
   printf '%s\n' "$resposta" | env -u JANGADA_ISOLADO -u JANGADA_SESSAO -u JANGADA_DELEGAR \
-    -u JANGADA_VALIDAR_REVISOR -u JANGADA_AGY_SETTINGS -u TMUX -u WAYLAND_DISPLAY \
+    -u JANGADA_VALIDAR_REVISOR -u JANGADA_AGY_SETTINGS -u JANGADA_AGY_CONTA -u JANGADA_AGY_CONTA_MONTADA \
+    -u JANGADA_AGY_PASTA -u TMUX -u WAYLAND_DISPLAY \
     -u HYPRLAND_INSTANCE_SIGNATURE HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" \
     XDG_STATE_HOME="$tmp/state" PATH="$tmp/bin:$PATH" JANGADA_CORE_PATH="$repo_jangada" \
     FALSO_DIR="$tmp" JANGADA_AGENTE_ESCOLHER=0 \
