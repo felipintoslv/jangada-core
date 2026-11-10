@@ -214,8 +214,8 @@ class Provedores(unittest.TestCase):
         for nome in ("agy", "conta1", "conta2"):
             self.assertIsNone(r["arquivos"][nome], nome)
 
-    def test_login_e_renovacao_da_conta_sem_keyring(self):
-        self.contas()
+    def barramento(self):
+        """D-Bus de sessão próprio, com o proxy real registrando os argumentos."""
         if not shutil.which("dbus-daemon") or not shutil.which("xdg-dbus-proxy"):
             if EXIGIR:
                 self.fail("dbus-daemon e xdg-dbus-proxy são exigidos neste caso")
@@ -230,7 +230,8 @@ class Provedores(unittest.TestCase):
         registro = self.tmp / "proxy.jsonl"
         busca = self.tmp / "busca-keyring"
         # O proxy real aplica o filtro; o invólucro registra só argumentos,
-        # sem segredos. A busca externa falsa acusa qualquer consulta indevida.
+        # sem segredos. A busca externa falsa acusa qualquer consulta e, com
+        # JANGADA_SONDA_ITEM, devolve esse item como o SearchItems do serviço.
         proxy = self.bin / "xdg-dbus-proxy"
         proxy.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
                          "with open(os.environ['JANGADA_SONDA_PROXY'], 'a') as f: "
@@ -238,11 +239,17 @@ class Provedores(unittest.TestCase):
                          f"os.execv({shutil.which('xdg-dbus-proxy')!r}, sys.argv)\n")
         proxy.chmod(0o755)
         gdbus = self.bin / "gdbus"
-        gdbus.write_text(f"#!/bin/sh\ntouch '{busca}'\nexit 1\n")
+        gdbus.write_text(f"#!/bin/sh\ntouch '{busca}'\n[ -n \"$JANGADA_SONDA_ITEM\" ] || exit 1\n"
+                         "printf \"([objectpath '%s'], @ao [])\\n\" \"$JANGADA_SONDA_ITEM\"\n")
         gdbus.chmod(0o755)
         ambiente = {"XDG_RUNTIME_DIR": str(runtime), "DBUS_SESSION_BUS_ADDRESS": endereco,
                     "JANGADA_SONDA_PROXY": str(registro),
                     "JANGADA_ISOLAR_KEYRING_ITEM": "service=gemini username=antigravity"}
+        return ambiente, registro, busca
+
+    def test_login_e_renovacao_da_conta_sem_keyring(self):
+        self.contas()
+        ambiente, registro, busca = self.barramento()
         # Primeiro login com arquivo ausente; em seguida, renovação no mesmo
         # arquivo, outra conta e modo legado servico com atributos vazios.
         self.arquivos["conta1"].unlink()
@@ -268,6 +275,83 @@ class Provedores(unittest.TestCase):
             self.assertIn("--talk=org.freedesktop.Notifications", filtro)
             self.assertFalse(any("org.freedesktop.secrets" in arg for arg in filtro), filtro)
         self.assertFalse(busca.exists(), "o catálogo não deve buscar o item global")
+
+    def test_login_da_conta_so_e_criado_na_area_de_contas(self):
+        self.contas()
+        principal = self.arquivos["agy"]
+        catalogo = json.loads((self.estado / "contas/agy.json").read_text())
+        catalogo.append({"nome": "principal", "pasta": str(principal.parent), "argon": False})
+        (self.estado / "contas/agy.json").write_text(json.dumps(catalogo))
+        principal.unlink()
+        p, saida = self.iniciar("--conta", "principal", "--", "agy")
+        _, erro = self.resultado(p, saida)
+        self.assertIn("pasta padrão do agy sem arquivo de login", erro)
+        self.assertFalse(principal.exists(), "login criado fora da área de contas")
+        conta = self.arquivos["conta1"]
+        conta.unlink()
+        p, _ = self.iniciar("--mostrar", "--conta", "conta1", "--", "agy")
+        p.communicate(timeout=60)
+        self.assertEqual(p.returncode, 0)
+        self.assertFalse(conta.exists(), "--mostrar criou o login")
+        alvo = self.tmp / "alvo"
+        for preparo, motivo in ((lambda: conta.mkdir(), "não é arquivo regular"),
+                                (lambda: (conta.rmdir(), conta.symlink_to(alvo)), "é link")):
+            preparo()
+            with self.subTest(motivo=motivo):
+                p, _ = self.iniciar("--conta", "conta1", "--", "agy")
+                _, erro = p.communicate(timeout=60)
+                self.assertEqual(p.returncode, 1, erro)
+                self.assertIn(motivo, erro)
+                self.assertFalse(alvo.exists(), "login criado no destino do link")
+
+    def test_sem_catalogo_igual_ao_main(self):
+        # Base anterior ao catálogo fechar o keyring: sem catálogo, o filtro do
+        # D-Bus, as mensagens, os códigos e o que o agente lê ficam iguais.
+        base = "c3247ac"
+        original = subprocess.run(["git", "-C", str(REPO), "show", f"{base}:bin/jangada-isolar"],
+                                  capture_output=True, text=True)
+        if original.returncode:
+            if EXIGIR:
+                self.fail(f"commit {base} indisponível")
+            self.skipTest(f"commit {base} indisponível")
+        pasta_base = self.tmp / "base"
+        pasta_base.mkdir()
+        (pasta_base / "jangada-isolar").write_text(original.stdout)
+        (pasta_base / "jangada-isolar").chmod(0o755)
+        (pasta_base / "jangada-config").symlink_to(REPO / "bin/jangada-config")
+        ambiente, registro, busca = self.barramento()
+        item = "/org/freedesktop/secrets/collection/login/14"
+        casos = (("itens sem atributos", {"JANGADA_ISOLAR_KEYRING_ITEM": ""}),
+                 ("servico sem atributos", {"JANGADA_ISOLAR_KEYRING_ITEM": "", "JANGADA_ISOLAR_KEYRING": "servico"}),
+                 ("atributos com item", {"JANGADA_SONDA_ITEM": item}),
+                 ("atributos sem item", {}),
+                 ("atributos inválidos", {"JANGADA_ISOLAR_KEYRING_ITEM": "sem-igual"}))
+
+        def executar(isolar, extras, principal_ausente):
+            if principal_ausente and self.arquivos["agy"].exists():
+                self.arquivos["agy"].unlink()
+            registro.unlink(missing_ok=True)
+            busca.unlink(missing_ok=True)
+            env = dict(self.env, **ambiente, **extras,
+                       JANGADA_SONDA_ARQUIVOS=json.dumps({k: str(v) for k, v in self.arquivos.items()}))
+            p = subprocess.run([str(isolar), "--", "agy"], cwd=self.raiz, env=env, stdin=subprocess.DEVNULL,
+                               capture_output=True, text=True, timeout=60)
+            filtros = [[a for a in json.loads(l) if a.startswith("--") and not a.startswith("--fd")]
+                       for l in registro.read_text().splitlines()] if registro.exists() else []
+            return {"rc": p.returncode, "erro": p.stderr, "saida": p.stdout, "filtros": filtros,
+                    "busca": busca.exists(), "login_principal": self.arquivos["agy"].exists()}
+
+        for principal_ausente in (False, True):
+            for nome, extras in casos:
+                with self.subTest(caso=nome, principal_ausente=principal_ausente):
+                    antes = executar(pasta_base / "jangada-isolar", extras, principal_ausente)
+                    depois = executar(REPO / "bin/jangada-isolar", extras, principal_ausente)
+                    self.assertEqual(depois, antes)
+                    self.assertTrue(antes["filtros"], "o proxy não subiu")
+                    self.assertEqual(antes["login_principal"], not principal_ausente)
+                    if principal_ausente:
+                        principal = self.arquivos["agy"]
+                        principal.write_text("falso-agy")
 
     def test_execucoes_simultaneas_ficam_separadas(self):
         self.contas()
