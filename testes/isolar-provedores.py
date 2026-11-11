@@ -76,8 +76,64 @@ if aninhado:
     p = subprocess.run([os.environ["JANGADA_CORE_PATH"] + "/bin/jangada-isolar", "--", *json.loads(aninhado)],
                        stdin=subprocess.DEVNULL, capture_output=True, text=True, env=ambiente)
     saida["aninhado"] = {"rc": p.returncode, "erro": p.stderr, "saida": p.stdout}
+# Sessão viva: avisa que montou e, até o teste mandar sair, troca por link o
+# caminho pedido dentro da própria casa, como faria um agente hostil.
+viva = os.environ.get("JANGADA_SONDA_VIVA")
+if viva:
+    import shutil
+    controle = Path(viva)
+    (controle / "pronto").write_text("")
+    prazo = time.time() + 60
+    while not (controle / "sair").exists() and time.time() < prazo:
+        pedido = controle / "trocar"
+        if pedido.exists():
+            alvo, destino = pedido.read_text().split("\n")[:2]
+            alvo = casa / alvo
+            if alvo.is_dir() and not alvo.is_symlink():
+                shutil.rmtree(alvo)
+            elif alvo.exists() or alvo.is_symlink():
+                alvo.unlink()
+            alvo.symlink_to(destino)
+            pedido.unlink()
+            (controle / "trocou").write_text("")
+        time.sleep(0.05)
 print(json.dumps(saida))
 '''
+
+# Substitui cp e mkdir só na segunda abertura. Quando o último argumento é o
+# caminho pedido dentro de provedores/, faz a troca por link no meio da
+# preparação: pede à sessão viva (que enxerga o caminho montado) ou troca daqui
+# de fora (pasta que a sessão viva não alcança, mas a preparação sim). Depois
+# roda o comando verdadeiro. Torna determinística a janela entre a conferência
+# de link e a gravação.
+CORRIDA = r'''#!/usr/bin/python3 -I
+import json, os, shutil, sys, time
+from pathlib import Path
+nome = os.path.basename(sys.argv[0])
+for passo in json.loads(os.environ.get("JANGADA_TESTE_CORRIDA", "[]")):
+    alvo = sys.argv[-1]
+    if passo["comando"] != nome or "/provedores/" not in alvo or not alvo.endswith(passo["sufixo"]):
+        continue
+    with open(passo["registro"], "a") as r:
+        r.write(passo["sufixo"] + "\n")
+    if passo.get("controle"):
+        c = Path(passo["controle"])
+        (c / "trocar").write_text(passo["alvo"] + "\n" + passo["destino"])
+        prazo = time.time() + 20
+        while not (c / "trocou").exists() and time.time() < prazo:
+            time.sleep(0.05)
+        (c / "trocou").unlink(missing_ok=True)
+    else:
+        p = Path(alvo)
+        if p.is_dir() and not p.is_symlink():
+            shutil.rmtree(p)
+        p.symlink_to(passo["destino"])
+os.execv("/usr/bin/" + nome, [nome, *sys.argv[1:]])
+'''
+
+
+# Base anterior à trava da pasta de dados da sessão.
+BASE_TRAVA = "ad39d3e"
 
 
 def bwrap_funciona():
@@ -578,6 +634,239 @@ class Provedores(unittest.TestCase):
                 self.assertEqual(resultados[1], resultados[0])
                 self.assertEqual(resultados[0]["rc"], 0, resultados[0]["erro"])
                 self.assertIsNone(json.loads(resultados[0]["saida"])["arquivos"]["assistente"])
+
+    def base(self, commit):
+        pasta = self.tmp / f"base-{commit}"
+        if not pasta.exists():
+            original = subprocess.run(["git", "-C", str(REPO), "show", f"{commit}:bin/jangada-isolar"],
+                                      capture_output=True, text=True)
+            if original.returncode:
+                if EXIGIR:
+                    self.fail(f"commit {commit} indisponível")
+                self.skipTest(f"commit {commit} indisponível")
+            pasta.mkdir()
+            (pasta / "jangada-isolar").write_text(original.stdout)
+            (pasta / "jangada-isolar").chmod(0o755)
+            (pasta / "jangada-config").symlink_to(REPO / "bin/jangada-config")
+        return pasta / "jangada-isolar"
+
+    def viva(self, isolar, args, sessao):
+        """Abre a sessão e espera a sonda dizer que está montada e viva."""
+        controle = self.raiz / f".controle-{time.monotonic_ns()}"
+        controle.mkdir()
+        env = {**self.env, "JANGADA_SESSAO": sessao, "JANGADA_SONDA_VIVA": str(controle),
+               "JANGADA_SONDA_ARQUIVOS": "{}"}
+        saida = open(self.tmp / f"viva-{time.monotonic_ns()}", "w+")
+        self.addCleanup(saida.close)
+        p = subprocess.Popen([str(isolar), *args], cwd=self.raiz, env=env, stdin=subprocess.DEVNULL,
+                             stdout=saida, stderr=saida, text=True)
+
+        def fechar():
+            (controle / "sair").write_text("")
+            try:
+                p.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+        self.addCleanup(fechar)
+        prazo = time.monotonic() + 30
+        while not (controle / "pronto").exists():
+            if p.poll() is not None:
+                saida.seek(0)
+                self.fail(f"a sessão viva saiu antes de montar: {saida.read()}")
+            if time.monotonic() > prazo:
+                self.fail("a sessão viva não montou")
+            time.sleep(0.05)
+        return controle, fechar
+
+    def segunda(self, isolar, args, sessao, plano=(), arquivos=None):
+        """Segunda abertura da mesma sessão, com cp e mkdir substituídos."""
+        corrida = self.tmp / "corrida"
+        if not corrida.exists():
+            corrida.mkdir()
+            (corrida / "substituto").write_text(CORRIDA)
+            (corrida / "substituto").chmod(0o755)
+            for nome in ("cp", "mkdir"):
+                (corrida / nome).symlink_to(corrida / "substituto")
+        registro = self.tmp / f"registro-{time.monotonic_ns()}"
+        env = {**self.env, "PATH": f"{corrida}:{self.env['PATH']}", "JANGADA_SESSAO": sessao,
+               "JANGADA_TESTE_CORRIDA": json.dumps([{**passo, "registro": str(registro)} for passo in plano]),
+               "JANGADA_SONDA_ARQUIVOS": json.dumps(arquivos or {})}
+        inicio = time.monotonic()
+        p = subprocess.run([str(isolar), *args], cwd=self.raiz, env=env, stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, timeout=60)
+        return {"rc": p.returncode, "erro": p.stderr, "saida": p.stdout, "segundos": time.monotonic() - inicio,
+                "acionados": registro.read_text().split() if registro.exists() else []}
+
+    def test_segunda_abertura_da_mesma_sessao_e_recusada(self):
+        # Na base sem trava a segunda abertura prepara a pasta que a primeira,
+        # viva, tem montada. Agora espera 5 s pela trava e recusa.
+        self.contas()
+        base = self.base(BASE_TRAVA)
+        for nome, args in (("claude", ("--", "claude")), ("agy-conta1", ("--conta", "conta1", "--", "agy"))):
+            for isolar, versao in ((base, "base"), (REPO / "bin/jangada-isolar", "nova")):
+                with self.subTest(provedor=nome, versao=versao):
+                    sessao = f"{versao}-{nome}"
+                    _, fechar = self.viva(isolar, args, sessao)
+                    r = self.segunda(isolar, args, sessao)
+                    if versao == "base":
+                        fechar()
+                        self.assertEqual(r["rc"], 0, r["erro"])
+                        continue
+                    self.assertEqual(r["rc"], 1, r)
+                    self.assertIn(f"os dados do provedor {nome} da sessão {sessao} estão em uso por outra abertura",
+                                  r["erro"])
+                    self.assertIn("feche a outra abertura", r["erro"])
+                    self.assertGreaterEqual(r["segundos"], 4.5)
+                    self.assertEqual(r["saida"], "")
+                    fechar()
+                    # Sem a primeira, a mesma sessão abre de novo.
+                    r = self.segunda(isolar, args, sessao)
+                    self.assertEqual(r["rc"], 0, r["erro"])
+
+    def test_troca_por_link_com_a_sessao_viva_nao_desvia_a_preparacao(self):
+        # A troca entra exatamente entre a conferência de link e a gravação
+        # da segunda abertura (CORRIDA). No agy a sessão viva troca o
+        # settings.json e a pasta cache, que enxerga montados. No Claude cada
+        # subpasta é uma montagem e a sessão não alcança a pasta de cima: a
+        # troca de todos/ é feita daqui, para mostrar que a montagem da
+        # preparação seguiria o link.
+        self.contas()
+        (self.estado / "contas/conta1/cache").mkdir()
+        (self.estado / "contas/conta1/cache/onboarding.json").write_text('{"concluido": true}')
+        base = self.base(BASE_TRAVA)
+        for isolar, versao in ((base, "base"), (REPO / "bin/jangada-isolar", "nova")):
+            with self.subTest(provedor="agy", versao=versao):
+                vitima = self.tmp / f"vitima-{versao}.json"
+                vitima.write_text("intocado")
+                vitima_pasta = self.tmp / f"vitima-cache-{versao}"
+                vitima_pasta.mkdir()
+                sessao = f"troca-{versao}-agy"
+                args = ("--conta", "conta1", "--", "agy")
+                controle, fechar = self.viva(isolar, args, sessao)
+                cli = ".gemini/antigravity-cli"
+                r = self.segunda(isolar, args, sessao, plano=(
+                    {"comando": "cp", "sufixo": "/settings.json", "controle": str(controle),
+                     "alvo": f"{cli}/settings.json", "destino": str(vitima)},
+                    {"comando": "cp", "sufixo": "/cache/onboarding.json", "controle": str(controle),
+                     "alvo": f"{cli}/cache", "destino": str(vitima_pasta)}))
+                fechar()
+                if versao == "base":
+                    self.assertEqual(r["acionados"], ["/settings.json", "/cache/onboarding.json"], r)
+                    self.assertNotEqual(vitima.read_text(), "intocado")
+                    self.assertEqual(os.listdir(vitima_pasta), ["onboarding.json"])
+                    continue
+                self.assertEqual(r["rc"], 1, r)
+                self.assertEqual(r["acionados"], [])
+                self.assertEqual(vitima.read_text(), "intocado")
+                self.assertEqual(os.listdir(vitima_pasta), [])
+            with self.subTest(provedor="claude", versao=versao):
+                vitima_pasta = self.tmp / f"vitima-todos-{versao}"
+                vitima_pasta.mkdir()
+                (vitima_pasta / "segredo").write_text("fora")
+                sessao = f"troca-{versao}-claude"
+                _, fechar = self.viva(isolar, ("--", "claude"), sessao)
+                r = self.segunda(isolar, ("--", "claude"), sessao,
+                                 plano=({"comando": "mkdir", "sufixo": f"/provedores/claude/{sessao}/todos",
+                                         "destino": str(vitima_pasta)},),
+                                 arquivos={"todos": str(self.casa / ".claude/todos/segredo")})
+                fechar()
+                self.assertEqual(sorted(os.listdir(vitima_pasta)), ["segredo"])
+                self.assertEqual((vitima_pasta / "segredo").read_text(), "fora")
+                if versao == "base":
+                    self.assertEqual(r["rc"], 0, r["erro"])
+                    self.assertEqual(json.loads(r["saida"])["arquivos"]["todos"], "fora")
+                    continue
+                self.assertEqual(r["rc"], 1, r)
+                self.assertEqual(r["acionados"], [])
+                todos = self.estado / f"provedores/claude/{sessao}/todos"
+                self.assertTrue(todos.is_dir() and not todos.is_symlink())
+
+    def test_abertura_sem_provedor_com_a_sessao_viva_passa(self):
+        # A revisar do shell roda jangada-isolar -- jangada-validar com o
+        # JANGADA_SESSAO da sessão viva: sem provedor concedido, não há
+        # pasta de dados a preparar nem trava a esperar.
+        _, fechar = self.viva(REPO / "bin/jangada-isolar", ("--", "claude"), "viva")
+        r = self.segunda(REPO / "bin/jangada-isolar", ("--", "sonda"), "viva")
+        fechar()
+        self.assertEqual(r["rc"], 0, r["erro"])
+        self.assertLess(r["segundos"], 4.5)
+        self.assertEqual(json.loads(r["saida"])["concedidos"], "")
+
+    def test_trava_que_e_link_e_recusada(self):
+        travas = self.estado / "provedores/.travas"
+        vitima = self.tmp / "vitima"
+        vitima_pasta = self.tmp / "vitima-pasta"
+        vitima_pasta.mkdir()
+        casos = (("arquivo", travas / "claude/s1", vitima),
+                 ("arquivo sem destino", travas / "claude/s2", self.tmp / "nada"),
+                 ("pasta do provedor", travas / "claude", vitima_pasta),
+                 ("pasta das travas", travas, vitima_pasta))
+        for nome, link, destino in casos:
+            with self.subTest(caso=nome):
+                shutil.rmtree(travas, ignore_errors=True)
+                travas.unlink(missing_ok=True)
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(destino)
+                vitima.write_text("intocado")
+                sessao = link.name if link.parent.name == "claude" else "s3"
+                p, _ = self.iniciar("--", "claude", env={"JANGADA_SESSAO": sessao})
+                _, erro = p.communicate(timeout=60)
+                self.assertEqual(p.returncode, 1, erro)
+                self.assertIn("trava", erro)
+                self.assertEqual(vitima.read_text(), "intocado")
+                self.assertFalse((self.tmp / "nada").exists())
+                self.assertEqual(os.listdir(vitima_pasta), [])
+                self.assertFalse((self.estado / f"provedores/claude/{sessao}").exists())
+
+    def test_trava_de_uso_unico_nao_sobra(self):
+        self.contas()
+        travas = self.estado / "provedores/.travas"
+        (travas / "claude").mkdir(parents=True)
+        # Sobra de abertura morta por SIGKILL, sem pasta de dados: sai. A de
+        # PID vivo fica.
+        (travas / "claude/efemera-999999999").write_text("")
+        (travas / "claude" / f"efemera-{os.getpid()}").write_text("")
+        self.rodar("--", "claude")
+        self.rodar("--conta", "conta1", "--", "agy", env={"JANGADA_ISOLAR_DADOS": f"delegacao-{os.getpid()}-x"})
+        self.rodar("--", "claude", env={"JANGADA_SESSAO": "persistente"})
+        self.assertEqual(sorted(str(t.relative_to(travas)) for t in travas.glob("*/*")),
+                         ["claude/efemera-" + str(os.getpid()), "claude/persistente"])
+
+    def test_sem_concorrencia_igual_a_base(self):
+        # Sem outra abertura viva, saída, mensagens e pasta da sessão ficam
+        # iguais às da base anterior à trava; só a pasta .travas é nova.
+        self.contas()
+        (self.estado / "contas/conta1/cache").mkdir()
+        (self.estado / "contas/conta1/cache/onboarding.json").write_text('{"concluido": true}')
+        base = self.base(BASE_TRAVA)
+        catalogo = self.estado / "contas/agy.json"
+        provedores = self.estado / "provedores"
+
+        def arvore(pasta):
+            return sorted((str(p.relative_to(pasta)), p.is_dir(), p.is_symlink(), p.stat().st_mode & 0o777,
+                           p.read_text() if p.is_file() else None) for p in pasta.rglob("*"))
+
+        for nome, args, provedor in (("claude", ("--", "claude"), "claude"),
+                                     ("claude efêmera", ("--", "claude"), None),
+                                     ("agy com catálogo", ("--conta", "conta1", "--", "agy"), "agy-conta1"),
+                                     ("agy sem catálogo", ("--", "agy"), "agy-principal")):
+            with self.subTest(caso=nome):
+                if nome == "agy sem catálogo":
+                    catalogo.unlink()
+                resultados = []
+                for isolar, versao in ((base, "base"), (REPO / "bin/jangada-isolar", "nova")):
+                    sessao = f"{versao}-{len(resultados)}-{nome.replace(' ', '-')}"
+                    env = {**self.env, "JANGADA_SONDA_ARQUIVOS": json.dumps({k: str(v) for k, v in self.arquivos.items()})}
+                    if provedor:
+                        env["JANGADA_SESSAO"] = sessao
+                    p = subprocess.run([str(isolar), *args], cwd=self.raiz, env=env, stdin=subprocess.DEVNULL,
+                                       capture_output=True, text=True, timeout=60)
+                    resultados.append({"rc": p.returncode, "saida": p.stdout, "erro": p.stderr.replace(sessao, "S"),
+                                       "arvore": arvore(provedores / provedor / sessao) if provedor else None,
+                                       "efemeras": sorted(map(str, provedores.glob("*/efemera-*")))})
+                self.assertEqual(resultados[1], resultados[0])
+                self.assertEqual(resultados[0]["rc"], 0, resultados[0]["erro"])
 
     def test_aninhado_recusa_provedor_que_a_sessao_nao_recebeu(self):
         aninhado = {"JANGADA_SONDA_ANINHADO": json.dumps(["codex"])}

@@ -695,9 +695,10 @@ dados_limpar_mortos() {
   # Trava de chave de uso único que ficou sem pasta e sem dono: só sai livre,
   # e quem a esperava confere o arquivo depois de obtê-la.
   local t fd
+  [[ -d "$dados_raiz/.travas" && ! -L "$dados_raiz/.travas" ]] || return 0
   for t in "$dados_raiz"/.travas/*/efemera-* "$dados_raiz"/.travas/*/delegacao-* "$dados_raiz"/.travas/*/confianca-*; do
-    [[ -f "$t" && ! -L "$t" ]] || continue
     d="${t%/*}"
+    [[ -f "$t" && ! -L "$t" && ! -L "$d" ]] || continue
     [[ ! -e "$dados_raiz/${d##*/}/${t##*/}" && "${t##*/}" =~ ^[a-z]+-([0-9]+)(-|$) ]] || continue
     kill -0 "${BASH_REMATCH[1]}" 2>/dev/null && continue
     ( exec {fd}<"$t" && flock -n "$fd" && [[ "$t" -ef "/proc/self/fd/$fd" ]] && rm -f -- "$t" ) 2>/dev/null || true
