@@ -78,6 +78,13 @@ printf '{"statusLine": "texto"}\n' >"$claude_cfg"
 mesclar instalar_statusline_claude
 conferir "barra em formato estranho conta como alheia" bash -c \
   'grep -q "já tem outra" "$1" && [ "$(jq -r .statusLine "$2")" = texto ]' _ "$tmp/saida" "$claude_cfg"
+for estranha in '{"type":"command","command":123}' '{"type":"command","command":true}' \
+    '{"type":"command","command":{"x":1}}' '{"type":"outro","command":"/x/bin/jangada-statusline-claude"}'; do
+  printf '{"statusLine":%s}\n' "$estranha" >"$claude_cfg"
+  mesclar instalar_statusline_claude
+  conferir "barra $estranha conta como alheia" bash -c \
+    'grep -q "já tem outra" "$1" && [ "$(jq -c .statusLine "$2")" = "$3" ]' _ "$tmp/saida" "$claude_cfg" "$estranha"
+done
 printf '{"statusLine": \n' >"$claude_cfg"
 mesclar instalar_statusline_claude
 conferir "arquivo inválido: avisa e não grava" \

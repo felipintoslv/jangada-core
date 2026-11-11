@@ -381,7 +381,8 @@ instalar_statusline_claude() {
   [[ -f "$cfg" ]] || echo '{}' >"$cfg"
   if ! situacao="$(jq -rn '(first(inputs) // {}) | if type != "object" then error("não é objeto") else .statusLine end
       | if . == null then "ausente"
-        elif type == "object" and ((.command // "") | strings | test("/bin/jangada-statusline-claude$")) then "jangada"
+        elif type == "object" and .type == "command" and (.command | type) == "string"
+          and (.command | test("/bin/jangada-statusline-claude$")) then "jangada"
         else "alheia" end' "$cfg" 2>/dev/null)"; then
     aviso "não consegui ler $cfg; barra de status do Claude Code não instalada"
     return 0

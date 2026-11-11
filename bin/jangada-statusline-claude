@@ -96,5 +96,6 @@ PY
 
 isolado=0
 [[ -z "${JANGADA_ISOLADO:-}" ]] || isolado=1
-python3 -I -c "$programa" "${XDG_STATE_HOME:-$HOME/.local/state}/jangada/cota-claude.json" "$isolado" 2>/dev/null
+python3 -I -c "$programa" "${JANGADA_ESTADO:-${XDG_STATE_HOME:-$HOME/.local/state}/jangada}/cota-claude.json" \
+  "$isolado" 2>/dev/null
 exit 0

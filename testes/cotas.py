@@ -1358,6 +1358,28 @@ class CotaClaude(unittest.TestCase):
         self.assertEqual(self.barra(casa, self.entrada(cinco=(1, 600)), JANGADA_ISOLADO='1').returncode, 0)
         self.assertEqual((arquivo.read_bytes(), arquivo.stat().st_mtime), (conteudo, 1))
 
+    def test_barra_e_router_usam_o_mesmo_estado_personalizado(self):
+        # bin/jangada-config deriva JANGADA_ESTADO de XDG_STATE_HOME; a barra segue o que receber.
+        casa = self.casa()
+        xdg = casa.casa / 'outro estado'
+        proprio = xdg / 'jangada'
+        resposta = self.barra(casa, self.entrada(), JANGADA_ESTADO=str(proprio), XDG_STATE_HOME=str(xdg))
+        self.assertEqual((resposta.returncode, resposta.stderr), (0, b''))
+        self.assertTrue((proprio / 'cota-claude.json').is_file())
+        self.assertFalse(self.observacao(casa).exists())
+        self.assertEqual(casa.router('cotas', JANGADA_ESTADO=str(proprio), XDG_STATE_HOME=str(xdg)).returncode, 0)
+        grupo = json.loads((proprio / 'cotas.json').read_text())['provedores'][-1]['grupos'][0]
+        self.assertEqual((grupo['percentual'], grupo['origem']), (62, 'claude statusline'))
+
+    def test_sem_jangada_estado_a_barra_grava_no_estado_xdg(self):
+        casa = self.casa()
+        ambiente = casa.env()
+        del ambiente['JANGADA_ESTADO']
+        resposta = subprocess.run([str(RAIZ / 'bin/jangada-statusline-claude')], input=self.entrada().encode(),
+                                  cwd=RAIZ, env=ambiente, capture_output=True, timeout=60)
+        self.assertEqual(resposta.returncode, 0)
+        self.assertTrue(self.observacao(casa).is_file())
+
     def test_estado_que_nao_aceita_gravacao_nao_quebra_a_barra(self):
         casa = self.casa()
         casa.estado.parent.mkdir(parents=True)
