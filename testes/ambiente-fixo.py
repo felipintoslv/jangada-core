@@ -22,9 +22,14 @@ TESTES = RAIZ / 'testes'
 # podem fixar a própria entrada (o servidor falso lê a do teste que o chama).
 APOIO = {'ambiente.sh', 'ambiente.py', 'isolamento.sh', 'isolamento.py', 'falso-codex-hooks.py'}
 FONTE_BASH = 'source "$(dirname "$0")/ambiente.sh"'
-# Atribuição de idioma solta no nível do arquivo desfaz o ambiente fixo para o
-# teste inteiro; o idioma de um caso vai como prefixo do comando daquele caso.
-IDIOMA_GLOBAL = re.compile(r'(export\s+|declare\s+-x\s+)?(LANG|LANGUAGE|LC_\w+)=\S*\s*(#.*)?')
+# Atribuição de idioma fora do prefixo de um comando vale para o resto do
+# shell, qualquer que seja a indentação; o idioma de um caso vai só como
+# prefixo do comando daquele caso.
+_IDIOMA = r'(?:LANG|LANGUAGE|LC_\w+)=(?:"[^"]*"|\'[^\']*\'|[^\s;&|)]*)'
+IDIOMA_GLOBAL = re.compile(
+    r'(?:^|[;&|({]|\b(?:then|do|else)\s)\s*(?:'
+    r'(?:export|readonly|local|declare\s+-\w+|typeset\s+-\w+)\s+(?:\S+\s+)*?' + _IDIOMA
+    + r'|' + _IDIOMA + r'\s*(?:$|[;&|)}#]))')
 IDIOMA_DE_FORA = {'LANG': 'pt_BR.UTF-8', 'LANGUAGE': 'pt_BR', 'LC_MESSAGES': 'pt_BR.UTF-8',
                   'LC_ALL': 'pt_BR.UTF-8'}
 
@@ -53,7 +58,7 @@ def executados_pelo_verificar():
 def problema_bash(caminho):
     linhas = caminho.read_text(encoding='utf-8').splitlines()
     for numero, linha in enumerate(linhas, 1):
-        if IDIOMA_GLOBAL.fullmatch(linha):
+        if not linha.lstrip().startswith('#') and IDIOMA_GLOBAL.search(linha):
             return f'linha {numero} troca o idioma do teste inteiro: {linha!r}'
     for linha in linhas:
         if not linha.strip() or linha.startswith('#') or linha.startswith('set -'):
@@ -100,11 +105,14 @@ class Ambiente(unittest.TestCase):
     def test_conferencia_recusa_idioma_trocado_no_arquivo(self):
         with tempfile.TemporaryDirectory(prefix='ambiente-fixo-') as pasta:
             teste = Path(pasta) / 'teste.sh'
-            for linha in ('export LC_ALL=C', 'LANG=pt_BR.UTF-8', 'declare -x LC_MESSAGES=C'):
+            for linha in ('export LC_ALL=C', 'LANG=pt_BR.UTF-8', 'declare -x LC_MESSAGES=C',
+                          '  export LC_ALL=C', 'if true; then export LANG=C; fi', 'x=1; LC_ALL=C',
+                          'f() { local LC_ALL=C; g; }', 'export A=1 LC_CTYPE=C'):
                 with self.subTest(linha=linha):
                     teste.write_text(f'set -eu\n{FONTE_BASH}\n{linha}\necho ok\n', encoding='utf-8')
                     self.assertIn('troca o idioma', problema_bash(teste) or '')
-            for linha in ('LC_ALL=C sort lista', '  export LC_ALL=C'):
+            for linha in ('LC_ALL=C sort lista', 'f() { LC_ALL=C g "$@"; }',
+                          '  LC_ALL="$idioma" X=1 comando', '# export LC_ALL=C'):
                 with self.subTest(linha=linha):
                     teste.write_text(f'set -eu\n{FONTE_BASH}\n{linha}\n', encoding='utf-8')
                     self.assertIsNone(problema_bash(teste))

@@ -139,11 +139,11 @@ arquivos_core() {
 }
 
 # Um problema por linha; sem saída, a árvore de RAIZ cumpre o contrato.
-problemas() {
+# Ordem do sort e do comm e faixas de byte do awk e do grep iguais em qualquer máquina.
+problemas() { LC_ALL=C _problemas "$@"; }
+_problemas() {
   local raiz="$1"
   (
-    # Ordem do sort e do comm e faixas de byte do awk e do grep iguais em qualquer máquina.
-    export LC_ALL=C
     cd "$raiz" || exit 1
     local modulos=testes/contratos/modulos.txt excecoes=testes/contratos/fronteiras-excecoes.txt
     local cmd_sm achados lista c n
