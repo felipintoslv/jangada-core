@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere critérios locais, persistência e liberação do grafo sem modelos."""
 
+import ambiente
 import hashlib
 import json
 import os

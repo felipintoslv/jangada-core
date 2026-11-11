@@ -5,6 +5,8 @@
 #
 # Uso: testes/validar.sh
 set -uo pipefail
+# shellcheck source=testes/ambiente.sh
+source "$(dirname "$0")/ambiente.sh"
 cd "$(dirname "$0")/.." || exit 1
 repo_jangada="$PWD"
 # Os casos chamam o validar como o agente chama, e JANGADA_ISOLADO só vale com

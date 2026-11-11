@@ -3,6 +3,8 @@
 # peças o teste que depende dela se pula, e a suíte passa sem ter conferido.
 # JANGADA_TESTES_EXIGIR (nomes separados por espaço) faz a falta reprovar.
 set -uo pipefail
+# shellcheck source=testes/ambiente.sh
+source "$(dirname "$0")/ambiente.sh"
 
 tem() {
   case "$1" in

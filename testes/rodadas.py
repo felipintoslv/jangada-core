@@ -1,5 +1,6 @@
 """Confere jangada-agentes --rodadas-json com estado sintético, sem tmux real."""
 
+import ambiente
 import hashlib
 import json
 import os

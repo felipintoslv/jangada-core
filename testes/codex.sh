@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Codex falso: lançamento, protocolo e argumentos sem rede nem login real.
 set -uo pipefail
+# shellcheck source=testes/ambiente.sh
+source "$(dirname "$0")/ambiente.sh"
 cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=testes/isolamento.sh
 source testes/isolamento.sh

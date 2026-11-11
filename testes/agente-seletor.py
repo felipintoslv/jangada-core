@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere o seletor em terminal sem executar modelos ou criar sessões reais."""
 
+import ambiente
 import os
 import pathlib
 import pty

@@ -7,7 +7,8 @@
 #
 # Uso: testes/fim.sh
 set -uo pipefail
-export LC_ALL=C.UTF-8
+# shellcheck source=testes/ambiente.sh
+source "$(dirname "$0")/ambiente.sh"
 cd "$(dirname "$0")/.." || exit 1
 repo_jangada="$PWD"
 falhas=0

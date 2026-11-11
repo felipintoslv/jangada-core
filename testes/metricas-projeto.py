@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere totais, incerteza e histórico de revisão sem serviços externos."""
 
+import ambiente
 import json
 import os
 import pathlib

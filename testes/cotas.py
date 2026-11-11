@@ -5,6 +5,7 @@ Nenhum teste chama agy, Codex ou Claude de verdade: os executáveis são falsos.
 Uso: testes/cotas.py [--gravar-base PASTA]  (PASTA: extração de `git archive 5ef1536`)
 """
 
+import ambiente
 import base64
 import itertools
 import json

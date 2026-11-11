@@ -2,7 +2,8 @@
 # Suíte do jangada-core. Não instala nem executa nada do jangada.
 # Requer: shellcheck, jq, python3, git.
 set -uo pipefail
-export LC_ALL=C.UTF-8
+# shellcheck source=testes/ambiente.sh
+source "$(dirname "$0")/ambiente.sh"
 unset JANGADA_ISOLADO JANGADA_DELEGAR JANGADA_VALIDAR_REVISOR
 cd "$(dirname "$0")/.." || exit 1
 falhas=0

@@ -1,5 +1,6 @@
 """Consultas reais em origem sintética, sem controlador, rede ou modelos."""
 
+import ambiente
 import hashlib
 import json
 import os

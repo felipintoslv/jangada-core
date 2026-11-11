@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere alternativa Codex e roteamento com executores inteiramente simulados."""
 
+import ambiente
 import base64
 import fcntl
 import hashlib

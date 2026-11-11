@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Preserva pedidos acima do limite de um argumento com provedor sintético."""
+import ambiente
 import importlib.util
 import json
 from pathlib import Path

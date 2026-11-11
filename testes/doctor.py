@@ -1,5 +1,6 @@
 """Diagnóstico em árvores falsas, sem clientes reais nem alterações nas fontes."""
 
+import ambiente
 import base64
 import contextlib
 import hashlib

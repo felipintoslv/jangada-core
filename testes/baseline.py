@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Ensaios locais da baseline com repositórios e provedores sintéticos."""
+import ambiente
 import json
 import os
 from pathlib import Path

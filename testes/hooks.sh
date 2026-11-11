@@ -6,6 +6,8 @@
 #
 # Uso: testes/hooks.sh
 set -uo pipefail
+# shellcheck source=testes/ambiente.sh
+source "$(dirname "$0")/ambiente.sh"
 cd "$(dirname "$0")/.." || exit 1
 falhas=0
 ok()    { printf 'ok    %s\n' "$*"; }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Contratos operacionais com estado temporário, sem chamar provedores."""
 
+import ambiente
 import hashlib
 import contextlib
 import json

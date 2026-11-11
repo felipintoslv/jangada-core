@@ -3,6 +3,8 @@
 # servidor tmux próprio do teste (TMUX_TMPDIR temporário), nunca o servidor
 # real do jangada.
 set -uo pipefail
+# shellcheck source=testes/ambiente.sh
+source "$(dirname "$0")/ambiente.sh"
 cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=testes/isolamento.sh
 source testes/isolamento.sh

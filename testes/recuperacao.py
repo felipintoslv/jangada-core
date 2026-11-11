@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Falhas reais de processos com estado e clientes descartáveis, sem rede."""
 
+import ambiente
 import importlib.util
 import json
 import os

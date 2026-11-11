@@ -3,6 +3,7 @@
 o código da recusa e a escreveu na saída, ou cujo código parou na exigência
 do controlador. Roda igual dentro e fora do isolamento: a suíte interna
 simula a marca."""
+import ambiente
 import json
 import os
 from pathlib import Path

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere cotas e a consulta isolada sem autenticação ou serviços reais."""
 
+import ambiente
 import base64
 import json
 import os

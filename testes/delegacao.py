@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verifica o contrato das referências documentais."""
 
+import ambiente
 import importlib.util
 import json
 import os

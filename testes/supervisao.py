@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere supervisão e retomada com executores simulados, sem rede."""
 
+import ambiente
 import hashlib
 import json
 import os

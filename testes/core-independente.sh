@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Prova consultas, validação e percurso R sem módulos de apresentação.
 set -uo pipefail
+# shellcheck source=testes/ambiente.sh
+source "$(dirname "$0")/ambiente.sh"
 cd "$(dirname "$0")/.." || exit 1
 marca="${JANGADA_MARCA_ISOLADO:-/tmp/.jangada-isolado}"
 if ! awk -v m="$marca" '$5 == m { a = 1 } END { exit !a }' /proc/self/mountinfo; then

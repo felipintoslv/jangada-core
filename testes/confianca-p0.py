@@ -4,6 +4,7 @@
 Bubblewrap é real. Provedores usados para validar Git são simulados, sem rede.
 """
 
+import ambiente
 import base64
 import hashlib
 import importlib.util

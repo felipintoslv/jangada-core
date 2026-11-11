@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere disponibilidade, pausa, validade, cota e retomada sem serviços reais."""
 
+import ambiente
 import json
 import http.client
 import os

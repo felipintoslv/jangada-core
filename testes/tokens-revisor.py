@@ -1,5 +1,6 @@
 """Confere a leitura dos tokens do revisor e a soma por tarefa, com registros falsos."""
 
+import ambiente
 import json
 import subprocess
 import sys

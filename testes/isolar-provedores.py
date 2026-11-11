@@ -8,6 +8,7 @@ pulam; com JANGADA_TESTES_EXIGIR_ISOLAMENTO=1, pular vira falha.
 
 Uso: python3 testes/isolar-provedores.py
 """
+import ambiente
 import json
 import os
 import shutil

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Guardas do jangada-update em clones descartáveis, sem comandos reais do sistema."""
+import ambiente
 import os
 from pathlib import Path
 import shutil

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Valores fechados, precedência e recomposição sem comandos do registro."""
 
+import ambiente
 import importlib.util
 import json
 import os

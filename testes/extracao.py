@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere extração tipada, referências por trecho e preservação entre partes."""
 
+import ambiente
 import json
 import pathlib
 import sys

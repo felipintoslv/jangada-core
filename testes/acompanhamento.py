@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Confere acompanhamento com banco real, relógio e executores simulados."""
 
+import ambiente
 import json
 import os
 import pathlib

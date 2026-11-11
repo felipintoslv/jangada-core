@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Percurso sintético completo, sem modelos remotos, e negativos do contrato."""
 
+import ambiente
 import importlib.util
 import argparse
 import contextlib

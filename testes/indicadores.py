@@ -1,5 +1,6 @@
 """Confere o contrato dos indicadores com registros sintéticos."""
 
+import ambiente
 import json
 import os
 import subprocess

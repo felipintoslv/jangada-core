@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verifica persistência, dependências, reservas e revisão dos artefatos."""
 
+import ambiente
 import importlib.util
 import json
 import os

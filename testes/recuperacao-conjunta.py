@@ -9,6 +9,7 @@ sessão vizinha, recupera duas vezes e exige o mesmo resultado, e roda o
 executor de novo para provar que a retomada não repete a chamada nem aprova.
 """
 
+import ambiente
 import hashlib
 import importlib.util
 import json

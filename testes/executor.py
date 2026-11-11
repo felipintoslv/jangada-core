@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Integra fila e executor simulado sem chamar modelos ou serviços externos."""
 
+import ambiente
 import hashlib
 import json
 import os

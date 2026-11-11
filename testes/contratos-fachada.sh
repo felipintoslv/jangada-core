@@ -10,6 +10,8 @@
 #
 # Uso: testes/contratos-fachada.sh
 set -uo pipefail
+# shellcheck source=testes/ambiente.sh
+source "$(dirname "$0")/ambiente.sh"
 cd "$(dirname "$0")/.." || exit 1
 repo_jangada="$PWD"
 lista="$repo_jangada/testes/contratos/comandos.txt"

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Avaliação com respostas simuladas: qualidade, variação e ausência de envio remoto."""
 
+import ambiente
 import fcntl
 import json
 import os

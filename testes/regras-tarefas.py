@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Caracteriza os contratos das tarefas sem executar agentes ou provedores."""
 
+import ambiente
 import copy
 import itertools
 import pathlib

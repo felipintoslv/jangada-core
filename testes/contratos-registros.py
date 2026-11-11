@@ -18,6 +18,7 @@ vem depois, recusa dentro do isolamento.
 Uso: testes/contratos-registros.py
 """
 
+import ambiente
 import copy
 import json
 import os
