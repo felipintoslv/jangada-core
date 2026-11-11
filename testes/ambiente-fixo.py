@@ -25,11 +25,14 @@ FONTE_BASH = 'source "$(dirname "$0")/ambiente.sh"'
 # Atribuição de idioma fora do prefixo de um comando vale para o resto do
 # shell, qualquer que seja a indentação; o idioma de um caso vai só como
 # prefixo do comando daquele caso.
-_IDIOMA = r'(?:LANG|LANGUAGE|LC_\w+)=(?:"[^"]*"|\'[^\']*\'|[^\s;&|)]*)'
+_VALOR = r'=(?:"[^"]*"|\'[^\']*\'|[^\s;&|)]*)'
+_IDIOMA = r'(?:LANG|LANGUAGE|LC_\w+)' + _VALOR
+_ATRIBUICAO = r'[A-Za-z_]\w*' + _VALOR
+# Sequência de atribuições sem comando depois também vale para o resto do shell.
 IDIOMA_GLOBAL = re.compile(
     r'(?:^|[;&|({]|\b(?:then|do|else)\s)\s*(?:'
     r'(?:export|readonly|local|declare\s+-\w+|typeset\s+-\w+)\s+(?:\S+\s+)*?' + _IDIOMA
-    + r'|' + _IDIOMA + r'\s*(?:$|[;&|)}#]))')
+    + r'|(?:' + _ATRIBUICAO + r'\s+)*' + _IDIOMA + r'(?:\s+' + _ATRIBUICAO + r')*\s*(?:$|[;&|)}#]))')
 IDIOMA_DE_FORA = {'LANG': 'pt_BR.UTF-8', 'LANGUAGE': 'pt_BR', 'LC_MESSAGES': 'pt_BR.UTF-8',
                   'LC_ALL': 'pt_BR.UTF-8'}
 
@@ -107,11 +110,12 @@ class Ambiente(unittest.TestCase):
             teste = Path(pasta) / 'teste.sh'
             for linha in ('export LC_ALL=C', 'LANG=pt_BR.UTF-8', 'declare -x LC_MESSAGES=C',
                           '  export LC_ALL=C', 'if true; then export LANG=C; fi', 'x=1; LC_ALL=C',
+                          'LANG=C LC_ALL=C', 'X=1 LC_ALL=C', 'LC_ALL=C X="a b"',
                           'f() { local LC_ALL=C; g; }', 'export A=1 LC_CTYPE=C'):
                 with self.subTest(linha=linha):
                     teste.write_text(f'set -eu\n{FONTE_BASH}\n{linha}\necho ok\n', encoding='utf-8')
                     self.assertIn('troca o idioma', problema_bash(teste) or '')
-            for linha in ('LC_ALL=C sort lista', 'f() { LC_ALL=C g "$@"; }',
+            for linha in ('LC_ALL=C sort lista', 'LANG=C LC_ALL=C sort lista', 'f() { LC_ALL=C g "$@"; }',
                           '  LC_ALL="$idioma" X=1 comando', '# export LC_ALL=C'):
                 with self.subTest(linha=linha):
                     teste.write_text(f'set -eu\n{FONTE_BASH}\n{linha}\n', encoding='utf-8')
