@@ -282,6 +282,29 @@ a pasta (veja [ciclo da tarefa](ciclo-da-tarefa.md)). Uma pasta do formato anter
 PID) não é tocada e continua sendo apagada à mão. A pasta `provedores/` inteira fica oculta dentro de qualquer
 isolamento, assim como `codex/`, com as pastas do Codex por sessão.
 
+**Trava da pasta.** A preparação da pasta de dados fora do bwrap (cópias,
+pastas criadas e origens das montagens) roda sob uma trava exclusiva por
+provedor e sessão, em `provedores/.travas/<provedor>/<sessão>`, que nenhum
+isolamento monta. O `jangada-isolar` toma a trava antes de ler ou gravar a
+pasta e a segura até o bwrap sair. Sem ela, o agente de uma abertura viva,
+que grava na mesma pasta, poderia trocar um arquivo ou uma subpasta por link
+no meio da preparação de outra abertura da mesma sessão e desviar a gravação
+ou a montagem. A segunda abertura espera até 5 s e, com a primeira ainda
+viva, recusa dizendo a sessão e o provedor em uso; feche a outra abertura e
+abra de novo. Abertura sem Claude nem agy concedido (por exemplo,
+`jangada-isolar -- jangada-validar`) não prepara pasta de dados e não espera.
+Trava que é link, que não abre ou que muda durante a espera impede a
+abertura. O `settings.json` e o `cache/onboarding.json` do agy entram por
+troca de nome a partir de um temporário em `.travas/<provedor>/`, sem seguir
+link no destino. Cada sessão persistente deixa um arquivo vazio por
+provedor em `.travas`. Nas chaves `efemera-*`, `delegacao-*` e
+`confianca-*` a trava é apagada na saída; a que sobra de um SIGKILL sai na
+próxima abertura de agente, com o PID morto, sem pasta de dados e com a
+trava livre. Limite conhecido: morto o `jangada-isolar` por SIGKILL, a trava
+cai na hora e o bwrap só sai logo depois, pelo `--die-with-parent`, e nesse
+intervalo uma nova abertura da mesma sessão pode preparar a pasta ainda
+montada.
+
 **Claude.** A pasta do Claude (`~/.claude` ou `CLAUDE_CONFIG_DIR`) continua
 gravável, porque o login (`.credentials.json`) é regravado por troca de
 arquivo na própria pasta. Por cima, cada pasta de primeiro nível que não é

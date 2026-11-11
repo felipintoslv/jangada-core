@@ -423,6 +423,17 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
   da conta (conferido no agy real em 10/11/2026). O login
   do Claude é regravado por rename, por isso a pasta do Claude continua
   gravável e só as pastas de dados vêm da sessão.
+- A pasta de dados da sessão é gravável pelo agente que a tem montada.
+  Tudo o que o `jangada-isolar` faz nela por fora (criar, copiar, usar como
+  origem de montagem) roda sob a trava `provedores/.travas/<provedor>/<sessão>`,
+  tomada antes da primeira leitura e segura até o bwrap sair. Conferir link
+  e gravar depois não basta: o agente troca o caminho entre os dois passos.
+  Processo auxiliar que fica vivo (atendente, monitores) fecha o descritor
+  da trava ao nascer (`dados_travas_fechar`); senão a trava sobrevive ao
+  isolador e prende a sessão. Arquivo que entra de novo a cada abertura vai
+  por `dados_copiar` (temporário em `.travas` e rename), nunca `rm` e `cp`.
+  No teste, a troca só fica determinística com a primeira abertura viva e
+  `cp`/`mkdir` substituídos no PATH da segunda.
 - Nos testes, rode o `jangada-isolar` real com a entrada em `/dev/null`
   (`</dev/null`): stdin em cano ou soquete é recusado pela fronteira de
   confiança. Isolador falso de teste precisa aceitar `--conta`, `--delegar`
