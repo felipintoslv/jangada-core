@@ -634,6 +634,7 @@ dados_travar() {
   [[ -f "$arq" && ! -L "$arq" ]] && { exec {fd}<"$arq"; } 2>/dev/null \
     && [[ ! -L "$arq" && -f "/proc/self/fd/$fd" && "$arq" -ef "/proc/self/fd/$fd" ]] \
     || { echo "jangada-isolar: a trava dos dados do provedor $1 não abre ou é link ($arq)" >&2; exit 1; }
+  local prazo="${EPOCHREALTIME/,/.}"
   if ! flock -w 5 "$fd"; then
     echo "jangada-isolar: os dados do provedor $1 da sessão $dados_chave estão em uso por outra abertura do jangada-isolar; feche a outra abertura e abra de novo" >&2
     exit 1
@@ -642,9 +643,73 @@ dados_travar() {
   # seria de um arquivo que ninguém mais abre.
   [[ ! -L "$arq" && "$arq" -ef "/proc/self/fd/$fd" ]] \
     || { echo "jangada-isolar: a trava dos dados do provedor $1 mudou durante a espera; abra de novo" >&2; exit 1; }
+  dados_montada "$1" "$(realpath -m -- "$dados_raiz/$1/$dados_chave")" "$prazo"
   dados_travas+=("$fd")
   dados_trava_pasta="$pasta"
   [[ ! "$dados_chave" =~ ^(efemera|delegacao|confianca)- ]] || dados_travas_apagar+=("$arq")
+}
+# A trava cai junto com o isolador, mas um bwrap cujo isolador morreu por
+# SIGKILL (ou aberto por versão sem trava) ainda pode ter a pasta montada.
+# Antes de preparar, nenhum processo vivo pode ter a pasta ou parte dela
+# montada. A comparação usa dispositivo e caminho dentro do sistema de
+# arquivos, lidos do mountinfo dos dois lados, que o processo não controla;
+# st_dev não serve, porque no btrfs difere do dispositivo do mountinfo.
+# Processo que sumiu ou zumbi (EINVAL) não monta nada; qualquer outra falha
+# de leitura para a abertura.
+dados_montada() {
+  local rc=0 pid
+  pid="$(python3 -I -c 'import errno, os, re, sys, time
+alvo, prazo = sys.argv[1], float(sys.argv[2]) + 5
+def linhas(pid):
+    with open(f"/proc/{pid}/mountinfo", encoding="utf-8", errors="surrogateescape") as f:
+        for l in f:
+            c = l.split(" ")
+            yield c[2], *(re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), x) for x in c[3:5])
+try:
+    melhor = None
+    for dev, raiz, ponto in linhas("self"):
+        if (alvo == ponto or alvo.startswith(ponto.rstrip("/") + "/")) and (melhor is None or len(ponto) >= len(melhor[2])):
+            melhor = (dev, raiz, ponto)
+    dev, raiz, ponto = melhor
+    caminho = raiz.rstrip("/") + alvo[len(ponto.rstrip("/")):]
+    while True:
+        usado, vistos = None, set()
+        for nome in os.listdir("/proc"):
+            if not nome.isdigit() or int(nome) == os.getpid():
+                continue
+            try:
+                ns = os.readlink(f"/proc/{nome}/ns/mnt")
+            except OSError:
+                ns = None
+            if ns and ns in vistos:
+                continue
+            try:
+                if any(d == dev and (r == caminho or r.startswith(caminho + "/")) for d, r, _ in linhas(nome)):
+                    usado = nome
+                    break
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            except OSError as e:
+                if e.errno != errno.EINVAL:
+                    raise
+                continue
+            if ns:
+                vistos.add(ns)
+        if usado is None:
+            sys.exit(0)
+        if time.time() >= prazo:
+            print(usado)
+            sys.exit(1)
+        time.sleep(0.1)
+except (OSError, TypeError, ValueError, IndexError):
+    sys.exit(2)' "$2" "$3")" || rc=$?
+  ((rc == 0)) && return 0
+  if ((rc == 1)); then
+    echo "jangada-isolar: os dados do provedor $1 da sessão $dados_chave ainda estão montados por outro processo (PID $pid); feche a outra abertura e abra de novo" >&2
+  else
+    echo "jangada-isolar: não foi possível conferir em /proc se os dados do provedor $1 da sessão $dados_chave estão montados; a abertura para" >&2
+  fi
+  exit 1
 }
 # Os processos auxiliares que ficam vivos fecham as travas ao nascer: só este
 # script as segura, e elas caem com ele.

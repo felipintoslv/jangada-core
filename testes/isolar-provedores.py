@@ -793,6 +793,61 @@ class Provedores(unittest.TestCase):
         self.assertLess(r["segundos"], 4.5)
         self.assertEqual(json.loads(r["saida"])["concedidos"], "")
 
+    def test_pasta_montada_por_processo_sem_trava_e_recusada(self):
+        # Um bwrap direto, sem jangada-isolar e logo sem trava, faz o papel do
+        # isolamento que sobra quando o isolador morre por SIGKILL, ou de uma
+        # sessão aberta por versão sem trava. Não depende do tempo do SIGKILL.
+        self.contas()
+        base = self.base(BASE_TRAVA)
+        casos = (("claude", ("--", "claude"), "claude", "todos", "plans"),
+                 ("agy", ("--conta", "conta1", "--", "agy"), "agy-conta1", None, "settings.json"))
+        for nome, args, provedor, montada, marca in casos:
+            for isolar, versao in ((base, "base"), (REPO / "bin/jangada-isolar", "nova")):
+                with self.subTest(provedor=nome, versao=versao):
+                    sessao = f"montada-{versao}-{nome}"
+                    env = {**self.env, "JANGADA_SESSAO": sessao, "JANGADA_SONDA_ARQUIVOS": "{}"}
+
+                    def abrir():
+                        return subprocess.run([str(isolar), *args], cwd=self.raiz, env=env,
+                                              stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+                    r = abrir()
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    dados = self.estado / "provedores" / provedor / sessao
+                    alvo = dados / montada if montada else dados
+                    sinal = self.tmp / f"sinal-{sessao}"
+                    sinal.mkdir()
+                    preso = subprocess.Popen(
+                        ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--unshare-pid",
+                         "--die-with-parent", "--bind", str(alvo), str(alvo), "--bind", str(sinal), str(sinal),
+                         "sh", "-c", f"touch {sinal}/pronto; exec sleep 60"], stdin=subprocess.DEVNULL)
+                    self.addCleanup(preso.wait)
+                    self.addCleanup(preso.kill)
+                    prazo = time.monotonic() + 30
+                    while not (sinal / "pronto").exists():
+                        self.assertIsNone(preso.poll(), "o bwrap preso saiu")
+                        self.assertLess(time.monotonic(), prazo, "o bwrap preso não montou")
+                        time.sleep(0.05)
+                    if (dados / marca).is_dir():
+                        (dados / marca).rmdir()
+                    else:
+                        (dados / marca).unlink()
+                    r = abrir()
+                    if versao == "base":
+                        # Sem a conferência, a base prepara a pasta montada.
+                        self.assertEqual(r.returncode, 0, r.stderr)
+                        self.assertTrue((dados / marca).exists())
+                        continue
+                    self.assertEqual(r.returncode, 1, r.stderr)
+                    self.assertIn(f"os dados do provedor {provedor} da sessão {sessao} ainda estão montados "
+                                  "por outro processo", r.stderr)
+                    self.assertEqual(r.stdout, "")
+                    self.assertFalse((dados / marca).exists(), "a abertura recusada preparou a pasta")
+                    preso.kill()
+                    preso.wait()
+                    r = abrir()
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    self.assertTrue((dados / marca).exists())
+
     def test_trava_que_e_link_e_recusada(self):
         travas = self.estado / "provedores/.travas"
         vitima = self.tmp / "vitima"
