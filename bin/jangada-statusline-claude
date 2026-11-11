@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Barra de status do Claude Code: mostra a cota restante do Claude e guarda a
+# observação em $JANGADA_ESTADO/cota-claude.json, de onde o
+# `jangada-router cotas` a lê (docs/registros.md, seção 12).
+#
+# Uso (statusLine de ~/.claude/settings.json, posta por install/50-agentes.sh):
+#   jangada-statusline-claude
+# Recebe o JSON da barra pela entrada padrão e imprime uma linha como
+# "5h 62% · sem 81%" (restante de cada janela ativa), ou nada.
+#
+# O JSON é dado de fora: só entram percentuais de 0 a 100 e datas inteiras
+# dentro do alcance da janela. Uma janela presente e inválida recusa a entrada
+# inteira. Nunca falha: qualquer erro deixa a linha vazia e sai com 0.
+# Dentro do isolamento (JANGADA_ISOLADO) só imprime, sem gravar.
+
+read -r -d '' programa <<'PY'
+import json
+import math
+import os
+import stat
+import sys
+import tempfile
+import time
+
+LIMITE = 1024 * 1024
+# Campo do Claude Code, rótulo na barra e alcance máximo de resets_at, com folga.
+JANELAS = (('five_hour', '5h', 6 * 3600), ('seven_day', 'sem', 8 * 86400))
+
+
+def ler(agora):
+    """Janelas ativas {campo: {usado, renova_em}}, ou None se a entrada for recusada."""
+    bruto = sys.stdin.buffer.read(LIMITE + 1)
+    if len(bruto) > LIMITE:
+        return None
+    dados = json.loads(bruto)
+    limites = dados.get('rate_limits') if isinstance(dados, dict) else None
+    if not isinstance(limites, dict):
+        return None
+    janelas = {}
+    for campo, _, alcance in JANELAS:
+        janela = limites.get(campo)
+        if janela is None:
+            continue
+        if not isinstance(janela, dict):
+            return None
+        usado, fim = janela.get('used_percentage'), janela.get('resets_at')
+        if type(usado) not in (int, float) or not math.isfinite(usado) or not 0 <= usado <= 100:
+            return None
+        if type(fim) is not int or fim > agora + alcance:
+            return None
+        if fim > agora:
+            janelas[campo] = {'usado': usado, 'renova_em': fim}
+    return janelas or None
+
+
+def gravar(destino, agora, janelas):
+    pasta = os.path.dirname(destino)
+    os.makedirs(pasta, mode=0o700, exist_ok=True)
+    try:
+        if not stat.S_ISREG(os.lstat(destino).st_mode):
+            return
+    except FileNotFoundError:
+        pass
+    fd, temporario = tempfile.mkstemp(dir=pasta, prefix='.cota-claude-', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as arquivo:
+            os.fchmod(arquivo.fileno(), 0o600)
+            arquivo.write(json.dumps({'versao': 1, 'medido_em': agora, 'janelas': janelas}) + '\n')
+        os.replace(temporario, destino)
+    except BaseException:
+        try:
+            os.unlink(temporario)
+        except OSError:
+            pass
+        raise
+
+
+def main():
+    agora = int(time.time())
+    janelas = ler(agora)
+    if janelas is None:
+        return
+    partes = ['%s %d%%' % (rotulo, math.floor(100 - janelas[campo]['usado'] + 0.5))
+              for campo, rotulo, _ in JANELAS if campo in janelas]
+    sys.stdout.write(' · '.join(partes) + '\n')
+    sys.stdout.flush()
+    if sys.argv[2] != '1':
+        gravar(sys.argv[1], agora, janelas)
+
+
+try:
+    main()
+except BaseException:
+    pass
+PY
+
+isolado=0
+[[ -z "${JANGADA_ISOLADO:-}" ]] || isolado=1
+python3 -I -c "$programa" "${XDG_STATE_HOME:-$HOME/.local/state}/jangada/cota-claude.json" "$isolado" 2>/dev/null
+exit 0

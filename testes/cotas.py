@@ -1122,6 +1122,275 @@ class Cotas(unittest.TestCase):
             with self.subTest(rotulo), self.assertRaises(ValueError):
                 cotas.validar(documento(grupo), agora)
 
+
+class CotaClaude(unittest.TestCase):
+    """Barra de status do Claude (bin/jangada-statusline-claude) e o grupo `claude` do cotas.json."""
+
+    BASE = 'ad39d3e'
+
+    def casa(self):
+        casa = Casa()
+        self.addCleanup(casa.limpar)
+        return casa
+
+    def entrada(self, cinco=(38, 3600), semana=(19.4, 86400), **extra):
+        """JSON da barra como o Claude Code o manda, com campos que não podem chegar ao estado."""
+        agora = int(time.time())
+        limites = {nome: {'used_percentage': janela[0], 'resets_at': agora + janela[1]}
+                   for nome, janela in (('five_hour', cinco), ('seven_day', semana)) if janela is not None}
+        dados = {'model': {'id': 'claude-x', 'display_name': 'Modelo'}, 'cwd': '/casa/projeto secreto',
+                 'cost': {'total_cost_usd': 1.25}, 'session_id': 'abc', 'rate_limits': limites}
+        dados.update(extra)
+        return json.dumps(dados)
+
+    def barra(self, casa, entrada, **extra):
+        if isinstance(entrada, str):
+            entrada = entrada.encode()
+        return subprocess.run([str(RAIZ / 'bin/jangada-statusline-claude')], input=entrada, cwd=RAIZ,
+                              env=casa.env(**extra), capture_output=True, timeout=60)
+
+    def observacao(self, casa):
+        return casa.estado / 'cota-claude.json'
+
+    def observar(self, casa, medido, janelas, **extra):
+        casa.estado.mkdir(parents=True, exist_ok=True)
+        dados = {'versao': 1, 'medido_em': medido, 'janelas': janelas}
+        dados.update(extra)
+        self.observacao(casa).write_text(json.dumps(dados))
+
+    def claude(self, casa):
+        return lido_apos(casa)['provedores'][-1]
+
+    def assertRecusada(self, casa, entrada):
+        antes = casa.arquivos()
+        resposta = self.barra(casa, entrada)
+        self.assertEqual((resposta.returncode, resposta.stdout, resposta.stderr), (0, b'', b''))
+        self.assertEqual(casa.arquivos(), antes)
+
+    def test_duas_janelas_viram_observacao_so_de_numeros_e_grupo_claude(self):
+        casa = self.casa()
+        antes, inicio = casa.arquivos(), int(time.time())
+        resposta = self.barra(casa, self.entrada())
+        self.assertEqual((resposta.returncode, resposta.stdout.decode(), resposta.stderr), (0, '5h 62% · sem 81%\n', b''))
+        self.assertEqual(sorted(set(casa.arquivos()) - set(antes)), ['casa/.local/state/jangada/cota-claude.json'])
+        arquivo = self.observacao(casa)
+        self.assertEqual(arquivo.stat().st_mode & 0o777, 0o600)
+        gravado = json.loads(arquivo.read_text())
+        self.assertEqual(set(gravado), {'versao', 'medido_em', 'janelas'})
+        self.assertEqual(set(gravado['janelas']), {'five_hour', 'seven_day'})
+        folhas = [gravado['versao'], gravado['medido_em']]
+        for janela in gravado['janelas'].values():
+            self.assertEqual(set(janela), {'usado', 'renova_em'})
+            folhas += janela.values()
+        self.assertTrue(all(type(valor) in (int, float) for valor in folhas), folhas)
+        self.assertTrue(inicio <= gravado['medido_em'] <= time.time())
+        self.assertNotIn('secreto', arquivo.read_text())
+        entrada = lido_apos(casa)['provedores'][-1]
+        self.assertEqual((entrada['provedor'], entrada['conta'], entrada['motivo']), ('claude', None, None))
+        self.assertEqual([g['grupo'] for g in entrada['grupos']], ['claude'])
+        grupo = entrada['grupos'][0]
+        self.assertEqual((grupo['percentual'], grupo['origem'], grupo['motivo']), (62, 'claude statusline', None))
+        self.assertEqual(grupo['janelas'], [
+            {'id': 'claude-5h', 'percentual': 62, 'renova_em': cotas.iso(gravado['janelas']['five_hour']['renova_em'])},
+            {'id': 'claude-weekly', 'percentual': 80.6, 'renova_em': cotas.iso(gravado['janelas']['seven_day']['renova_em'])}])
+        self.assertEqual(grupo['percentual'], min(j['percentual'] for j in grupo['janelas']))
+        self.assertEqual(grupo['medido_em'], cotas.iso(gravado['medido_em']))
+        self.assertEqual(grupo['valido_ate'], cotas.iso(gravado['medido_em'] + 300))
+        self.assertNotIn('ultimo', grupo)
+
+    def test_a_menor_janela_decide_mesmo_quando_e_a_semanal(self):
+        casa = self.casa()
+        self.assertEqual(self.barra(casa, self.entrada(cinco=(10, 600), semana=(95.5, 3600))).stdout.decode(),
+                         '5h 90% · sem 5%\n')
+        grupo = self.claude(casa)['grupos'][0]
+        self.assertEqual((grupo['percentual'], [j['percentual'] for j in grupo['janelas']]), (4.5, [90, 4.5]))
+
+    def test_so_uma_janela(self):
+        for cinco, semana, linha, ids in (((38, 3600), None, '5h 62%\n', ['claude-5h']),
+                                          (None, (19.4, 86400), 'sem 81%\n', ['claude-weekly'])):
+            with self.subTest(linha=linha):
+                casa = self.casa()
+                self.assertEqual(self.barra(casa, self.entrada(cinco, semana)).stdout.decode(), linha)
+                self.assertEqual(set(json.loads(self.observacao(casa).read_text())['janelas']),
+                                 {'five_hour'} if cinco else {'seven_day'})
+                grupo = self.claude(casa)['grupos'][0]
+                self.assertEqual([j['id'] for j in grupo['janelas']], ids)
+                self.assertEqual(grupo['percentual'], grupo['janelas'][0]['percentual'])
+
+    def test_janela_com_renovacao_passada_nao_conta(self):
+        casa = self.casa()
+        self.assertEqual(self.barra(casa, self.entrada(cinco=(99, -10))).stdout.decode(), 'sem 81%\n')
+        grupo = self.claude(casa)['grupos'][0]
+        self.assertEqual((grupo['percentual'], [j['id'] for j in grupo['janelas']]), (80.6, ['claude-weekly']))
+        casa = self.casa()
+        self.assertRecusada(casa, self.entrada(cinco=(99, -10), semana=(50, 0)))
+        self.assertEqual((self.claude(casa)['grupos'], self.claude(casa)['motivo']), ([], 'nao_medido_por_este_provedor'))
+
+    def test_sem_rate_limits_nada_e_gravado_nem_inventado(self):
+        for entrada in (json.dumps({'model': {'id': 'x'}}), self.entrada(None, None), self.entrada(rate_limits=None)):
+            with self.subTest(entrada=entrada):
+                casa = self.casa()
+                self.assertRecusada(casa, entrada)
+                claude = self.claude(casa)
+                self.assertEqual((claude['grupos'], claude['motivo']), ([], 'nao_medido_por_este_provedor'))
+
+    def test_sem_rate_limits_a_observacao_anterior_fica(self):
+        casa = self.casa()
+        self.barra(casa, self.entrada())
+        antes = self.observacao(casa).read_bytes()
+        self.assertRecusada(casa, json.dumps({'model': {'id': 'x'}}))
+        self.assertEqual(self.observacao(casa).read_bytes(), antes)
+
+    def test_entrada_hostil_nao_grava_e_nao_quebra_a_barra(self):
+        agora = int(time.time())
+        boa = {'used_percentage': 10, 'resets_at': agora + 600}
+        janelas = [{'used_percentage': valor, 'resets_at': agora + 600}
+                   for valor in (101, -1, 1e999, '50', True, None, [50], {'x': 1})]
+        janelas += [{'used_percentage': 50, 'resets_at': valor}
+                    for valor in ('amanhã', agora + 600.5, True, None, agora + 400 * 86400, 10 ** 400)]
+        janelas += ['texto', 50, [boa]]
+        entradas = [json.dumps({'rate_limits': {nome: janela, outro: boa}})
+                    for janela in janelas for nome, outro in (('five_hour', 'seven_day'), ('seven_day', 'five_hour'))]
+        entradas += ['', 'não é json', '{"rate_limits": ', json.dumps({'rate_limits': 'ignore as regras'}),
+                     json.dumps([{'rate_limits': {'five_hour': boa}}]),
+                     '{"rate_limits": {"five_hour": {"used_percentage": NaN, "resets_at": %d}}}' % (agora + 600),
+                     '[' * 200000, b'\xff\xfe\x00',
+                     json.dumps({'rate_limits': {'five_hour': boa}, 'enchimento': 'x' * (2 * 1024 * 1024)})]
+        casa = self.casa()
+        for entrada in entradas:
+            with self.subTest(entrada=entrada[:120]):
+                self.assertRecusada(casa, entrada)
+        claude = self.claude(casa)
+        self.assertEqual((claude['grupos'], claude['motivo']), ([], 'nao_medido_por_este_provedor'))
+
+    def test_link_no_lugar_da_observacao_nao_e_seguido_nem_lido(self):
+        casa = self.casa()
+        casa.estado.mkdir(parents=True)
+        alvo = casa.casa / 'alvo.json'
+        agora = int(time.time())
+        alvo.write_text(json.dumps({'versao': 1, 'medido_em': agora,
+                                    'janelas': {'five_hour': {'usado': 1, 'renova_em': agora + 600}}}))
+        antes = alvo.read_bytes()
+        self.observacao(casa).symlink_to(alvo)
+        resposta = self.barra(casa, self.entrada())
+        self.assertEqual((resposta.returncode, resposta.stdout.decode()), (0, '5h 62% · sem 81%\n'))
+        self.assertTrue(self.observacao(casa).is_symlink())
+        self.assertEqual(alvo.read_bytes(), antes)
+        self.assertEqual([p.name for p in casa.estado.iterdir()], ['cota-claude.json'])
+        grupo = self.claude(casa)['grupos'][0]
+        self.assertEqual((grupo['percentual'], grupo['motivo'], grupo['janelas']), (None, 'consulta_falhou', []))
+        self.assertNotIn('ultimo', grupo)
+
+    def test_observacao_hostil_no_estado_nao_vira_numero(self):
+        agora = int(time.time())
+        boa = {'usado': 10, 'renova_em': agora + 600}
+        casos = [(agora, {'five_hour': dict(boa, usado=valor)}) for valor in (150, -1, '10', True, None, 1e999)]
+        casos += [(agora, {'five_hour': dict(boa, renova_em=valor)})
+                  for valor in ('amanhã', agora + 600.5, None, agora + 400 * 86400, 10 ** 400)]
+        casos += [(agora, {'five_hour': boa, 'seven_day': 'texto'}), (agora, 'texto'), (agora, {}),
+                  (agora, {'outra': boa}), (agora, {'five_hour': dict(boa, renova_em=agora - 5)}),
+                  ('agora', {'five_hour': boa}), (float(agora), {'five_hour': boa}), (True, {'five_hour': boa}),
+                  (-5, {'five_hour': boa}), (10 ** 400, {'five_hour': dict(boa, renova_em=10 ** 400)})]
+        casa = self.casa()
+        for medido, janelas in casos:
+            with self.subTest(medido=str(medido)[:20], janelas=str(janelas)[:80]):
+                self.observar(casa, medido, janelas)
+                (casa.estado / 'cotas.json').unlink(missing_ok=True)
+                grupo = self.claude(casa)['grupos'][0]
+                self.assertEqual((grupo['percentual'], grupo['motivo'], grupo['janelas']), (None, 'consulta_falhou', []))
+                self.assertNotIn('ultimo', grupo)
+        for texto in ('', 'não é json', '[1]', '[' * 200000, json.dumps({'versao': 2, 'medido_em': agora,
+                                                                       'janelas': {'five_hour': boa}})):
+            with self.subTest(texto=texto[:20]):
+                self.observacao(casa).write_text(texto)
+                (casa.estado / 'cotas.json').unlink(missing_ok=True)
+                self.assertEqual(self.claude(casa)['grupos'][0]['motivo'], 'consulta_falhou')
+        self.observacao(casa).write_text('x' * (2 * 1024 * 1024))
+        self.assertEqual(self.claude(casa)['grupos'][0]['motivo'], 'consulta_falhou')
+        self.observacao(casa).unlink()
+        self.observacao(casa).mkdir()
+        self.assertEqual(self.claude(casa)['grupos'][0]['motivo'], 'consulta_falhou')
+
+    def test_observacao_com_data_futura_nao_vira_numero_nem_ultimo(self):
+        casa = self.casa()
+        agora = int(time.time())
+        self.observar(casa, agora + 3600, {'five_hour': {'usado': 10, 'renova_em': agora + 7200}})
+        grupo = self.claude(casa)['grupos'][0]
+        self.assertEqual((grupo['percentual'], grupo['motivo']), (None, 'cache_vencido'))
+        self.assertNotIn('ultimo', grupo)
+
+    def test_observacao_vencida_sai_sem_numero_e_com_ultimo(self):
+        casa = self.casa()
+        agora = int(time.time())
+        self.observar(casa, agora - 3600, {'five_hour': {'usado': 38, 'renova_em': agora + 600},
+                                           'seven_day': {'usado': 19.4, 'renova_em': agora + 86400}})
+        for leitura in range(2):
+            grupo = self.claude(casa)['grupos'][0]
+            self.assertEqual((grupo['percentual'], grupo['motivo'], grupo['janelas']), (None, 'cache_vencido', []))
+            # Na segunda leitura vence o `ultimo` do cotas.json anterior, sem origem, como no agy e no Codex.
+            self.assertEqual(grupo['origem'], None if leitura else 'claude statusline')
+            self.assertEqual(grupo['ultimo'], {'percentual': 62, 'medido_em': cotas.iso(agora - 3600)})
+        (casa.estado / 'cotas.json').unlink()
+        resposta = casa.router('cotas', JANGADA_DELEGAR_CACHE='120')
+        self.assertEqual(resposta.returncode, 0, resposta.stderr)
+        self.assertEqual(lido(casa)['provedores'][-1]['grupos'][0]['percentual'], 62)
+
+    def test_janela_que_renovou_depois_da_medida_vence_a_observacao(self):
+        casa = self.casa()
+        agora = int(time.time())
+        self.observar(casa, agora - 60, {'five_hour': {'usado': 90, 'renova_em': agora - 10},
+                                         'seven_day': {'usado': 19.4, 'renova_em': agora + 86400}})
+        grupo = self.claude(casa)['grupos'][0]
+        self.assertEqual((grupo['percentual'], grupo['motivo']), (None, 'cache_vencido'))
+        self.assertEqual(grupo['valido_ate'], cotas.iso(agora - 10))
+        self.assertEqual(grupo['ultimo'], {'percentual': 10, 'medido_em': cotas.iso(agora - 60)})
+
+    def test_dentro_do_isolamento_nada_e_gravado_e_a_barra_sai(self):
+        casa = self.casa()
+        antes = casa.arquivos()
+        resposta = self.barra(casa, self.entrada(), JANGADA_ISOLADO='1')
+        self.assertEqual((resposta.returncode, resposta.stdout.decode(), resposta.stderr), (0, '5h 62% · sem 81%\n', b''))
+        self.assertEqual(casa.arquivos(), antes)
+        self.barra(casa, self.entrada())
+        arquivo = self.observacao(casa)
+        conteudo = arquivo.read_bytes()
+        os.utime(arquivo, (1, 1))
+        self.assertEqual(self.barra(casa, self.entrada(cinco=(1, 600)), JANGADA_ISOLADO='1').returncode, 0)
+        self.assertEqual((arquivo.read_bytes(), arquivo.stat().st_mtime), (conteudo, 1))
+
+    def test_estado_que_nao_aceita_gravacao_nao_quebra_a_barra(self):
+        casa = self.casa()
+        casa.estado.parent.mkdir(parents=True)
+        casa.estado.write_text('não é pasta')
+        resposta = self.barra(casa, self.entrada())
+        self.assertEqual((resposta.returncode, resposta.stdout.decode(), resposta.stderr), (0, '5h 62% · sem 81%\n', b''))
+
+    def test_sem_observacao_o_cotas_json_e_o_da_base(self):
+        with tempfile.TemporaryDirectory(prefix='jangada-cotas-base-') as pasta:
+            arquivo = subprocess.run(['git', 'archive', self.BASE], cwd=RAIZ, capture_output=True)
+            if arquivo.returncode != 0:
+                raise unittest.SkipTest('BLOQUEADO: commit %s ausente do repositório' % self.BASE)
+            subprocess.run(['tar', '-x', '-C', pasta], input=arquivo.stdout, check=True)
+            for nome, idade in (('cache válido', 0), ('cache vencido', 3600), ('sem cache', None)):
+                with self.subTest(cenario=nome):
+                    casa = self.casa()
+                    if idade is not None:
+                        casa.cache_agy(idade=idade)
+                    documentos = []
+                    for core in (pathlib.Path(pasta), RAIZ):
+                        (casa.estado / 'cotas.json').unlink(missing_ok=True)
+                        resposta = subprocess.run([str(core / 'bin/jangada-router'), 'cotas'], cwd=RAIZ,
+                                                  capture_output=True, text=True, timeout=120,
+                                                  env=casa.env(JANGADA_CORE_PATH=str(core)))
+                        self.assertEqual(resposta.returncode, 0, resposta.stderr)
+                        self.assertEqual(json.loads(resposta.stdout), lido(casa))
+                        documentos.append(dict(lido(casa), gerado=None))
+                    self.assertEqual(documentos[1], documentos[0])
+                    self.assertEqual(documentos[1]['provedores'][-1],
+                                     {'provedor': 'claude', 'conta': None, 'grupos': [],
+                                      'motivo': 'nao_medido_por_este_provedor'})
+
+
 def lido_apos(casa):
     resposta = casa.router('cotas')
     assert resposta.returncode == 0, resposta.stderr

@@ -30,7 +30,11 @@ MOTIVOS = ('sem_cache', 'cache_vencido', 'consulta_falhou', 'conta_sem_confianca
 ORIGEM_AGY = 'agy -p /usage'
 ORIGEM_CODEX = 'codex app-server account/rateLimits/read'
 ORIGEM_CODEX_ESTADO = 'estado dos provedores'
-ORIGENS = (ORIGEM_AGY, ORIGEM_CODEX, ORIGEM_CODEX_ESTADO)
+ORIGEM_CLAUDE = 'claude statusline'
+ORIGENS = (ORIGEM_AGY, ORIGEM_CODEX, ORIGEM_CODEX_ESTADO, ORIGEM_CLAUDE)
+OBSERVACAO_CLAUDE = 'cota-claude.json'
+# Campo da observação, id da janela e alcance máximo da renovação depois da medida.
+JANELAS_CLAUDE = (('five_hour', 'claude-5h', 6 * 3600), ('seven_day', 'claude-weekly', 8 * 86400))
 RANK_CACHE, RANK_ANTERIOR, RANK_ATUALIZADO = 0, 1, 2
 LIMITE_LEITURA = 1024 * 1024
 LIMITE_BANCO = 64 * 1024 * 1024
@@ -220,7 +224,7 @@ def lembrar_anterior(candidatas, arquivo, validade, agora):
         if not isinstance(provedor, dict):
             continue
         nome, conta = provedor.get('provedor'), provedor.get('conta')
-        if nome not in ('agy', 'codex') or not (conta is None or (isinstance(conta, str) and NOME_CONTA.fullmatch(conta))):
+        if nome not in ('agy', 'codex', 'claude') or not (conta is None or (isinstance(conta, str) and NOME_CONTA.fullmatch(conta))):
             continue
         lista = provedor.get('grupos')
         for grupo in lista if isinstance(lista, list) else []:
@@ -254,7 +258,7 @@ def lembrar_medidos(candidatas, documento, rank_agy, rank_codex, agora):
             if grupo['percentual'] is not None:
                 lembrar(candidatas, (provedor['provedor'], provedor['conta'], grupo['grupo']), grupo['percentual'],
                         instante(grupo['medido_em']), instante(grupo['valido_ate']), grupo['origem'], grupo['janelas'],
-                        rank_agy if provedor['provedor'] == 'agy' else rank_codex, agora)
+                        {'agy': rank_agy, 'codex': rank_codex}.get(provedor['provedor'], RANK_CACHE), agora)
 
 
 def resolver(documento, candidatas, agora):
@@ -474,6 +478,68 @@ def entrada_codex(raiz_estado, atualizar, permitir_remoto, agora, candidatas):
     return {'provedor': 'codex', 'conta': None, 'grupos': [grupo], 'motivo': None}
 
 
+def observacao_claude(conteudo):
+    """(medido, janelas, renovações) da observação da barra do Claude, ou None se inválida.
+
+    O arquivo fica no estado, que o agente pode gravar: só entram inteiros de data e
+    percentuais de 0 a 100. Janela que já tinha renovado na medida não conta.
+    """
+    try:
+        dados = json.loads(conteudo)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(dados, dict) or dados.get('versao') != 1 or not isinstance(dados.get('janelas'), dict):
+        return None
+    medido = dados.get('medido_em')
+    if type(medido) is not int or medido <= 0 or iso(medido) is None:
+        return None
+    janelas, renovacoes = [], []
+    for campo, identificador, alcance in JANELAS_CLAUDE:
+        janela = dados['janelas'].get(campo)
+        if janela is None:
+            continue
+        usado = numero(janela.get('usado'), 0, 100) if isinstance(janela, dict) else None
+        fim = janela.get('renova_em') if isinstance(janela, dict) else None
+        if usado is None or type(fim) is not int or fim > medido + alcance or iso(fim) is None:
+            return None
+        if fim > medido:
+            janelas.append({'id': identificador, 'percentual': round(100 - usado, 2), 'renova_em': iso(fim)})
+            renovacoes.append(fim)
+    return (medido, janelas, renovacoes) if janelas else None
+
+
+def grupo_claude(raiz_estado, agora, candidatas):
+    """Grupo `claude` da observação gravada pelo jangada-statusline-claude, ou None sem arquivo.
+
+    Vale até a validade do cache ou até a primeira renovação, o que vier antes: depois de uma
+    janela renovar, o número medido não descreve mais a cota.
+    """
+    try:
+        lido = ler_regular(raiz_estado / OBSERVACAO_CLAUDE)
+    except (OSError, ValueError):
+        return grupo_nulo('claude', 'consulta_falhou', ORIGEM_CLAUDE)
+    if lido is None:
+        return None
+    observacao = observacao_claude(lido[0])
+    if observacao is None:
+        return grupo_nulo('claude', 'consulta_falhou', ORIGEM_CLAUDE)
+    medido, janelas, renovacoes = observacao
+    percentual = min(janela['percentual'] for janela in janelas)
+    valido = min([medido + validade_cache()] + renovacoes)
+    lembrar(candidatas, ('claude', None, 'claude'), percentual, medido, valido, ORIGEM_CLAUDE, janelas, RANK_CACHE, agora)
+    medido_em, valido_ate = iso(medido), iso(valido)
+    if valido <= agora or medido > agora:
+        return grupo_nulo('claude', 'cache_vencido', ORIGEM_CLAUDE, medido_em, valido_ate)
+    return grupo_medido('claude', percentual, janelas, ORIGEM_CLAUDE, medido_em, valido_ate)
+
+
+def entrada_claude(raiz_estado, agora, candidatas):
+    grupo = grupo_claude(raiz_estado, agora, candidatas)
+    if grupo is None:
+        return {'provedor': 'claude', 'conta': None, 'grupos': [], 'motivo': 'nao_medido_por_este_provedor'}
+    return {'provedor': 'claude', 'conta': None, 'grupos': [grupo], 'motivo': None}
+
+
 def vencer(documento, agora):
     """Troca por null o número cuja validade acabou durante as consultas."""
     for provedor in documento['provedores']:
@@ -497,7 +563,7 @@ def montar(raiz_estado, core, atualizar=False, permitir_remoto=False, agora=None
     documento = {'versao': VERSAO, 'gerado': iso(agora),
                  'provedores': entradas_agy(core, raiz_estado, consultar_rede, agora, candidatas)
                  + [entrada_codex(raiz_estado, atualizar, permitir_remoto, agora, candidatas),
-                    {'provedor': 'claude', 'conta': None, 'grupos': [], 'motivo': 'nao_medido_por_este_provedor'}]}
+                    entrada_claude(raiz_estado, agora, candidatas)]}
     # A validade é conferida no instante da entrega, não no da partida.
     agora = max(agora, time.time())
     lembrar_medidos(candidatas, documento, RANK_ATUALIZADO if consultar_rede else RANK_CACHE,

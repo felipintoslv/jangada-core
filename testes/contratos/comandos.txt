@@ -32,6 +32,7 @@ jangada-projeto
 jangada-provedor
 jangada-retomar
 jangada-router
+jangada-statusline-claude
 jangada-task
 jangada-update
 jangada-validar
