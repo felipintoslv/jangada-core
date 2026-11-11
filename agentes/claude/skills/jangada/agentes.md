@@ -394,6 +394,13 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
   `env -u JANGADA_ISOLADO testes/verificar.sh`. Se uma rodada anterior deixou
   `/tmp/isolar-teste`, remova esse arquivo antes: ele falseia o teste do
   `/tmp` próprio.
+- No `bwrap`, `--bind PASTA /tmp` depois de `--ro-bind / /` esconde tudo
+  que estava no `/tmp` do sistema, inclusive o repositório quando o clone
+  fica sob `/tmp`: o comando chamado pelo caminho some e o bwrap sai com 1.
+  Remonte o repositório depois do `/tmp` (`--ro-bind REPO REPO`); a ordem
+  das opções decide o que fica por cima. Teste de recusa que só confere
+  código diferente de 0 passa pelo motivo errado nesse caso
+  (`testes/update-codigo.py`).
 - Se a tarefa precisa gravar fora dessas pastas, pare e peça ao usuário:
   acrescentar a pasta em `JANGADA_ISOLAR_ESCRITA` no `jangada.conf`. Não há
   abertura sem isolamento. Não contorne o isolamento.
