@@ -154,6 +154,10 @@ conferir "arquivo vazio conta como {}" [ "$(statusline)" = "$esperada" ]
 rm -f "$claude_cfg" "$claude_cfg".jangada-*
 (JANGADA_SIMULAR=1 mesclar instalar_statusline_claude)
 conferir "simulação não cria o arquivo" [ ! -e "$claude_cfg" ]
+mv "$HOME/.claude" "$tmp/claude-guardado"
+(JANGADA_SIMULAR=1 mesclar instalar_statusline_claude)
+conferir "simulação não cria a pasta ~/.claude" [ ! -e "$HOME/.claude" ]
+mv "$tmp/claude-guardado" "$HOME/.claude"
 rm -f "$claude_cfg".jangada-*
 
 echo "== hooks.json do agy vazio"

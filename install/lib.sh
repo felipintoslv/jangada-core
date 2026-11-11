@@ -407,7 +407,7 @@ instalar_statusline_claude() {
     info "[simulação] poria a barra de status do jangada em $cfg"
     return 0
   fi
-  mkdir -p "$HOME/.claude"
+  executar mkdir -p "$HOME/.claude"
   [[ -f "$cfg" ]] || echo '{}' >"$cfg"
   # "|" no fim protege as quebras de linha finais do comando da substituição.
   if ! situacao="$(jq -rn '(first(inputs) // {}) | if type != "object" then error("não é objeto") else .statusLine end
