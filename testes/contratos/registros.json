@@ -264,6 +264,23 @@
       "ciclo": {"tipo": ["texto"], "obrigatorio": true}
     }
   },
+  "cota-claude.json": {
+    "secao": "12",
+    "campos": {
+      "versao": {"tipo": ["inteiro"], "obrigatorio": true},
+      "medido_em": {"tipo": ["inteiro"], "obrigatorio": true},
+      "janelas": {"tipo": ["objeto"], "obrigatorio": true, "campos": {
+        "five_hour": {"tipo": ["objeto"], "obrigatorio": false, "campos": {
+          "usado": {"tipo": ["numero"], "obrigatorio": true},
+          "renova_em": {"tipo": ["inteiro"], "obrigatorio": true}
+        }},
+        "seven_day": {"tipo": ["objeto"], "obrigatorio": false, "campos": {
+          "usado": {"tipo": ["numero"], "obrigatorio": true},
+          "renova_em": {"tipo": ["inteiro"], "obrigatorio": true}
+        }}
+      }}
+    }
+  },
   "cotas.json": {
     "secao": "12",
     "campos": {

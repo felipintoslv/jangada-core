@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
@@ -374,6 +375,17 @@ class Gerador:
                 registros.append((provedor + '/' + modo, dados))
         return registros
 
+    def cota_claude(self):
+        """cota-claude.json, gravado pela barra de status do Claude Code (seção 12)."""
+        agora = int(time.time())
+        entrada = json.dumps({'model': {'id': 'claude-x'}, 'rate_limits': {
+            'five_hour': {'used_percentage': 38, 'resets_at': agora + 3600},
+            'seven_day': {'used_percentage': 19.4, 'resets_at': agora + 86400}}})
+        feito = self.rodar(self.comando('jangada-statusline-claude'), pasta=self.projeto, entrada=entrada)
+        if feito.returncode or not feito.stdout.strip():
+            raise AssertionError(feito.stderr or 'barra de status vazia')
+        return [('observacao', json.loads((self.estado / 'cota-claude.json').read_text(encoding='utf-8')))]
+
     def cotas(self):
         """cotas.json, lido do cache de /usage que a delegação acabou de gravar (seção 12)."""
         feito = self.rodar(self.comando('jangada-router'), 'cotas', pasta=self.projeto)
@@ -400,6 +412,7 @@ class Gerador:
         self.codigos_delegar = self.delegar()
         registros['delegacoes.jsonl'] = list(enumerate(self.linhas('delegacoes.jsonl'), 1))
         registros['coordenadores/SESSAO.json'] = self.atuacoes()
+        registros['cota-claude.json'] = self.cota_claude()
         registros['cotas.json'] = self.cotas()
         return registros
 

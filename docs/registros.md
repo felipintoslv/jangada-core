@@ -881,11 +881,13 @@ bordas para conferir assinaturas não entra nessas contagens.
     catálogo `contas/agy.json` (sem catálogo, só `principal`), o Codex e o Claude.
     - `provedor`: `agy`, `codex` ou `claude`.
     - `conta`: nome da conta do agy; `null` nos outros.
-    - `motivo`: preenchido só quando `grupos` está vazia. O Claude traz
-      `nao_medido_por_este_provedor`: não há leitura de cota dele aqui. Catálogo
-      de contas inválido traz `consulta_falhou`, sem conta inventada.
+    - `motivo`: preenchido só quando `grupos` está vazia. O Claude sem
+      `cota-claude.json` traz `nao_medido_por_este_provedor`, como antes de
+      11/11/2026. Catálogo de contas inválido traz `consulta_falhou`, sem conta
+      inventada.
     - `grupos`: um objeto por grupo de consumo (`gemini`, `3p`, `gemini-argon-wtu`
-      no agy, `codex` no Codex). No agy entram os grupos dos modelos de
+      no agy, `codex` no Codex, `claude` no Claude quando há observação da
+      barra de status). No agy entram os grupos dos modelos de
       `JANGADA_DELEGAR_MODELOS` (com catálogo, o Argon só quando o `/usage` da
       conta traz o grupo) e os que o `/usage` trouxer.
       - `grupo`: identificador, só `a-z`, `0-9` e `-`.
@@ -896,12 +898,15 @@ bordas para conferir assinaturas não entra nessas contagens.
         abaixo.
       - `janelas`: as janelas que entraram na conta; vazia quando
         `percentual` é `null` ou vem do estado dos provedores.
-        - `id`: `gemini-5h`, `gemini-weekly`, `codex-primary` e assim por diante.
+        - `id`: `gemini-5h`, `gemini-weekly`, `codex-primary`, `claude-5h`,
+          `claude-weekly` e assim por diante.
         - `percentual`: restante da janela.
         - `renova_em`: data de renovação em UTC, só quando o provedor a informa
-          (`reset_time` no agy, `resetsAt` no Codex); senão `null`.
+          (`reset_time` no agy, `resetsAt` no Codex, `resets_at` no Claude);
+          senão `null`.
       - `origem`: de onde veio o número (`agy -p /usage`,
-        `codex app-server account/rateLimits/read` ou `estado dos provedores`).
+        `codex app-server account/rateLimits/read`, `estado dos provedores` ou
+        `claude statusline`).
         Todo número tem origem.
       - `medido_em`: data da medição, em UTC. No cache do agy é a data de
         modificação do arquivo. Todo número tem data.
@@ -924,13 +929,15 @@ bordas para conferir assinaturas não entra nessas contagens.
 - **Escolha da medida:** para cada provedor, conta e grupo, juntam-se as
   candidatas e fica uma só, a de `medido_em` mais recente. Só depois se aplica
   a validade dela.
-  - Candidatas: o cache local (arquivo do agy ou banco do Codex, vencido ou
-    não), o grupo do `cotas.json` anterior com `percentual` ou só com `ultimo`
+  - Candidatas: o cache local (arquivo do agy, banco do Codex ou
+    `cota-claude.json`, vencido ou não), o grupo do `cotas.json` anterior com `percentual` ou só com `ultimo`
     e a medida nova de `--atualizar --permitir-remoto`.
   - Empate no mesmo segundo (as datas têm precisão de segundos): vence a
     atualização, depois o `cotas.json` anterior, depois o cache local.
   - Validade: a do cache local é `medido_em` mais `JANGADA_DELEGAR_CACHE`
-    minutos (5 por padrão); a do Codex é a do banco; a do grupo anterior é o
+    minutos (5 por padrão); a do Codex é a do banco; a do Claude é a mesma do
+    cache local, encurtada até o primeiro `renova_em` das janelas, porque depois
+    da renovação o número medido não vale mais; a do grupo anterior é o
     menor entre o `valido_ate` dele e `medido_em` mais a validade de hoje, de
     modo que só encurta. Dentro da validade a candidata sai como `percentual`,
     com a origem e as datas dela. Vencida, o grupo sai com `percentual` `null`,
@@ -946,7 +953,8 @@ bordas para conferir assinaturas não entra nessas contagens.
   - Sem `--atualizar`, só leitura local: o cache do agy de cada conta
     (`~/.cache/jangada/agy-usage.json` ou `agy-usage-CONTA.json` com catálogo,
     válido por `JANGADA_DELEGAR_CACHE` minutos, 5 por padrão) e a observação
-    do Codex gravada pelo `jangada-router status --atualizar-codex`.
+    do Codex gravada pelo `jangada-router status --atualizar-codex` e o
+    `cota-claude.json` da barra de status do Claude Code.
     Nenhuma chamada de rede e nenhum arquivo fora do estado.
   - Com `--atualizar --permitir-remoto`, uma consulta `agy -p /usage` por
     conta (com catálogo, dentro do `jangada-isolar --conta`) e uma ao Codex
@@ -957,6 +965,41 @@ bordas para conferir assinaturas não entra nessas contagens.
   são gravados. Texto livre do `/usage`, e-mail, token e caminho de credencial
   ficam de fora. Dentro do `jangada-isolar` o estado é somente leitura: o
   comando avisa em `stderr`, imprime o JSON e sai com 1, sem alterar o arquivo.
+
+### cota-claude.json
+
+- **Caminho:** `$JANGADA_ESTADO/cota-claude.json`, modo 0600, desde 11/11/2026.
+- **Quem escreve:** `bin/jangada-statusline-claude`, posto como `statusLine`
+  em `~/.claude/settings.json` pela etapa 50 do instalador só quando não há
+  outra barra. O Claude Code chama o comando a cada atualização da barra, com
+  um JSON na entrada padrão; o comando imprime o restante de cada janela
+  (`5h 62% · sem 81%`) e grava a observação. Erro deixa a linha vazia e sai
+  com 0. Dentro do isolamento (`JANGADA_ISOLADO`) só imprime.
+- **Quem lê:** `orquestracao/cotas.py`, para o grupo `claude` do `cotas.json`.
+  Nada nele escolhe conta ou modelo.
+- **Fonte:** `rate_limits.five_hour` e `rate_limits.seven_day` do JSON da barra
+  (`used_percentage` de 0 a 100 e `resets_at` em segundos desde a época),
+  conferidos no Claude Code 2.1.322. O campo só existe para assinantes, depois
+  da primeira resposta da API da sessão, e cada janela só enquanto o
+  `resets_at` não passou. Sem `rate_limits` nada é gravado e a observação
+  anterior fica.
+- **Formato:** um objeto JSON, trocado inteiro (temporário na mesma pasta e
+  `os.replace`). Destino que não é arquivo regular, como um link, não é trocado
+  nem lido.
+  - `versao`: sempre `1`.
+  - `medido_em`: segundos desde a época, inteiro, do instante da leitura.
+  - `janelas`: `five_hour` e `seven_day`, cada uma só quando ativa.
+    - `usado`: percentual usado, de 0 a 100, como veio.
+    - `renova_em`: `resets_at`, inteiro, depois de `medido_em` e no máximo
+      6 horas (`five_hour`) ou 8 dias (`seven_day`) adiante.
+- **No `cotas.json`:** grupo `claude`, janelas `claude-5h` e `claude-weekly`
+  com `percentual` igual a 100 menos `usado`, e o `percentual` do grupo é o
+  menor entre elas. Janela com `renova_em` já passado na medida não conta.
+  Observação ilegível, fora dessas regras ou que não é arquivo regular dá o
+  grupo com `consulta_falhou`, sem número nem `ultimo`.
+- **Segurança:** a entrada é dado de fora, lida até 1 MiB. Só entram números e
+  datas inteiras; modelo, pasta, custo e qualquer texto ficam de fora. Uma
+  janela presente e inválida recusa a entrada inteira.
 
 ## Indicadores e registros
 

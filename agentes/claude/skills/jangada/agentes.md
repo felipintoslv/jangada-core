@@ -267,10 +267,17 @@ Cota desconhecida impede a chamada ao modelo daquele grupo.
 Consumo de tokens do Claude não comprova cota restante.
 `jangada-router cotas` junta a cota do agy (por conta), do Codex e do Claude em
 `$JANGADA_ESTADO/cotas.json`: sem medição o `percentual` é `null` com `motivo`,
-nunca 0 nem 50, e o Claude sai sem cota (`nao_medido_por_este_provedor`). Sem
+nunca 0 nem 50. Sem
 `--atualizar --permitir-remoto` só relê caches; o arquivo é derivado e não escolhe
 conta nem modelo. Dentro do isolamento o estado é somente leitura: o comando
 imprime o JSON, avisa que não gravou e sai com 1.
+A cota do Claude vem só da barra de status: o `jangada-statusline-claude` lê
+`rate_limits` do JSON que o Claude Code manda à `statusLine` e grava
+`cota-claude.json`. O campo só existe para assinantes e só depois da primeira
+resposta da API na sessão; cada janela some quando o `resets_at` passa. Sessão
+recém-aberta, conta sem assinatura ou outra `statusLine` no `settings.json`
+(o instalador não a troca) deixam o Claude com `nao_medido_por_este_provedor`,
+sem erro. Ausência de número aí não é falha do leitor.
 
 Se testes de sinais passam isolados, mas falham na suíte, compare com
 `env --default-signal=INT,QUIT testes/verificar.sh`. Essa chamada reinicializa
@@ -289,6 +296,7 @@ conferência de processo zumbi e o prazo; outros erros continuam sendo falhas.
 | `jangada-worktree-preparar` | copia para o worktree novo os ignorados do `.worktreeinclude`, liga o que está em `.jangada/links` e roda `.jangada/preparar.sh`; com `--so-confianca`, só sincroniza a confiança do agy |
 | `jangada-hook-claude` | chamado pelos hooks do Claude Code; grava o estado e notifica |
 | `jangada-hook-agy` | o mesmo para o agy, pelo `~/.gemini/config/hooks.json` (PreInvocation e Stop) |
+| `jangada-statusline-claude` | barra de status do Claude Code: mostra o restante das janelas de 5 horas e semanal e grava `cota-claude.json` para o `jangada-router cotas` |
 | `jangada-hook-leitor` | PreToolUse do leitor: só comandos de leitura no terminal; no Claude pelo frontmatter do agente, no agy (`--agy`) pelo `PreToolUse` do `run_command` no `~/.gemini/config/hooks.json` |
 | `jangada-filtrar` | condensa saídas longas de comandos no terminal para poupar tokens; atalho `resumir` no jangada shell |
 | `jangada-mapa` | extrai a estrutura de arquivos e assinaturas em Markdown; atalho `mapa` no jangada shell |
