@@ -116,8 +116,9 @@ conferindo atomicidade, concorrência e recuperação com SQLite real.
   `import ambiente` (Python, logo depois da docstring), que fixam
   `LC_ALL=C.UTF-8`, apagam `LANG`, `LANGUAGE` e `LC_*` e ligam a entrada
   padrão a `/dev/null`. Caso que precisa de outro idioma ou de entrada
-  própria passa isso ao subprocesso daquele caso. O `testes/ambiente-fixo.py`
-  confere o uso em todo teste e roda os casos sensíveis com idioma e entrada
+  própria passa isso ao subprocesso daquele caso, nunca ao arquivo inteiro.
+  O `testes/ambiente-fixo.py` confere o uso em todo teste, recusa idioma
+  trocado no nível do arquivo e roda os casos sensíveis com idioma e entrada
   diferentes no chamador.
 - `testes/verificar.sh` roda antes de concluir qualquer mudança. Dentro de uma
   sessão isolada, rode com
@@ -207,7 +208,7 @@ e mantém a sessão. Para testar a cópia de trabalho sem instalar, rode
 | Teste | O que confere |
 |---|---|
 | `testes/verificar.sh` | sintaxe, shellcheck, JSON, compilação dos pacotes Python e, em seguida, todos os testes abaixo |
-| `testes/ambiente-fixo.py` | todo teste fixa idioma e entrada padrão pelo `testes/ambiente.sh` ou `testes/ambiente.py`; `testes/hooks.sh` passa com `LC_ALL=C` e `pt_BR.UTF-8` no chamador e o `testes/cotas.py` com um socket na entrada |
+| `testes/ambiente-fixo.py` | todo teste fixa idioma e entrada padrão pelo `testes/ambiente.sh` ou `testes/ambiente.py`; `testes/hooks.sh` passa com `LC_ALL=C` e `pt_BR.UTF-8` no chamador e o `testes/cotas.py` com um socket na entrada; os ajudantes isolam também quem chama com a entrada fechada |
 | `testes/hooks.sh` | `settings.json` do Claude e `hooks.json` do agy vazios ou inválidos: a mescla trata o vazio como `{}` e grava os hooks |
 | `testes/regra1.sh` | todo caminho de fora das pastas do jangada citado no código está nas exceções à regra 1 do `AGENTS.md` ou é só lido |
 | `testes/validar.sh` | `jangada-validar` com claude e agy falsos: veredito, rodadas, pareceres e métricas |

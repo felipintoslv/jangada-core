@@ -15,9 +15,11 @@ for _nome in [n for n in os.environ if n in ('LANG', 'LANGUAGE') or n.startswith
 os.environ['LC_ALL'] = 'C.UTF-8'
 locale.setlocale(locale.LC_ALL, 'C.UTF-8')
 
-# Os subprocessos herdam o descritor 0. Se ele estava fechado, o open já o ocupa.
+# Os subprocessos herdam o descritor 0. Se ele estava fechado, o open já o
+# ocupa, mas sem herança (PEP 446); o dup2 já marca o descritor como herdável.
 _nulo = os.open(os.devnull, os.O_RDONLY)
 if _nulo != 0:
     os.dup2(_nulo, 0)
     os.close(_nulo)
+os.set_inheritable(0, True)
 sys.stdin = open(0, encoding='utf-8', closefd=False)

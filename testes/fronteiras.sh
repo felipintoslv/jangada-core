@@ -39,7 +39,6 @@
 set -uo pipefail
 # shellcheck source=testes/ambiente.sh
 source "$(dirname "$0")/ambiente.sh"
-export LC_ALL=C
 cd "$(dirname "$0")/.." || exit 1
 repo_jangada="$PWD"
 falhas=0
@@ -143,6 +142,8 @@ arquivos_core() {
 problemas() {
   local raiz="$1"
   (
+    # Ordem do sort e do comm e faixas de byte do awk e do grep iguais em qualquer máquina.
+    export LC_ALL=C
     cd "$raiz" || exit 1
     local modulos=testes/contratos/modulos.txt excecoes=testes/contratos/fronteiras-excecoes.txt
     local cmd_sm achados lista c n

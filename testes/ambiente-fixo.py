@@ -13,6 +13,7 @@ import re
 import socket
 import subprocess
 import sys
+import tempfile
 import unittest
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -21,6 +22,9 @@ TESTES = RAIZ / 'testes'
 # podem fixar a própria entrada (o servidor falso lê a do teste que o chama).
 APOIO = {'ambiente.sh', 'ambiente.py', 'isolamento.sh', 'isolamento.py', 'falso-codex-hooks.py'}
 FONTE_BASH = 'source "$(dirname "$0")/ambiente.sh"'
+# Atribuição de idioma solta no nível do arquivo desfaz o ambiente fixo para o
+# teste inteiro; o idioma de um caso vai como prefixo do comando daquele caso.
+IDIOMA_GLOBAL = re.compile(r'(export\s+|declare\s+-x\s+)?(LANG|LANGUAGE|LC_\w+)=\S*\s*(#.*)?')
 IDIOMA_DE_FORA = {'LANG': 'pt_BR.UTF-8', 'LANGUAGE': 'pt_BR', 'LC_MESSAGES': 'pt_BR.UTF-8',
                   'LC_ALL': 'pt_BR.UTF-8'}
 
@@ -47,7 +51,11 @@ def executados_pelo_verificar():
 
 
 def problema_bash(caminho):
-    for linha in caminho.read_text(encoding='utf-8').splitlines():
+    linhas = caminho.read_text(encoding='utf-8').splitlines()
+    for numero, linha in enumerate(linhas, 1):
+        if IDIOMA_GLOBAL.fullmatch(linha):
+            return f'linha {numero} troca o idioma do teste inteiro: {linha!r}'
+    for linha in linhas:
         if not linha.strip() or linha.startswith('#') or linha.startswith('set -'):
             continue
         return None if linha == FONTE_BASH else f'primeiro comando é {linha!r}, não {FONTE_BASH!r}'
@@ -89,6 +97,18 @@ class Ambiente(unittest.TestCase):
                 problema = (problema_bash if caminho.suffix == '.sh' else problema_python)(caminho)
                 self.assertIsNone(problema)
 
+    def test_conferencia_recusa_idioma_trocado_no_arquivo(self):
+        with tempfile.TemporaryDirectory(prefix='ambiente-fixo-') as pasta:
+            teste = Path(pasta) / 'teste.sh'
+            for linha in ('export LC_ALL=C', 'LANG=pt_BR.UTF-8', 'declare -x LC_MESSAGES=C'):
+                with self.subTest(linha=linha):
+                    teste.write_text(f'set -eu\n{FONTE_BASH}\n{linha}\necho ok\n', encoding='utf-8')
+                    self.assertIn('troca o idioma', problema_bash(teste) or '')
+            for linha in ('LC_ALL=C sort lista', '  export LC_ALL=C'):
+                with self.subTest(linha=linha):
+                    teste.write_text(f'set -eu\n{FONTE_BASH}\n{linha}\n', encoding='utf-8')
+                    self.assertIsNone(problema_bash(teste))
+
     def test_apoio_isola_do_chamador(self):
         bash = ('source testes/ambiente.sh; printf "%s|%s|%s|%s\\n" "$LC_ALL" "${LANG-}" "${LANGUAGE-}" '
                 '"${LC_MESSAGES-}"; readlink /proc/self/fd/0')
@@ -103,6 +123,20 @@ class Ambiente(unittest.TestCase):
         resultado = com_socket([sys.executable, '-c', python], env=ambiente_de_fora)
         self.assertEqual(resultado.stdout.splitlines(),
                          ['C.UTF-8|||', 'C.UTF-8', '/dev/null', 'True', '/dev/null'], resultado.stderr)
+
+    def test_apoio_com_entrada_fechada(self):
+        # Com o descritor 0 fechado, o primeiro open ocupa o 0 sem herança.
+        bash = 'source testes/ambiente.sh; readlink /proc/self/fd/0; cat; echo fim'
+        python = ('import sys; sys.path.insert(0, "testes"); import ambiente, os, subprocess; '
+                  'print(os.readlink("/proc/self/fd/0")); print(sys.stdin.read() == "", flush=True); '
+                  'subprocess.run(["readlink", "/proc/self/fd/0"]); subprocess.run(["cat"]); print("fim")')
+        for argumentos, esperado in ((['bash', '-c', bash], ['/dev/null', 'fim']),
+                                     ([sys.executable, '-c', python], ['/dev/null', 'True', '/dev/null', 'fim'])):
+            with self.subTest(argumentos[0]):
+                resultado = subprocess.run(argumentos, stdin=subprocess.DEVNULL, preexec_fn=lambda: os.close(0),
+                                           capture_output=True, text=True, cwd=RAIZ, timeout=30)
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+                self.assertEqual(resultado.stdout.splitlines(), esperado, resultado.stderr)
 
     def test_cotas_com_socket_na_entrada(self):
         # O jangada-isolar recusa entrada padrão que seja socket; o teste não herda a do chamador.
