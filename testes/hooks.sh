@@ -85,6 +85,12 @@ conferir "com espaço, instalar de novo não muda o settings.json" [ "$(cat "$cl
 conferir "com espaço, a barra com escape é a do jangada" grep -q "já instalada" "$tmp/saida"
 jq --arg c "$espacado/bin/jangada-statusline-claude" '.statusLine = {type: "command", command: $c}' \
   "$claude_cfg" >"$tmp/antigo" && cat "$tmp/antigo" >"$claude_cfg"
+copia_antes="$(cat "$claude_cfg")"
+JANGADA_CORE_PATH="$espacado" mesclar instalar_statusline_claude
+conferir "caminho com espaço sem escape não é a forma antiga aceita e fica intacto" \
+  bash -c 'grep -q "já tem outra" "$1" && [ "$(cat "$2")" = "$3" ]' _ "$tmp/saida" "$claude_cfg" "$copia_antes"
+jq --arg c "$PWD/bin/jangada-statusline-claude" '.statusLine = {type: "command", command: $c}' \
+  "$claude_cfg" >"$tmp/antigo" && cat "$tmp/antigo" >"$claude_cfg"
 JANGADA_CORE_PATH="$espacado" mesclar instalar_statusline_claude
 conferir "forma antiga sem escape é do jangada e ganha o escape" [ "$(jq -r .statusLine.command "$claude_cfg")" = "$gravado" ]
 printf -v aspas "'%s'" "$espacado/bin/jangada-statusline-claude"
@@ -109,6 +115,34 @@ for estranha in '{"type":"command","command":123}' '{"type":"command","command":
   mesclar instalar_statusline_claude
   conferir "barra $estranha conta como alheia" bash -c \
     'grep -q "já tem outra" "$1" && [ "$(jq -c .statusLine "$2")" = "$3" ]' _ "$tmp/saida" "$claude_cfg" "$estranha"
+done
+while IFS= read -r alheio; do
+  jq -n --arg c "$alheio" '{statusLine: {type: "command", command: $c}, model: "x"}' >"$claude_cfg"
+  antes_alheio="$(cat "$claude_cfg"; echo .)"
+  mesclar instalar_statusline_claude
+  conferir "comando alheio fica byte a byte: $alheio" bash -c \
+    'grep -q "já tem outra" "$1" && [ "$(cat "$2"; echo .)" = "$3" ]' _ "$tmp/saida" "$claude_cfg" "$antes_alheio"
+done <<'CASOS'
+echo /bin/jangada-statusline-claude
+/x/bin/jangada-statusline-claude; rm -rf ~
+$(id)/bin/jangada-statusline-claude
+bash -c /x/bin/jangada-statusline-claude
+x/bin/jangada-statusline-claude
+'/a'/bin/jangada-statusline-claude
+/x/bin/jangada-statusline-claude --flag
+/x/bin/jangada-statusline-claude\
+'/x/bin/jangada-statusline-claude
+CASOS
+jq -n '{statusLine: {type: "command", command: "/x/bin/jangada-statusline-claude\n"}}' >"$claude_cfg"
+antes_alheio="$(cat "$claude_cfg")"
+mesclar instalar_statusline_claude
+conferir "comando com quebra de linha no fim é alheio" [ "$(cat "$claude_cfg")" = "$antes_alheio" ]
+printf -v com_q '%q' "/caminho com espaço/bin/jangada-statusline-claude"
+for do_jangada in "/caminho/antigo/bin/jangada-statusline-claude" \
+    "'/caminho antigo/bin/jangada-statusline-claude'" "$com_q"; do
+  jq -n --arg c "$do_jangada" '{statusLine: {type: "command", command: $c}}' >"$claude_cfg"
+  mesclar instalar_statusline_claude
+  conferir "comando do jangada ganha o caminho atual: $do_jangada" [ "$(statusline)" = "$esperada" ]
 done
 printf '{"statusLine": \n' >"$claude_cfg"
 mesclar instalar_statusline_claude

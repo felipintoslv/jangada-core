@@ -367,10 +367,38 @@ mesclar_hooks_claude() {
   ok "hooks do Claude Code mesclados em $cfg"
 }
 
+# Diz se o texto de statusLine.command é só o caminho absoluto do
+# bin/jangada-statusline-claude, em uma de três formas: sem nenhum caractere de
+# shell, entre aspas simples ou com o escape de printf %q. Decide sem eval nem
+# execução; qualquer outro texto é de outra barra.
+statusline_e_do_jangada() {
+  local cmd="$1" caminho="" i
+  local seguro='^[A-Za-z0-9_./+@%:,=-]+$' escapado='^([A-Za-z0-9_./+@%:,=-]|\\.)+$'
+  local alvo='^/.*/bin/jangada-statusline-claude$' volta
+  if [[ "$cmd" =~ $seguro ]]; then
+    caminho="$cmd"
+  elif (( ${#cmd} >= 2 )) && [[ "$cmd" == \'*\' ]]; then
+    caminho="${cmd:1:${#cmd}-2}"
+    [[ "$caminho" != *\'* ]] || return 1
+  elif [[ "$cmd" =~ $escapado ]]; then
+    for ((i = 0; i < ${#cmd}; i++)); do
+      if [[ "${cmd:i:1}" == \\ ]]; then
+        i=$((i + 1))
+      fi
+      caminho+="${cmd:i:1}"
+    done
+    printf -v volta '%q' "$caminho"
+    [[ "$volta" == "$cmd" ]] || return 1
+  else
+    return 1
+  fi
+  [[ "$caminho" =~ $alvo ]]
+}
+
 # Põe a barra de status do jangada (bin/jangada-statusline-claude, que mede a
 # cota do Claude) em ~/.claude/settings.json só quando não há outra. A do
-# jangada, reconhecida pelo comando sem o caminho, tem o caminho atualizado;
-# uma barra alheia fica como está, com aviso. Rodar de novo não muda nada.
+# jangada (statusline_e_do_jangada) tem o caminho atualizado; uma barra alheia
+# fica como está, com aviso. Rodar de novo não muda nada.
 instalar_statusline_claude() {
   local cfg="$HOME/.claude/settings.json" comando tmp situacao
   # O Claude Code roda statusLine.command num shell: o caminho vai com escape.
@@ -381,13 +409,18 @@ instalar_statusline_claude() {
   fi
   mkdir -p "$HOME/.claude"
   [[ -f "$cfg" ]] || echo '{}' >"$cfg"
+  # "|" no fim protege as quebras de linha finais do comando da substituição.
   if ! situacao="$(jq -rn '(first(inputs) // {}) | if type != "object" then error("não é objeto") else .statusLine end
       | if . == null then "ausente"
         elif type == "object" and .type == "command" and (.command | type) == "string"
-          and (.command | test("/bin/jangada-statusline-claude\\x27?$")) then "jangada"
+          then "comando:" + .command + "|"
         else "alheia" end' "$cfg" 2>/dev/null)"; then
     aviso "não consegui ler $cfg; barra de status do Claude Code não instalada"
     return 0
+  fi
+  if [[ "$situacao" == comando:* ]]; then
+    situacao="${situacao#comando:}"
+    if statusline_e_do_jangada "${situacao%|}"; then situacao=jangada; else situacao=alheia; fi
   fi
   if [[ "$situacao" == alheia ]]; then
     aviso "$cfg já tem outra barra de status; mantida, e a cota do Claude fica sem medição"
