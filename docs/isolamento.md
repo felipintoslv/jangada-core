@@ -300,10 +300,14 @@ link no destino. Cada sessão persistente deixa um arquivo vazio por
 provedor em `.travas`. Nas chaves `efemera-*`, `delegacao-*` e
 `confianca-*` a trava é apagada na saída; a que sobra de um SIGKILL sai na
 próxima abertura de agente, com o PID morto, sem pasta de dados e com a
-trava livre. Limite conhecido: morto o `jangada-isolar` por SIGKILL, a trava
-cai na hora e o bwrap só sai logo depois, pelo `--die-with-parent`, e nesse
-intervalo uma nova abertura da mesma sessão pode preparar a pasta ainda
-montada.
+trava livre. Com a trava obtida, e no mesmo prazo de 5 s, a abertura ainda
+confere em `/proc/*/mountinfo` que nenhum processo vivo tem a pasta, ou parte
+dela, montada: cobre o bwrap que sobra por alguns instantes quando o
+`jangada-isolar` morre por SIGKILL e a sessão aberta por versão sem trava.
+A comparação usa o dispositivo e o caminho dentro do sistema de arquivos do
+mountinfo, não o ponto de montagem, e vale com `/home` em outro sistema de
+arquivos ou subvolume. Montagem que continua recusa a abertura dizendo o PID;
+falha ao ler o `/proc` também recusa.
 
 **Claude.** A pasta do Claude (`~/.claude` ou `CLAUDE_CONFIG_DIR`) continua
 gravável, porque o login (`.credentials.json`) é regravado por troca de

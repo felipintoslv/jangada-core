@@ -432,6 +432,10 @@ O agente aberto pelo `jangada-agente` roda no bubblewrap, com
   da trava ao nascer (`dados_travas_fechar`); senão a trava sobrevive ao
   isolador e prende a sessão. Arquivo que entra de novo a cada abertura vai
   por `dados_copiar` (temporário em `.travas` e rename), nunca `rm` e `cp`.
+  A trava não basta sozinha: um bwrap sem isolador (morto por SIGKILL ou de
+  versão sem trava) segue com a pasta montada, e só o mountinfo mostra. No
+  btrfs o `st_dev` do `stat` não bate com o dispositivo do mountinfo:
+  compare os dois lados pelo mountinfo. Zumbi dá EINVAL ao abrir o mountinfo.
   No teste, a troca só fica determinística com a primeira abertura viva e
   `cp`/`mkdir` substituídos no PATH da segunda.
 - Nos testes, rode o `jangada-isolar` real com a entrada em `/dev/null`
