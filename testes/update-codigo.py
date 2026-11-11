@@ -69,9 +69,12 @@ class Atualizacao(unittest.TestCase):
     def atualizar(self, resposta='s\n', marcador=False, programa=None):
         if shutil.which('bwrap') is None:
             self.skipTest('Bubblewrap ausente: conferência do controlador bloqueada')
+        # O /tmp do isolamento esconde o do sistema; o repositório volta por cima
+        # para o teste rodar também num clone sob /tmp.
         comando = ['bwrap', '--die-with-parent', '--unshare-net', '--unshare-pid',
                    '--ro-bind', '/', '/', '--bind', str(self.raiz / 'temporario'), '/tmp',
-                   '--bind', str(self.raiz), str(self.raiz), '--proc', '/proc', '--dev', '/dev']
+                   '--bind', str(self.raiz), str(self.raiz), '--ro-bind', str(REPO), str(REPO),
+                   '--proc', '/proc', '--dev', '/dev']
         if marcador:
             comando += ['--ro-bind', '/dev/null', '/tmp/.jangada-sem-autoridade']
         comando += ['--', *(programa or [str(REPO / 'bin/jangada-update'), '--so-core'])]
