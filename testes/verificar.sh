@@ -76,6 +76,9 @@ passo "ajudantes dos testes dentro do isolamento"
 testes/isolamento-ajudantes.sh || falha "testes/isolamento-ajudantes.sh"
 python3 testes/isolamento-ajudantes.py || falha "testes/isolamento-ajudantes.py"
 
+passo "testes iguais em qualquer idioma e entrada de quem chama"
+python3 testes/ambiente-fixo.py || falha "testes/ambiente-fixo.py"
+
 passo "comandos citados nos protocolos dos agentes existem em bin/"
 for c in $(grep -ho '`jangada-[a-z-]*' agentes/perfis/protocolo*.md | tr -d '`' | sort -u); do
   [[ -x "bin/$c" ]] || falha "bin/$c citado no protocolo mas ausente"
