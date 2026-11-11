@@ -64,6 +64,9 @@ copia_seguranca() {
   local arquivo="$1" destino
   [[ -e "$arquivo" ]] || return 0
   destino="$arquivo.jangada-$(date +%Y%m%d-%H%M%S).bak"
+  # Segunda alteração no mesmo segundo: a cópia que já existe guarda o
+  # conteúdo mais antigo e fica.
+  [[ ! -e "$destino" ]] || return 0
   if [[ -w "$(dirname "$arquivo")" ]]; then
     executar cp -a "$arquivo" "$destino"
   else
@@ -362,4 +365,44 @@ mesclar_hooks_claude() {
   copia_seguranca "$cfg"
   gravar_atomico "$tmp" "$cfg" && rm -f "$tmp"
   ok "hooks do Claude Code mesclados em $cfg"
+}
+
+# Põe a barra de status do jangada (bin/jangada-statusline-claude, que mede a
+# cota do Claude) em ~/.claude/settings.json só quando não há outra. A do
+# jangada, reconhecida pelo comando sem o caminho, tem o caminho atualizado;
+# uma barra alheia fica como está, com aviso. Rodar de novo não muda nada.
+instalar_statusline_claude() {
+  local cfg="$HOME/.claude/settings.json" comando="$JANGADA_CORE_PATH/bin/jangada-statusline-claude" tmp situacao
+  if simulando; then
+    info "[simulação] poria a barra de status do jangada em $cfg"
+    return 0
+  fi
+  mkdir -p "$HOME/.claude"
+  [[ -f "$cfg" ]] || echo '{}' >"$cfg"
+  if ! situacao="$(jq -rn '(first(inputs) // {}) | if type != "object" then error("não é objeto") else .statusLine end
+      | if . == null then "ausente"
+        elif type == "object" and ((.command // "") | strings | test("/bin/jangada-statusline-claude$")) then "jangada"
+        else "alheia" end' "$cfg" 2>/dev/null)"; then
+    aviso "não consegui ler $cfg; barra de status do Claude Code não instalada"
+    return 0
+  fi
+  if [[ "$situacao" == alheia ]]; then
+    aviso "$cfg já tem outra barra de status; mantida, e a cota do Claude fica sem medição"
+    return 0
+  fi
+  tmp="$(mktemp)"
+  if ! jq -n --arg comando "$comando" \
+      '(first(inputs) // {}) | .statusLine = ((.statusLine // {type: "command"}) + {command: $comando})' "$cfg" >"$tmp"; then
+    rm -f "$tmp"
+    aviso "não consegui ler $cfg; barra de status do Claude Code não instalada"
+    return 0
+  fi
+  if [[ "$(jq -cS . "$tmp")" == "$(jq -cS . "$cfg")" ]]; then
+    rm -f "$tmp"
+    ok "barra de status do Claude Code já instalada"
+    return 0
+  fi
+  copia_seguranca "$cfg"
+  gravar_atomico "$tmp" "$cfg" && rm -f "$tmp"
+  ok "barra de status do Claude Code instalada em $cfg"
 }

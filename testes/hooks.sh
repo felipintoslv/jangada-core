@@ -43,6 +43,53 @@ mesclar mesclar_hooks_claude
 conferir "a mescla avisa e não grava" \
   bash -c 'grep -q "não consegui ler" "$1" && [ "$(cat "$2")" = "{\"hooks\": " ]' _ "$tmp/saida" "$claude_cfg"
 
+echo "== barra de status do Claude (instalar_statusline_claude)"
+statusline() { jq -c '.statusLine // null' "$claude_cfg"; }
+esperada="$(jq -cn --arg c "$PWD/bin/jangada-statusline-claude" '{type: "command", command: $c}')"
+rm -f "$claude_cfg".jangada-*
+printf '{"model": "x", "hooks": {}}\n' >"$claude_cfg"
+mesclar instalar_statusline_claude
+conferir "sem barra, põe a do jangada" [ "$(statusline)" = "$esperada" ]
+conferir "o resto do arquivo fica" jq -e '.model == "x" and .hooks == {}' "$claude_cfg"
+conferir "guarda a cópia antes de alterar" bash -c 'ls "$1".jangada-*.bak >/dev/null 2>&1' _ "$claude_cfg"
+copia_antes="$(cat "$claude_cfg")"
+n_bak="$(find "$HOME/.claude" -name 'settings.json.jangada-*.bak' | wc -l)"
+mesclar instalar_statusline_claude
+conferir "rodar de novo dá o mesmo arquivo" [ "$(cat "$claude_cfg")" = "$copia_antes" ]
+conferir "rodar de novo diz que já estava e não faz cópia" bash -c \
+  'grep -q "já instalada" "$1" && [ "$2" = "$(find "$3" -name "settings.json.jangada-*.bak" | wc -l)" ]' \
+  _ "$tmp/saida" "$n_bak" "$HOME/.claude"
+mesclar mesclar_hooks_claude
+mesclar instalar_statusline_claude
+conferir "a mescla dos hooks não tira a barra" [ "$(statusline)" = "$esperada" ]
+jq --arg c "/caminho/antigo/bin/jangada-statusline-claude" '.statusLine = {type: "command", command: $c, padding: 1}' \
+  "$claude_cfg" >"$tmp/antigo" && cat "$tmp/antigo" >"$claude_cfg"
+mesclar instalar_statusline_claude
+conferir "barra do jangada noutro caminho ganha o caminho atual e guarda o resto" \
+  jq -e --arg c "$PWD/bin/jangada-statusline-claude" '.statusLine == {type: "command", command: $c, padding: 1}' "$claude_cfg"
+alheia='{"statusLine":{"type":"command","command":"~/meu-script.sh"},"model":"x"}'
+printf '%s\n' "$alheia" >"$claude_cfg"
+rm -f "$claude_cfg".jangada-*
+mesclar instalar_statusline_claude
+conferir "barra alheia não é trocada" [ "$(cat "$claude_cfg")" = "$alheia" ]
+conferir "barra alheia gera aviso" grep -q "já tem outra barra de status" "$tmp/saida"
+conferir "barra alheia não gera cópia" bash -c '! ls "$1".jangada-*.bak >/dev/null 2>&1' _ "$claude_cfg"
+printf '{"statusLine": "texto"}\n' >"$claude_cfg"
+mesclar instalar_statusline_claude
+conferir "barra em formato estranho conta como alheia" bash -c \
+  'grep -q "já tem outra" "$1" && [ "$(jq -r .statusLine "$2")" = texto ]' _ "$tmp/saida" "$claude_cfg"
+printf '{"statusLine": \n' >"$claude_cfg"
+mesclar instalar_statusline_claude
+conferir "arquivo inválido: avisa e não grava" \
+  bash -c 'grep -q "não consegui ler" "$1" && [ "$(cat "$2")" = "{\"statusLine\": " ]' _ "$tmp/saida" "$claude_cfg"
+: >"$claude_cfg"
+mesclar instalar_statusline_claude
+conferir "arquivo vazio conta como {}" [ "$(statusline)" = "$esperada" ]
+rm -f "$claude_cfg" "$claude_cfg".jangada-*
+(JANGADA_SIMULAR=1 mesclar instalar_statusline_claude)
+conferir "simulação não cria o arquivo" [ ! -e "$claude_cfg" ]
+rm -f "$claude_cfg".jangada-*
+
 echo "== hooks.json do agy vazio"
 : >"$agy_cfg"
 mesclar mesclar_hooks_agy

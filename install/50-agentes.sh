@@ -7,6 +7,8 @@ executar mkdir -p "$JANGADA_ESTADO/agentes"
 # sem apagar hooks existentes. Só age se o Claude Code estiver instalado.
 if tem_comando claude || [[ -d "$HOME/.claude" ]]; then
   mesclar_hooks_claude
+  # Barra de status que mede a cota do Claude; uma barra alheia não é trocada.
+  instalar_statusline_claude
   # Skills de agentes/claude/skills: regras e pegadinhas do jangada e os
   # protocolos de relatório técnico e acadêmico.
   ligar_skill_claude
