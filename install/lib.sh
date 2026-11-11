@@ -372,7 +372,9 @@ mesclar_hooks_claude() {
 # jangada, reconhecida pelo comando sem o caminho, tem o caminho atualizado;
 # uma barra alheia fica como está, com aviso. Rodar de novo não muda nada.
 instalar_statusline_claude() {
-  local cfg="$HOME/.claude/settings.json" comando="$JANGADA_CORE_PATH/bin/jangada-statusline-claude" tmp situacao
+  local cfg="$HOME/.claude/settings.json" comando tmp situacao
+  # O Claude Code roda statusLine.command num shell: o caminho vai com escape.
+  printf -v comando '%q' "$JANGADA_CORE_PATH/bin/jangada-statusline-claude"
   if simulando; then
     info "[simulação] poria a barra de status do jangada em $cfg"
     return 0
@@ -382,7 +384,7 @@ instalar_statusline_claude() {
   if ! situacao="$(jq -rn '(first(inputs) // {}) | if type != "object" then error("não é objeto") else .statusLine end
       | if . == null then "ausente"
         elif type == "object" and .type == "command" and (.command | type) == "string"
-          and (.command | test("/bin/jangada-statusline-claude$")) then "jangada"
+          and (.command | test("/bin/jangada-statusline-claude\\x27?$")) then "jangada"
         else "alheia" end' "$cfg" 2>/dev/null)"; then
     aviso "não consegui ler $cfg; barra de status do Claude Code não instalada"
     return 0

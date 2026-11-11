@@ -45,7 +45,8 @@ conferir "a mescla avisa e não grava" \
 
 echo "== barra de status do Claude (instalar_statusline_claude)"
 statusline() { jq -c '.statusLine // null' "$claude_cfg"; }
-esperada="$(jq -cn --arg c "$PWD/bin/jangada-statusline-claude" '{type: "command", command: $c}')"
+printf -v comando_atual '%q' "$PWD/bin/jangada-statusline-claude"
+esperada="$(jq -cn --arg c "$comando_atual" '{type: "command", command: $c}')"
 rm -f "$claude_cfg".jangada-*
 printf '{"model": "x", "hooks": {}}\n' >"$claude_cfg"
 mesclar instalar_statusline_claude
@@ -66,7 +67,31 @@ jq --arg c "/caminho/antigo/bin/jangada-statusline-claude" '.statusLine = {type:
   "$claude_cfg" >"$tmp/antigo" && cat "$tmp/antigo" >"$claude_cfg"
 mesclar instalar_statusline_claude
 conferir "barra do jangada noutro caminho ganha o caminho atual e guarda o resto" \
-  jq -e --arg c "$PWD/bin/jangada-statusline-claude" '.statusLine == {type: "command", command: $c, padding: 1}' "$claude_cfg"
+  jq -e --arg c "$comando_atual" '.statusLine == {type: "command", command: $c, padding: 1}' "$claude_cfg"
+espacado="$tmp/core com espaço"
+ln -s "$PWD" "$espacado"
+printf '{}\n' >"$claude_cfg"
+JANGADA_CORE_PATH="$espacado" mesclar instalar_statusline_claude
+gravado="$(jq -r .statusLine.command "$claude_cfg")"
+conferir "caminho com espaço vai com escape" [ "$gravado" = "$(printf '%q' "$espacado/bin/jangada-statusline-claude")" ]
+agora="$(date +%s)"
+saida_barra="$(printf '{"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":%s}}}' "$((agora + 600))" |
+  env -u JANGADA_ESTADO -u JANGADA_ISOLADO XDG_STATE_HOME="$tmp/estado-barra" sh -c "$gravado")"
+conferir "o comando gravado roda por sh -c" [ "$saida_barra" = "5h 60%" ]
+conferir "o comando gravado grava a observação" test -f "$tmp/estado-barra/jangada/cota-claude.json"
+copia_antes="$(cat "$claude_cfg")"
+JANGADA_CORE_PATH="$espacado" mesclar instalar_statusline_claude
+conferir "com espaço, instalar de novo não muda o settings.json" [ "$(cat "$claude_cfg")" = "$copia_antes" ]
+conferir "com espaço, a barra com escape é a do jangada" grep -q "já instalada" "$tmp/saida"
+jq --arg c "$espacado/bin/jangada-statusline-claude" '.statusLine = {type: "command", command: $c}' \
+  "$claude_cfg" >"$tmp/antigo" && cat "$tmp/antigo" >"$claude_cfg"
+JANGADA_CORE_PATH="$espacado" mesclar instalar_statusline_claude
+conferir "forma antiga sem escape é do jangada e ganha o escape" [ "$(jq -r .statusLine.command "$claude_cfg")" = "$gravado" ]
+printf -v aspas "'%s'" "$espacado/bin/jangada-statusline-claude"
+jq --arg c "$aspas" '.statusLine = {type: "command", command: $c}' "$claude_cfg" >"$tmp/antigo" &&
+  cat "$tmp/antigo" >"$claude_cfg"
+JANGADA_CORE_PATH="$espacado" mesclar instalar_statusline_claude
+conferir "forma entre aspas simples é do jangada" [ "$(jq -r .statusLine.command "$claude_cfg")" = "$gravado" ]
 alheia='{"statusLine":{"type":"command","command":"~/meu-script.sh"},"model":"x"}'
 printf '%s\n' "$alheia" >"$claude_cfg"
 rm -f "$claude_cfg".jangada-*
