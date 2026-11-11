@@ -367,32 +367,33 @@ mesclar_hooks_claude() {
   ok "hooks do Claude Code mesclados em $cfg"
 }
 
-# Diz se o texto de statusLine.command é só o caminho absoluto do
-# bin/jangada-statusline-claude, em uma de três formas: sem nenhum caractere de
-# shell, entre aspas simples ou com o escape de printf %q. Decide sem eval nem
-# execução; qualquer outro texto é de outra barra.
-statusline_e_do_jangada() {
-  local cmd="$1" caminho="" i
-  local seguro='^[A-Za-z0-9_./+@%:,=-]+$' escapado='^([A-Za-z0-9_./+@%:,=-]|\\.)+$'
-  local alvo='^/.*/bin/jangada-statusline-claude$' volta
-  if [[ "$cmd" =~ $seguro ]]; then
-    caminho="$cmd"
-  elif (( ${#cmd} >= 2 )) && [[ "$cmd" == \'*\' ]]; then
-    caminho="${cmd:1:${#cmd}-2}"
-    [[ "$caminho" != *\'* ]] || return 1
-  elif [[ "$cmd" =~ $escapado ]]; then
-    for ((i = 0; i < ${#cmd}; i++)); do
-      if [[ "${cmd:i:1}" == \\ ]]; then
-        i=$((i + 1))
-      fi
-      caminho+="${cmd:i:1}"
-    done
-    printf -v volta '%q' "$caminho"
-    [[ "$volta" == "$cmd" ]] || return 1
+# Texto de statusLine.command para o caminho $1: puro quando só tem caracteres
+# ASCII sem sentido para o shell, senão entre aspas simples. As classes valem
+# em bytes (LC_ALL=C) e as aspas simples são sh POSIX, então o resultado não
+# depende do idioma de quem instala.
+forma_statusline() {
+  local LC_ALL=C seguro='^[A-Za-z0-9_./+@%:,=-]+$' aspa="'"
+  if [[ "$1" =~ $seguro ]]; then
+    printf '%s' "$1"
   else
-    return 1
+    printf "'%s'" "${1//$aspa/$aspa\\$aspa$aspa}"
   fi
-  [[ "$caminho" =~ $alvo ]]
+}
+
+# Diz se o texto de statusLine.command é só o caminho absoluto do
+# bin/jangada-statusline-claude, puro (só caracteres ASCII seguros) ou entre
+# aspas simples. Decide sem eval nem execução, conferindo a volta pela
+# forma_statusline; qualquer outro texto é de outra barra.
+statusline_e_do_jangada() {
+  local LC_ALL=C cmd="$1" caminho alvo='^/.*/bin/jangada-statusline-claude$' aspa="'"
+  if (( ${#cmd} >= 2 )) && [[ "$cmd" == "$aspa"*"$aspa" ]]; then
+    caminho="${cmd:1:${#cmd}-2}"
+    caminho="${caminho//$aspa\\$aspa$aspa/$aspa}"
+    [[ "$caminho" =~ $alvo ]] || return 1
+    [[ "$cmd" == "$aspa${caminho//$aspa/$aspa\\$aspa$aspa}$aspa" ]]
+  else
+    [[ "$cmd" =~ $alvo ]] && [[ "$(forma_statusline "$cmd")" == "$cmd" ]]
+  fi
 }
 
 # Põe a barra de status do jangada (bin/jangada-statusline-claude, que mede a
@@ -402,7 +403,7 @@ statusline_e_do_jangada() {
 instalar_statusline_claude() {
   local cfg="$HOME/.claude/settings.json" comando tmp situacao
   # O Claude Code roda statusLine.command num shell: o caminho vai com escape.
-  printf -v comando '%q' "$JANGADA_CORE_PATH/bin/jangada-statusline-claude"
+  comando="$(forma_statusline "$JANGADA_CORE_PATH/bin/jangada-statusline-claude")"
   if simulando; then
     info "[simulação] poria a barra de status do jangada em $cfg"
     return 0

@@ -45,7 +45,8 @@ conferir "a mescla avisa e não grava" \
 
 echo "== barra de status do Claude (instalar_statusline_claude)"
 statusline() { jq -c '.statusLine // null' "$claude_cfg"; }
-printf -v comando_atual '%q' "$PWD/bin/jangada-statusline-claude"
+comando_atual="$PWD/bin/jangada-statusline-claude"
+[[ "$comando_atual" =~ ^[A-Za-z0-9_./+@%:,=-]+$ ]] || comando_atual="'$comando_atual'"
 esperada="$(jq -cn --arg c "$comando_atual" '{type: "command", command: $c}')"
 rm -f "$claude_cfg".jangada-*
 printf '{"model": "x", "hooks": {}}\n' >"$claude_cfg"
@@ -73,7 +74,7 @@ ln -s "$PWD" "$espacado"
 printf '{}\n' >"$claude_cfg"
 JANGADA_CORE_PATH="$espacado" mesclar instalar_statusline_claude
 gravado="$(jq -r .statusLine.command "$claude_cfg")"
-conferir "caminho com espaço vai com escape" [ "$gravado" = "$(printf '%q' "$espacado/bin/jangada-statusline-claude")" ]
+conferir "caminho com espaço vai entre aspas simples" [ "$gravado" = "'$espacado/bin/jangada-statusline-claude'" ]
 agora="$(date +%s)"
 saida_barra="$(printf '{"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":%s}}}' "$((agora + 600))" |
   env -u JANGADA_ESTADO -u JANGADA_ISOLADO XDG_STATE_HOME="$tmp/estado-barra" sh -c "$gravado")"
@@ -116,6 +117,28 @@ for estranha in '{"type":"command","command":123}' '{"type":"command","command":
   conferir "barra $estranha conta como alheia" bash -c \
     'grep -q "já tem outra" "$1" && [ "$(jq -c .statusLine "$2")" = "$3" ]' _ "$tmp/saida" "$claude_cfg" "$estranha"
 done
+for idioma in C C.UTF-8 pt_BR.UTF-8; do
+  for nome in "com espaço" "não-ascii-ção" "aspa d'água"; do
+    nucleo="$tmp/núcleo $nome $idioma"
+    ln -s "$PWD" "$nucleo"
+    esperado="'${nucleo//\'/\'\\\'\'}/bin/jangada-statusline-claude'"
+    printf '{}\n' >"$claude_cfg"
+    LC_ALL="$idioma" JANGADA_CORE_PATH="$nucleo" mesclar instalar_statusline_claude
+    gravado_idioma="$(jq -r .statusLine.command "$claude_cfg")"
+    conferir "$idioma, $nome: grava entre aspas simples" [ "$gravado_idioma" = "$esperado" ]
+    saida_barra="$(printf '{"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":%s}}}' "$(($(date +%s) + 600))" |
+      env -u JANGADA_ESTADO -u JANGADA_ISOLADO LC_ALL="$idioma" XDG_STATE_HOME="$tmp/estado-$idioma" sh -c "$gravado_idioma")"
+    conferir "$idioma, $nome: roda por sh -c" [ "$saida_barra" = "5h 60%" ]
+    conferir "$idioma, $nome: grava a observação" test -f "$tmp/estado-$idioma/jangada/cota-claude.json"
+    rm -rf "$tmp/estado-$idioma"
+    copia_antes="$(cat "$claude_cfg")"
+    for outro in C C.UTF-8 pt_BR.UTF-8; do
+      LC_ALL="$outro" JANGADA_CORE_PATH="$nucleo" mesclar instalar_statusline_claude
+      conferir "$idioma, $nome: em $outro é a do jangada e fica igual" bash -c \
+        'grep -q "já instalada" "$1" && [ "$(cat "$2")" = "$3" ]' _ "$tmp/saida" "$claude_cfg" "$copia_antes"
+    done
+  done
+done
 while IFS= read -r alheio; do
   jq -n --arg c "$alheio" '{statusLine: {type: "command", command: $c}, model: "x"}' >"$claude_cfg"
   antes_alheio="$(cat "$claude_cfg"; echo .)"
@@ -132,14 +155,15 @@ x/bin/jangada-statusline-claude
 /x/bin/jangada-statusline-claude --flag
 /x/bin/jangada-statusline-claude\
 '/x/bin/jangada-statusline-claude
+/x\ y/bin/jangada-statusline-claude
 CASOS
 jq -n '{statusLine: {type: "command", command: "/x/bin/jangada-statusline-claude\n"}}' >"$claude_cfg"
 antes_alheio="$(cat "$claude_cfg")"
 mesclar instalar_statusline_claude
 conferir "comando com quebra de linha no fim é alheio" [ "$(cat "$claude_cfg")" = "$antes_alheio" ]
-printf -v com_q '%q' "/caminho com espaço/bin/jangada-statusline-claude"
 for do_jangada in "/caminho/antigo/bin/jangada-statusline-claude" \
-    "'/caminho antigo/bin/jangada-statusline-claude'" "$com_q"; do
+    "'/caminho antigo/bin/jangada-statusline-claude'" "'/caminho com ç/bin/jangada-statusline-claude'" \
+    "'/caminho d'\\''aspa/bin/jangada-statusline-claude'"; do
   jq -n --arg c "$do_jangada" '{statusLine: {type: "command", command: $c}}' >"$claude_cfg"
   mesclar instalar_statusline_claude
   conferir "comando do jangada ganha o caminho atual: $do_jangada" [ "$(statusline)" = "$esperada" ]
