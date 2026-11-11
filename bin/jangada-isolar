@@ -613,6 +613,52 @@ dados_pasta() {
   [[ "$alvo" == "$raiz/$1/$dados_chave" ]] || return 1
   printf '%s\n' "$alvo"
 }
+# Trava exclusiva por pasta de dados (provedor e chave), em
+# provedores/.travas/PROVEDOR/CHAVE, que nenhum isolamento monta. Vem antes de
+# qualquer leitura ou gravação na pasta e dura até este script sair: enquanto
+# outro processo tem a pasta montada, nada aqui fora a prepara, e as
+# conferências de link abaixo valem até o bwrap montar. O arquivo é criado sem
+# seguir link e aberto só para leitura; link, outro tipo de arquivo ou troca
+# do arquivo durante a espera param a abertura.
+dados_travas=()
+dados_travas_apagar=()
+dados_trava_pasta=""
+dados_travar() {
+  local pasta="$dados_raiz/.travas/$1" arq fd
+  arq="$pasta/$dados_chave"
+  [[ ! -L "$dados_raiz" && ! -L "$dados_raiz/.travas" && ! -L "$pasta" ]] \
+    && (umask 077; mkdir -p -- "$pasta") 2>/dev/null \
+    && [[ "$(realpath -e -- "$pasta" 2>/dev/null)" == "$(realpath -e -- "$dados_raiz" 2>/dev/null)/.travas/$1" ]] \
+    || { echo "jangada-isolar: pasta das travas dos dados do provedor $1 inválida (link ou fora do estado)" >&2; exit 1; }
+  [[ -e "$arq" || -L "$arq" ]] || (umask 077; set -o noclobber; : >"$arq") 2>/dev/null || true
+  [[ -f "$arq" && ! -L "$arq" ]] && { exec {fd}<"$arq"; } 2>/dev/null \
+    && [[ ! -L "$arq" && -f "/proc/self/fd/$fd" && "$arq" -ef "/proc/self/fd/$fd" ]] \
+    || { echo "jangada-isolar: a trava dos dados do provedor $1 não abre ou é link ($arq)" >&2; exit 1; }
+  if ! flock -w 5 "$fd"; then
+    echo "jangada-isolar: os dados do provedor $1 da sessão $dados_chave estão em uso por outra abertura do jangada-isolar; feche a outra abertura e abra de novo" >&2
+    exit 1
+  fi
+  # Uma limpeza pode ter apagado o arquivo durante a espera: a trava obtida
+  # seria de um arquivo que ninguém mais abre.
+  [[ ! -L "$arq" && "$arq" -ef "/proc/self/fd/$fd" ]] \
+    || { echo "jangada-isolar: a trava dos dados do provedor $1 mudou durante a espera; abra de novo" >&2; exit 1; }
+  dados_travas+=("$fd")
+  dados_trava_pasta="$pasta"
+  [[ ! "$dados_chave" =~ ^(efemera|delegacao|confianca)- ]] || dados_travas_apagar+=("$arq")
+}
+# Os processos auxiliares que ficam vivos fecham as travas ao nascer: só este
+# script as segura, e elas caem com ele.
+dados_travas_fechar() {
+  local t
+  for t in "${dados_travas[@]}"; do exec {t}<&-; done
+}
+# Cópia para dentro da pasta de dados sem seguir link no destino: o temporário
+# nasce na pasta das travas, fora de qualquer montagem, e entra por rename.
+dados_copiar() {
+  local tmp
+  tmp="$(umask 077; mktemp -- "$dados_trava_pasta/.copia.XXXXXXXXXX")" || return 1
+  cp -- "$1" "$tmp" && mv -fT -- "$tmp" "$dados_alvo/$2" || { rm -f -- "$tmp"; return 1; }
+}
 # Uma pasta de delegação (delegacao-PID-UUID-N) sobra quando o jangada-delegar
 # morre por SIGKILL. Só some com o PID morto e sem nenhum processo vivo que
 # a tenha recebido em JANGADA_ISOLAR_DADOS: um jangada-isolar órfão (o timeout
@@ -645,6 +691,16 @@ dados_limpar_mortos() {
       pid="${BASH_REMATCH[1]}"
       kill -0 "$pid" 2>/dev/null || dados_em_uso "${d##*/}" || rm -rf -- "$d"
     fi
+  done
+  # Trava de chave de uso único que ficou sem pasta e sem dono: só sai livre,
+  # e quem a esperava confere o arquivo depois de obtê-la.
+  local t fd
+  for t in "$dados_raiz"/.travas/*/efemera-* "$dados_raiz"/.travas/*/delegacao-* "$dados_raiz"/.travas/*/confianca-*; do
+    [[ -f "$t" && ! -L "$t" ]] || continue
+    d="${t%/*}"
+    [[ ! -e "$dados_raiz/${d##*/}/${t##*/}" && "${t##*/}" =~ ^[a-z]+-([0-9]+)(-|$) ]] || continue
+    kill -0 "${BASH_REMATCH[1]}" 2>/dev/null && continue
+    ( exec {fd}<"$t" && flock -n "$fd" && [[ "$t" -ef "/proc/self/fd/$fd" ]] && rm -f -- "$t" ) 2>/dev/null || true
   done
 }
 # Transição de 30/10/2026: diz se a pasta de dados ($1) ainda não existe e a
@@ -769,6 +825,7 @@ dados_claude() {
     }
   done
   local novo=0
+  dados_travar claude
   dados_transicao claude && novo=1
   dados_abrir claude
   # Transição: uma sessão registrada antes de 30/10/2026 tem a conversa na
@@ -803,7 +860,7 @@ dados_claude() {
       mkdir -p "$dados_alvo/$n"
       args+=(--bind "$dados_alvo/$n" "$p")
     elif [[ "$n" == history.jsonl && -f "$p" ]]; then
-      [[ -e "$dados_alvo/$n" ]] || (umask 077; : >"$dados_alvo/$n")
+      [[ -e "$dados_alvo/$n" ]] || (umask 077; set -o noclobber; : >"$dados_alvo/$n")
       args+=(--bind "$dados_alvo/$n" "$p")
     fi
   done
@@ -986,7 +1043,7 @@ if ((!mostrar)) && [[ "$perfil" == agente && -z "${JANGADA_ISOLAR_FOTO:-}" ]] \
   fi
 fi
 if [[ -n "$atendente_pasta" ]]; then
-  exec {atendente_fd}< <(exec env -u JANGADA_ISOLADO python3 -c 'import json, os, re, signal, socket, subprocess, sys, threading, unicodedata
+  exec {atendente_fd}< <(dados_travas_fechar; exec env -u JANGADA_ISOLADO python3 -c 'import json, os, re, signal, socket, subprocess, sys, threading, unicodedata
 pasta, sessao, validar, pai = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 for nome in os.listdir("/proc/self/fd"):
     if int(nome) > 2:
@@ -1177,12 +1234,12 @@ dados_agy_assistente() {
     echo "jangada-isolar: $f da conta $CONTA_AGY_NOME não é arquivo regular pequeno; o agy mostra o assistente inicial" >&2
     return 0
   fi
-  (umask 077; rm -f -- "$dados_alvo/$f" && mkdir -p -- "$dados_alvo/cache" \
-     && cp -- "$origem/$f" "$dados_alvo/$f") 2>/dev/null \
+  { (umask 077; mkdir -p -- "$dados_alvo/cache") && dados_copiar "$origem/$f" "$f"; } 2>/dev/null \
     || echo "jangada-isolar: falha ao copiar $f da conta $CONTA_AGY_NOME; o agy mostra o assistente inicial" >&2
 }
 dados_agy() {
   local origem="$1" destino="$2" f novo=0 id
+  dados_travar "agy-$CONTA_AGY_NOME"
   dados_transicao "agy-$CONTA_AGY_NOME" && novo=1
   dados_abrir "agy-$CONTA_AGY_NOME"
   # Transição: a conversa anterior da sessão (o id gravado pelo hook) vem da
@@ -1225,8 +1282,7 @@ dados_agy() {
   [[ ! -f "$origem/installation_id" ]] \
     || args+=(--ro-bind "$origem/installation_id" "$destino/installation_id")
   if [[ -f "$origem/settings.json" ]]; then
-    rm -f -- "$dados_alvo/settings.json"
-    (umask 077; cp -- "$origem/settings.json" "$dados_alvo/settings.json")
+    dados_copiar "$origem/settings.json" settings.json
   fi
   dados_agy_assistente "$origem"
   for f in agents builtin updater; do
@@ -1265,6 +1321,7 @@ args+=(--unsetenv TMUX --unsetenv TMUX_PANE --unsetenv SSH_AUTH_SOCK
 if ((mostrar)); then
   printf '%s\n' bwrap "${args[@]}"
   ((!${#dados_efemeros[@]})) || rm -rf -- "${dados_efemeros[@]}"
+  ((!${#dados_travas_apagar[@]})) || rm -f -- "${dados_travas_apagar[@]}"
   exit 0
 fi
 
@@ -1283,6 +1340,11 @@ limpar_monitor() {
   if ((${#dados_efemeros[@]})) && { [[ -z "$bwrap_pid" ]] || ! kill -0 "$bwrap_pid" 2>/dev/null; }; then
     rm -rf -- "${dados_efemeros[@]}"
     dados_efemeros=()
+  fi
+  # A trava de chave de uso único sai junto, ainda segura por este script.
+  if ((${#dados_travas_apagar[@]})) && { [[ -z "$bwrap_pid" ]] || ! kill -0 "$bwrap_pid" 2>/dev/null; }; then
+    rm -f -- "${dados_travas_apagar[@]}"
+    dados_travas_apagar=()
   fi
   if [[ -n "$monitor_estado_pid" ]]; then
     kill "$monitor_estado_pid" 2>/dev/null || true
@@ -1311,6 +1373,7 @@ trap '' INT
 set +m
 intervalo_monitor="${JANGADA_MONITOR_INTERVALO:-30}"
 (
+  dados_travas_fechar
   sub_pid="$BASHPID"
   sleep_pid=""
   matar_filhos() {
@@ -1333,6 +1396,7 @@ monitor_pid=$!
 if [[ "$codex_sessao" =~ ^[A-Za-z0-9_.-]+$ && "$codex_sessao" != . && "$codex_sessao" != .. ]] \
    && command -v inotifywait >/dev/null 2>&1; then
   (
+    dados_travas_fechar
     exec {eventos_fd}< <(exec inotifywait -m -q -e moved_to,close_write,create,delete \
       --format '%f' "$JANGADA_ESTADO/agentes")
     vigia_pid=$!
