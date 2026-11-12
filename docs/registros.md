@@ -1076,8 +1076,17 @@ bordas para conferir assinaturas não entra nessas contagens.
   esse nome de sessão, com ou sem pendências; qualquer linha do consumo
   com essa sessão, com ou sem `fim`; cópia de estado; sessão viva no tmux;
   `fim-NOME.log` ou `validacao-NOME-rN.*` em `agentes/`; rodada em
-  `revisoes/`; `revisoes/inicios/NOME`; e `provedores/*/NOME`. Pasta que
-  não se lê conta como rastro. Sem a prova, a pasta segue as provas da
+  `revisoes/`; `revisoes/inicios/NOME`; `provedores/*/NOME`; e o nome
+  inteiro em qualquer linha de registro `.jsonl` da raiz do estado
+  (`eventos-agentes.jsonl`, `validar.jsonl`, `delegacoes.jsonl`,
+  `consumo-tarefas.jsonl` e outro que surgir) ou do
+  `revisoes/validar.jsonl`: em qualquer campo, dentro de um texto maior,
+  em linha inválida ou ilegível e com o nome escrito com escapes de JSON.
+  No `limpezas.jsonl` só conta o campo `sessao`, porque o caminho de uma
+  pasta já atribuída a X não é rastro. Esses registros não valem como
+  prova de encerramento, e cada um é lido uma vez por conferência. Pasta ou
+  registro que não se lê, link, arquivo com outra ligação ou acima de
+  64 MiB conta como rastro. Sem a prova, a pasta segue as provas da
   sessão de nome inteiro e, sem rastro dela, fica em "sem prova de
   encerramento". Com a prova e algum rastro, o dono fica em dúvida e a
   pasta também fica nesse grupo. A elegibilidade de cada sessão continua

@@ -1307,6 +1307,73 @@ class Remocao(Base):
         unidade = self.motivo_do_revisor()
         self.assertEqual((unidade['motivo'], unidade['tipo']), ('sem_prova', retencao.DUVIDA))
 
+    def test_pasta_do_revisor_com_o_nome_so_num_registro_fica_em_duvida(self):
+        nome = 'revisao-codex-antiga'
+        evento = json.dumps(dict(data=iso(self.agora), sessao=nome, projeto='p', agente='claude', estado='ativo'))
+        registros = {
+            'eventos-agentes.jsonl': lambda: self.gravar('eventos-agentes.jsonl', evento + '\n'),
+            'linha inválida': lambda: self.gravar('eventos-agentes.jsonl', '{"sessao": "' + nome + '"\n'),
+            'linha ilegível': lambda: (self.estado / 'eventos-agentes.jsonl').write_bytes(
+                b'\xff\xfe' + nome.encode() + b'\n'),
+            'nome escapado': lambda: self.gravar('eventos-agentes.jsonl',
+                                                 json.dumps(dict(sessao=nome)).replace('r', '\\u0072', 1) + '\n'),
+            'nome no meio de outro campo': lambda: self.gravar('eventos-agentes.jsonl',
+                                                               json.dumps(dict(nota=f'agentes/{nome}.json')) + '\n'),
+            'nome depois do prefixo repetido': lambda: self.gravar(
+                'eventos-agentes.jsonl', json.dumps(dict(sessao='revisao-codex-' + nome)) + '\n'),
+            'validar.jsonl': lambda: self.gravar('validar.jsonl', json.dumps(dict(rotulo=nome)) + '\n'),
+            'revisoes/validar.jsonl': lambda: self.gravar('revisoes/validar.jsonl', json.dumps(dict(rotulo=nome)) + '\n'),
+            'delegacoes.jsonl': lambda: self.gravar('delegacoes.jsonl', json.dumps(dict(sessao=nome)) + '\n'),
+            'outro registro da raiz': lambda: self.gravar('novo.jsonl', json.dumps(dict(sessao=nome)) + '\n'),
+            'sessão no limpezas.jsonl': lambda: self.gravar('limpezas.jsonl', json.dumps(dict(
+                sessao=nome, tipo='codex', caminhos=[f'codex/{nome}/velho'], resultado='apagado')) + '\n'),
+            'registro que é link': lambda: os.symlink('/dev/null', self.estado / 'eventos-agentes.jsonl'),
+            'registro com outra ligação': lambda: os.link(self.gravar('validar.jsonl', '{}\n'),
+                                                          self.estado / 'validar-copia'),
+            'registro acima do limite': lambda: os.truncate(self.gravar('delegacoes.jsonl', '{}\n'),
+                                                            retencao.LIMITE + 1),
+        }
+        for registro, criar in registros.items():
+            with self.subTest(registro=registro):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                criar()
+                self.envelhecer()
+                unidade = self.motivo_do_revisor()
+                self.assertEqual((unidade['motivo'], unidade['tipo']), ('sem_prova', retencao.DUVIDA))
+                self.aplicar()
+                self.assertTrue(self.existe('codex/revisao-codex-antiga/b.jsonl'))
+
+    def test_registros_sem_o_nome_inteiro_mantem_a_pasta_do_revisor_elegivel(self):
+        self.encerrada('antiga')
+        self.encerrada('outra')
+        self.gravar('eventos-agentes.jsonl', ''.join(
+            json.dumps(dict(data=iso(self.agora), sessao=s, projeto='p', agente='claude', estado='encerrado')) + '\n'
+            for s in ('antiga', 'outra')))
+        self.gravar('validar.jsonl', json.dumps(dict(rotulo='antiga', revisor='codex')) + '\n')
+        self.gravar('revisoes/validar.jsonl', json.dumps(dict(rotulo='antiga', revisor='codex')) + '\n')
+        self.gravar('delegacoes.jsonl', json.dumps(dict(sessao='antiga', papel='leitor')) + '\n')
+        self.gravar('limpezas.jsonl', json.dumps(dict(
+            sessao='antiga', tipo='codex do revisor', caminhos=['codex/revisao-codex-antiga/velho'],
+            resultado='parcial')) + '\n')
+        self.envelhecer()
+        lidos = []
+        ler = retencao.ler
+        with mock.patch.object(retencao, 'ler', lambda fd, nome: lidos.append((retencao.real(fd), nome)) or ler(fd, nome)):
+            estado = self.abrir()
+            unidades = [u for u in retencao.medir_todas(estado) if u['partes'] == ('codex',)]
+        registros = [l for l in lidos if l[1].endswith('.jsonl')]
+        self.assertEqual(len(registros), len(set(registros)))
+        self.assertEqual(len(registros), 6)
+        revisores = {u['nome']: (u['motivo'], u['sessao'], u['tipo'])
+                     for u in unidades if u['nome'].startswith('revisao-codex-')}
+        self.assertEqual(revisores, {'revisao-codex-antiga': ('elegivel', 'antiga', 'codex do revisor'),
+                                     'revisao-codex-outra': ('elegivel', 'outra', 'codex do revisor')})
+        self.aplicar()
+        self.assertFalse(self.existe('codex/revisao-codex-antiga'))
+        self.assertFalse(self.existe('codex/revisao-codex-outra'))
+
     def test_ponto_de_montagem_recusado(self):
         self.encerrada('antiga')
         pasta = str(self.estado / 'codex')

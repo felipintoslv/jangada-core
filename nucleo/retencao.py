@@ -52,6 +52,9 @@ FOLGA = 3600
 ESPERA_TRAVA = 5
 PROFUNDIDADE = 256
 PASTA = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+CITACAO = re.compile(re.escape(PREFIXO_REVISOR.encode()))
+ESCAPE = re.compile(rb'\\u([0-9a-fA-F]{4})|\\(.)', re.S)
+ESCAPES = {b'b': b'\b', b'f': b'\f', b'n': b'\n', b'r': b'\r', b't': b'\t'}
 SINAIS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 MOTIVOS = (('sem_prova', 'sem prova de encerramento'),
@@ -169,6 +172,29 @@ def ler(fd, nome):
     return bruto
 
 
+def ler_registro(fd, nome):
+    """Conteúdo; None se o arquivo não existe; o erro se não se lê."""
+    try:
+        return ler(fd, nome)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as erro:
+        return erro
+
+
+def sem_escapes(bruto):
+    """Desfaz os escapes de JSON, também em linha inválida, para a busca do nome."""
+    if b'\\' not in bruto:
+        return bruto
+    return ESCAPE.sub(lambda m: (chr(int(m[1], 16)).encode('utf-8', 'surrogatepass') if m[1]
+                                 else ESCAPES.get(m[2], m[2])), bruto)
+
+
+def citacoes(texto):
+    """Trecho que começa em cada ocorrência do prefixo do revisor."""
+    return {texto[m.start():m.start() + 255] for m in CITACAO.finditer(texto)}
+
+
 def data(texto):
     if not isinstance(texto, str) or len(texto) > 64:
         return None
@@ -213,7 +239,9 @@ class Estado:
         self.vistos, self.no_consumo = set(), set()
         self.vivas = self.sessoes_vivas()
         self.arquivados = self.ler_arquivos()
-        self.fins = self.ler_consumo()
+        brutos = self.ler_registros()
+        self.fins = self.ler_consumo(brutos.pop('consumo-tarefas.jsonl', None))
+        self.citados = self.citados_nos_registros(brutos)
 
     def conferir_registro(self):
         """O limpezas.jsonl, se existe, tem de estar íntegro; senão é impedimento."""
@@ -295,17 +323,61 @@ class Estado:
             self.revisadas_codex.add(sessao)
         return sessao
 
-    def ler_consumo(self):
+    def ler_registros(self):
+        """Nome -> conteúdo, ou erro de leitura, de cada .jsonl da raiz e do
+        revisoes/validar.jsonl. Cada um é lido uma vez por atualização."""
+        brutos = {}
+        nomes = self.nomes(())
+        if nomes is None:
+            brutos['.'] = OSError('raiz do estado não se lista')
+            nomes = ()
+        for nome in sorted({n for n in nomes if n.endswith('.jsonl')} | {'consumo-tarefas.jsonl'}):
+            brutos[nome] = ler_registro(self.fd, nome)
+        try:
+            fd = abrir_pasta(self.fd, ('revisoes',))
+        except OSError as erro:
+            fd, brutos['revisoes/validar.jsonl'] = None, erro
+        if fd is not None:
+            try:
+                brutos['revisoes/validar.jsonl'] = ler_registro(fd, 'validar.jsonl')
+            finally:
+                os.close(fd)
+        return {nome: bruto for nome, bruto in brutos.items() if bruto is not None}
+
+    @staticmethod
+    def citados_nos_registros(brutos):
+        """Trechos que começam com o prefixo do revisor em qualquer linha, válida
+        ou não; None quando algum registro não se lê. No limpezas.jsonl só conta o
+        campo `sessao`: o caminho de uma pasta já atribuída a X não é rastro."""
+        citados = set()
+        for nome, bruto in brutos.items():
+            if isinstance(bruto, Exception):
+                return None
+            textos = [bruto]
+            if nome == 'limpezas.jsonl':
+                textos = []
+                for linha in bruto.split(b'\n'):
+                    try:
+                        registro = json.loads(linha.decode('utf-8')) if linha.strip() else {}
+                    except (ValueError, RecursionError):
+                        registro = None
+                    if not isinstance(registro, dict):
+                        textos.append(linha)
+                    elif isinstance(registro.get('sessao'), str):
+                        textos.append(registro['sessao'].encode('utf-8', 'surrogatepass'))
+            for texto in textos:
+                citados |= citacoes(texto) | citacoes(sem_escapes(texto))
+        return citados
+
+    def ler_consumo(self, bruto):
         """Sessão -> data `fim` mais recente do consumo-tarefas.jsonl.
 
         Uma linha não vazia que não seja registro válido pode esconder um `fim`
         mais novo de qualquer sessão: nenhuma sessão tem prova e nada é apagado."""
         fins, invalida = {}, None
-        try:
-            bruto = ler(self.fd, 'consumo-tarefas.jsonl')
-        except FileNotFoundError:
+        if bruto is None:
             return fins
-        except (OSError, ValueError):
+        if isinstance(bruto, Exception):
             return self.consumo_invalido('ilegível')
         for numero, linha in enumerate(bruto.split(b'\n'), 1):
             if not linha.strip():
@@ -370,8 +442,12 @@ class Estado:
     def rastro(self, sessao):
         """Qualquer evidência do nome no estado, só para decidir o dono da pasta do
         revisor: arquivo com ou sem pendência, linha do consumo, cópia de estado,
-        tmux, rodada, registro do fim, início ou dado de provedor. Na dúvida, há rastro."""
+        tmux, rodada, registro do fim, início, dado de provedor ou o nome em qualquer
+        linha de registro .jsonl. Na dúvida, há rastro."""
         if self.conhecida(sessao):
+            return True
+        alvo = sessao.encode('utf-8', 'surrogatepass')
+        if self.citados is None or any(c.startswith(alvo) for c in self.citados):
             return True
         rodada = re.compile('validacao-' + re.escape(sessao) + r'-r[0-9]+(?:\..*)?', re.S)
         for partes in (('agentes',), ('revisoes',)):
