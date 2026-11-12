@@ -58,6 +58,8 @@ TROCAS = [
      'validar.jsonl', 'itens', 'apontamentos'),
     ('bin/jangada-validar', 'candidate_sha: $candidato,', 'candidato: $candidato,',
      'validacao-SESSAO.aprovado', 'candidate_sha', 'candidato'),
+    ('bin/jangada-validar', 'revisor_solicitado:$revisor,', 'revisor_pedido:$revisor,',
+     'validacao-SESSAO-rN.contexto.json', 'revisor_solicitado', 'revisor_pedido'),
     ('bin/jangada-agente', 'desde:$agora,', 'criado:$agora,', 'SESSAO.json', 'desde', 'criado'),
     ('bin/jangada-config', 'estado: $e,', 'situacao: $e,', 'eventos-agentes.jsonl', 'estado', 'situacao'),
     ('bin/jangada-delegar', 'papel: $papel,', 'funcao: $papel,', 'delegacoes.jsonl', 'papel', 'funcao'),
@@ -396,7 +398,8 @@ class Gerador:
 
     def tudo(self):
         """Todos os registros, por nome da tabela: lista de (rótulo, registro)."""
-        registros = {nome: [] for nome in ('validar.jsonl', 'validacao-SESSAO.aprovado', 'SESSAO.json',
+        registros = {nome: [] for nome in ('validar.jsonl', 'validacao-SESSAO.aprovado',
+                                           'validacao-SESSAO-rN.contexto.json', 'SESSAO.json',
                                            'eventos-agentes.jsonl', 'delegacoes.jsonl')}
         pareceres = self.estado / 'revisoes'
         momentos = [('criado', self.abrir_sessao())]
@@ -410,6 +413,9 @@ class Gerador:
         if marca.is_file():
             registros['validacao-SESSAO.aprovado'] = [('marca', json.loads(marca.read_text(encoding='utf-8')))]
         self.pareceres = sorted(pareceres.glob(f'validacao-{SESSAO}-r*.md'))
+        registros['validacao-SESSAO-rN.contexto.json'] = [
+            (contexto.name, json.loads(contexto.read_text(encoding='utf-8')))
+            for contexto in sorted(pareceres.glob(f'validacao-{SESSAO}-r*.contexto.json'))]
         self.codigos_delegar = self.delegar()
         registros['delegacoes.jsonl'] = list(enumerate(self.linhas('delegacoes.jsonl'), 1))
         registros['coordenadores/SESSAO.json'] = self.atuacoes()
@@ -491,6 +497,13 @@ def main():
                  primeiras, controlador=True)
         conferir('o APROVADO grava a marca validacao-SESSAO.aprovado', bool(registros['validacao-SESSAO.aprovado']),
                  controlador=True)
+        conferir('o contexto de cada rodada leva resposta_sha256 só na rodada com --resposta',
+                 [(rotulo, 'resposta_sha256' in contexto)
+                  for rotulo, contexto in registros['validacao-SESSAO-rN.contexto.json']]
+                 == [(f'validacao-{SESSAO}-r{n}.contexto.json', n == 2) for n in (1, 2)]
+                 and bool(re.fullmatch(r'[0-9a-f]{64}',
+                                       registros['validacao-SESSAO-rN.contexto.json'][1][1]['resposta_sha256'])),
+                 [r for r, _ in registros['validacao-SESSAO-rN.contexto.json']], controlador=True)
         conferir('o jangada-delegar sai com 0 nas delegações atendidas e 4 na recusada',
                  gerador.codigos_delegar == [0, 4, 0], [gerador.codigos_delegar])
         conferir('o delegacoes.jsonl tem a delegação ao agy, a recusada e a local',
@@ -503,7 +516,8 @@ def main():
                               - set(tabela[nome].get('sem_exemplo', [])))
             conferir(f'{nome}: todo campo da tabela aparece em algum registro gerado, salvo os de "sem_exemplo"',
                      not ausentes, [f'ausentes: {ausentes}'],
-                     controlador=nome in ('validar.jsonl', 'validacao-SESSAO.aprovado', 'SESSAO.json'))
+                     controlador=nome in ('validar.jsonl', 'validacao-SESSAO.aprovado',
+                                          'validacao-SESSAO-rN.contexto.json', 'SESSAO.json'))
 
         # O teste precisa falhar quando um campo muda de nome. Primeiro numa
         # cópia do registro, depois numa cópia do código que grava.

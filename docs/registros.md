@@ -180,6 +180,16 @@ Pasta `$JANGADA_ESTADO/agentes/`. Em 26/09/2026 havia 41 arquivos.
   que o `--integrar` não aceita. Marca com `limpo` falso não move o ponto de
   comparação da próxima entrega. Esta pasta é gravável pelo
   agente isolado; a marca que o `--integrar` aceita fica na seção 2b.
+- **Conteúdo do `.contexto.json`:** um objeto JSON gravado antes da
+  chamada ao revisor, com `sessao`, `execucao`, `tarefa`, `rodada`,
+  `candidate_sha`, `candidate_tree`, `base_sha`, `autor`,
+  `revisor_solicitado`, `modelo_solicitado`, `pedido` (o texto integral
+  mandado ao revisor), `protegido` (verdadeiro na rodada feita fora do
+  isolamento) e `execucao_revisao`; `resposta_sha256` só quando a rodada
+  traz `--resposta`. Quando o revisor responde, ganha `revisor_executado`,
+  `modelo_executado`, `resultado` (`APROVADO` ou `REVISAR`),
+  `autoria_confiavel` e `local_verified`; na reprovação local e na falha do
+  revisor esses campos faltam.
 - **O que dá para recuperar:**
   - sessão, do nome: `validacao-<rotulo>-rN.md` e `parecer-<sessao>-rN.md`;
   - projeto e tarefa: a sessão é `slug-do-repo` ou `slug-do-repo--tarefa`

@@ -122,6 +122,30 @@
       "independent": {"tipo": ["booleano"], "obrigatorio": true}
     }
   },
+  "validacao-SESSAO-rN.contexto.json": {
+    "secao": "2",
+    "campos": {
+      "sessao": {"tipo": ["texto"], "obrigatorio": true},
+      "execucao": {"tipo": ["texto"], "obrigatorio": true},
+      "tarefa": {"tipo": ["texto"], "obrigatorio": true},
+      "rodada": {"tipo": ["inteiro"], "obrigatorio": true},
+      "candidate_sha": {"tipo": ["texto"], "obrigatorio": true},
+      "candidate_tree": {"tipo": ["texto"], "obrigatorio": true},
+      "base_sha": {"tipo": ["texto"], "obrigatorio": true},
+      "autor": {"tipo": ["texto"], "obrigatorio": true},
+      "revisor_solicitado": {"tipo": ["texto"], "obrigatorio": true},
+      "modelo_solicitado": {"tipo": ["texto"], "obrigatorio": true},
+      "pedido": {"tipo": ["texto"], "obrigatorio": true},
+      "protegido": {"tipo": ["booleano"], "obrigatorio": true},
+      "execucao_revisao": {"tipo": ["texto"], "obrigatorio": true},
+      "resposta_sha256": {"tipo": ["texto"], "obrigatorio": false},
+      "revisor_executado": {"tipo": ["texto"], "obrigatorio": false},
+      "modelo_executado": {"tipo": ["texto"], "obrigatorio": false},
+      "resultado": {"tipo": ["texto"], "obrigatorio": false},
+      "autoria_confiavel": {"tipo": ["booleano"], "obrigatorio": false},
+      "local_verified": {"tipo": ["booleano"], "obrigatorio": false}
+    }
+  },
   "SESSAO.json": {
     "secao": "4",
     "sem_exemplo": ["pid", "coordenador_sessao"],
