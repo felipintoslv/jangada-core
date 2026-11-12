@@ -1036,6 +1036,15 @@ bordas para conferir assinaturas não entra nessas contagens.
   não avança encerra a limpeza com código 1, diz no terminal o que foi
   apagado sem registro completo e mantém os grupos seguintes. O arquivo
   pode ficar com a linha incompleta.
+- **Registro danificado:** o `limpezas.jsonl` vazio ou ausente vale; não
+  vazio, tem de terminar em quebra de linha e cada linha não vazia tem de
+  ser objeto JSON. É conferido sem seguir link, até 64 MiB, em dois
+  momentos: depois da listagem, e de novo em cada grupo, com a trava do
+  registro na mão e antes da primeira remoção do grupo, pelo descritor já
+  aberto. Leitura que falha, arquivo acima de 64 MiB ou linha inválida é
+  impedimento: o `--aplicar` termina com código 1, nada mais é apagado e a
+  mensagem pede ao dono que conserte o arquivo à mão. A limpeza nunca
+  conserta o arquivo. A listagem sem `--aplicar` continua e avisa.
 - **Prova de encerramento:** arquivo íntegro da sessão em
   `revisoes/arquivo/`, sem pendências; linha com `fim` no
   `consumo-tarefas.jsonl` há mais de N dias (padrão 30); nenhuma cópia

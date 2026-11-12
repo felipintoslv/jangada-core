@@ -24,6 +24,7 @@ import time
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 import isolamento
 
@@ -851,6 +852,91 @@ class Remocao(Base):
                 self.assertFalse(self.existe('codex/antiga'))
                 self.assertTrue(self.existe('codex/outra'))
                 self.assertTrue(self.existe('codex/revisao-codex-antiga'))
+
+    def listar_pelo_main(self):
+        saida, erro = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(saida), contextlib.redirect_stderr(erro):
+            codigo = retencao.main([str(self.estado), 'claude', '--', 'sh', '-c', FALSO_TMUX, str(self.vivas)])
+        return codigo, saida.getvalue(), erro.getvalue()
+
+    def test_linha_incompleta_do_registro_impede_a_execucao_seguinte(self):
+        self.encerrada('antiga')
+        self.encerrada('outra')
+        self.envelhecer()
+        with self.escrita_no_registro(lambda original, fd, dados:
+                                      original(fd, dados[:7]) if dados.startswith(b'{') else 0):
+            codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 1, erro)
+        self.assertFalse(self.existe('codex/antiga'))
+        danificado = (self.estado / 'limpezas.jsonl').read_bytes()
+        self.assertFalse(danificado.endswith(b'\n'))
+        restantes = sorted(p.relative_to(self.estado) for p in self.estado.rglob('*'))
+
+        codigo, saida, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 1, erro)
+        self.assertIn('limpezas.jsonl danificado (última linha sem quebra de linha)', erro)
+        self.assertIn('conserte o arquivo à mão', erro)
+        self.assertIn('nada foi apagado', erro)
+        self.assertNotIn('digite apagar', saida)
+        self.assertEqual((self.estado / 'limpezas.jsonl').read_bytes(), danificado)
+        self.assertEqual(sorted(p.relative_to(self.estado) for p in self.estado.rglob('*')), restantes)
+        self.assertTrue(self.existe('codex/outra'))
+
+        codigo, saida, erro = self.listar_pelo_main()
+        self.assertEqual(codigo, 0, erro)
+        self.assertIn('aviso: limpezas.jsonl danificado', erro)
+        self.assertIn('outra', saida)
+
+    def test_registro_danificado_recusa_a_aplicacao(self):
+        casos = {'sem quebra no fim': (b'{"a":1}\n{"b":', 'última linha sem quebra de linha'),
+                 'linha inválida no meio': (b'{"a":1}\n{"b"\n{"c":3}\n', 'linha 2 não é objeto JSON'),
+                 'linha que não é objeto': (b'{"a":1}\n[1]\n', 'linha 2 não é objeto JSON'),
+                 'utf-8 inválido': (b'{"a":"\xff"}\n', 'linha 1 não é objeto JSON'),
+                 'grande demais': (b'{"a":1}\n' * 4, 'passa de 64 MiB'),
+                 'link': (None, 'não abre')}
+        for nome, (conteudo, motivo) in casos.items():
+            with self.subTest(caso=nome):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                self.envelhecer()
+                if conteudo is None:
+                    (self.estado / 'fora.jsonl').write_text('{"a":1}\n')
+                    (self.estado / 'limpezas.jsonl').symlink_to(self.estado / 'fora.jsonl')
+                else:
+                    (self.estado / 'limpezas.jsonl').write_bytes(conteudo)
+                with mock.patch.object(retencao, 'LIMITE', 16 if nome == 'grande demais' else retencao.LIMITE):
+                    codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+                self.assertEqual(codigo, 1, erro)
+                self.assertIn(f'limpezas.jsonl danificado ({motivo}', erro)
+                self.assertTrue(self.existe('codex/antiga'))
+                if conteudo is not None:
+                    self.assertEqual((self.estado / 'limpezas.jsonl').read_bytes(), conteudo)
+
+    def test_registro_danificado_depois_da_listagem_mantem_todos_os_grupos(self):
+        self.encerrada('antiga')
+        self.encerrada('outra')
+        self.envelhecer()
+        danificar = lambda: (self.estado / 'limpezas.jsonl').write_bytes(b'{"a":')
+        _, erro = self.aplicar(antes=danificar)
+        self.assertIn('erro: limpezas.jsonl danificado (última linha sem quebra de linha)', erro)
+        self.assertIn('e os grupos seguintes ficam mantidos', erro)
+        self.assertTrue(self.existe('codex/antiga'))
+        self.assertTrue(self.existe('codex/outra'))
+        self.assertEqual((self.estado / 'limpezas.jsonl').read_bytes(), b'{"a":')
+
+    def test_registro_integro_com_linhas_anteriores_continua_aceito(self):
+        anteriores = [dict(sessao='velha', tipo='codex', caminhos=['codex/velha'], bytes=1), dict(outra=True)]
+        (self.estado / 'limpezas.jsonl').write_text(
+            ''.join(json.dumps(r) + '\n' for r in anteriores[:1]) + '\n' + json.dumps(anteriores[1]) + '\n')
+        self.encerrada('antiga')
+        self.envelhecer()
+        codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 0, erro)
+        self.assertFalse(self.existe('codex/antiga'))
+        registros = [json.loads(l) for l in (self.estado / 'limpezas.jsonl').read_text().splitlines() if l]
+        self.assertEqual(registros[:2], anteriores)
+        self.assertIn('codex/antiga', [c for r in registros[2:] for c in r['caminhos']])
 
     def motivo_do_revisor(self, sessao='antiga'):
         estado = self.abrir()

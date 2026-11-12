@@ -64,6 +64,14 @@ class Recusa(Exception):
     """Entrada que não pode ser medida nem apagada com segurança."""
 
 
+class RegistroDanificado(Recusa):
+    """limpezas.jsonl que não termina em linhas JSON completas: só o dono conserta."""
+
+    def __init__(self, motivo):
+        super().__init__(f'limpezas.jsonl danificado ({motivo}); '
+                         'conserte o arquivo à mão antes de aplicar a limpeza')
+
+
 def isolado(mountinfo='/proc/self/mountinfo'):
     if os.environ.get('JANGADA_ISOLADO'):
         return True
@@ -189,6 +197,25 @@ class Estado:
         self.vivas = self.sessoes_vivas()
         self.arquivados = self.ler_arquivos()
         self.fins = self.ler_consumo()
+
+    def conferir_registro(self):
+        """O limpezas.jsonl, se existe, tem de estar íntegro; senão é impedimento."""
+        try:
+            fd = os.open('limpezas.jsonl', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=self.fd)
+        except FileNotFoundError:
+            return
+        except OSError as erro:
+            problema = RegistroDanificado(f'não abre: {erro}')
+        else:
+            try:
+                registro_integro(fd)
+                return
+            except RegistroDanificado as erro:
+                problema = erro
+            finally:
+                os.close(fd)
+        self.avisar(str(problema))
+        self.impedimentos.add(str(problema))
 
     def avisar(self, texto):
         if texto not in self.avisos:
@@ -744,13 +771,44 @@ def listar_entradas(unidades, escrever):
 
 
 def abrir_registro(estado):
-    fd = os.open('limpezas.jsonl', os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+    fd = os.open('limpezas.jsonl', os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
                  0o600, dir_fd=estado.fd)
     info = os.fstat(fd)
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         os.close(fd)
         raise Recusa('limpezas.jsonl deve ser arquivo regular sem ligações')
     return fd
+
+
+def registro_integro(fd):
+    """Vazio, ou só linhas com objeto JSON e quebra de linha no fim. Não conserta nada."""
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise RegistroDanificado('não é arquivo regular sem ligações')
+        blocos, lidos = [], 0
+        while lidos <= LIMITE:
+            bloco = os.pread(fd, 1 << 20, lidos)
+            if not bloco:
+                break
+            blocos.append(bloco)
+            lidos += len(bloco)
+    except OSError as erro:
+        raise RegistroDanificado(f'leitura falhou: {erro}') from erro
+    if lidos > LIMITE:
+        raise RegistroDanificado('passa de 64 MiB e não pode ser conferido')
+    bruto = b''.join(blocos)
+    if bruto and not bruto.endswith(b'\n'):
+        raise RegistroDanificado('última linha sem quebra de linha')
+    for numero, linha in enumerate(bruto.split(b'\n'), 1):
+        if not linha.strip():
+            continue
+        try:
+            objeto = json.loads(linha.decode('utf-8'))
+        except (ValueError, RecursionError):
+            objeto = None
+        if not isinstance(objeto, dict):
+            raise RegistroDanificado(f'linha {numero} não é objeto JSON')
 
 
 def registrar(fd, linha):
@@ -796,6 +854,7 @@ def aplicar(estado, grupos, registro, erro=sys.stderr):
             # O registro primeiro: sem ele, nada do grupo é apagado.
             esperar_trava(registro, 'limpezas.jsonl')
             registro_travado = True
+            registro_integro(registro)
             travadas = {s for u in grupo['unidades'] for s in u['travas']}
             for sessao in sorted(travadas):
                 travas.append(travar_revisao(estado, sessao))
@@ -835,6 +894,9 @@ def aplicar(estado, grupos, registro, erro=sys.stderr):
                 erro.write(f'erro: {rotulo}: apagado sem registro completo em limpezas.jsonl ({falha}): '
                            f'{", ".join(removidos)}\n')
                 erro.write('erro: registro com falha; os grupos seguintes ficam mantidos\n')
+                registro_falhou = True
+            elif isinstance(falha, RegistroDanificado):
+                erro.write(f'erro: {falha}; {rotulo} e os grupos seguintes ficam mantidos\n')
                 registro_falhou = True
             else:
                 erro.write(f'aviso: {rotulo} mantido: {falha}\n')
@@ -904,6 +966,7 @@ def main(argumentos):
         return 1
     try:
         unidades = medir_todas(estado)
+        estado.conferir_registro()
         grupos = listar(estado, unidades, sys.stdout)
         for aviso in estado.avisos:
             sys.stderr.write(f'aviso: {aviso}\n')
