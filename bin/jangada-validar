@@ -225,7 +225,7 @@ registrar() {
   local itens=0 linha resumo resumo_erro resposta_json='' tokens_json=''
   [[ -f "${saida:-}" ]] && itens="$(grep -cE '^[[:space:]]*[0-9]+\.[[:space:]]' "$saida" || true)"
   if [[ -n "$resposta" && "$2" == revisor && ( "$1" == aprovado || "$1" == revisar ) ]]; then
-    resposta_json="$(python3 - "$resposta" "$arq_metricas" "$rotulo" "$execucao" "$rodada" <<'PY'
+    resposta_json="$(python3 -I - "$resposta" "$arq_metricas" "$rotulo" "$execucao" "$rodada" <<'PY'
 import json, re, sys
 texto, caminho, sessao, execucao, rodada = sys.argv[1:]
 contagens = {'corrigidos': 0, 'rejeitados': 0, 'sem_classificar': 0}
