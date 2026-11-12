@@ -1,0 +1,15 @@
+== --lista 0
+ativo	viva	${TMP}/wt	2099-01-01T00:00:00-03:00	agente/viva	uma
+concluido	feita	${TMP}/wt2	2099-01-01T00:00:00-03:00	agente/feita	duas
+== --limpar-orfaos 0
+== --lista 0
+ativo	viva	${TMP}/wt	2099-01-01T00:00:00-03:00	agente/viva	uma
+concluido	feita	${TMP}/wt2	2099-01-01T00:00:00-03:00	agente/feita	duas
+== agentes
+feita.json
+fim-antiga.log
+revisao-viva-r1.json
+validacao-antiga-r1.md.log
+validacao-antiga-r2.contexto.json
+validacao-viva-r1.contexto.json
+viva.json

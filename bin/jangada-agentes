@@ -23,6 +23,7 @@
 #   jangada-agentes --restaurar [S]  reabre as sessões interrompidas (ou só S)
 #   jangada-agentes --confianca S  repete só a conferência da confiança do agy na tarefa S
 #   jangada-agentes --limpar-concluidos  lista as sessões concluídas e, confirmado, encerra todas
+#   jangada-agentes --limpar-antigos [--dias N] [--aplicar]  dados de sessões encerradas há N dias (30)
 #
 # Sessões terminadas em "concluido" ou "aguardando" continuam na lista depois de
 # o processo sair: são o resultado do ciclo, não um processo vivo. Saem com
@@ -39,7 +40,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/jangada-config"
 
 estado_dir="$JANGADA_ESTADO/agentes"
 case "${1:-}" in
-  --lista|--lista-atualizada|--lista-json|--observacao-json|--sessao-worktree-json|--contexto-json|--rodadas-json|--coordenadores-json|--waybar) ;;
+  --lista|--lista-atualizada|--lista-json|--observacao-json|--sessao-worktree-json|--contexto-json|--rodadas-json|--coordenadores-json|--waybar|--limpar-antigos) ;;
   *) mkdir -p "$estado_dir" ;;
 esac
 
@@ -828,6 +829,19 @@ case "${1:-}" in
     fi
     echo "todas as sessões concluídas foram limpas."
     ;;
+  --limpar-antigos)
+    shift
+    # As contas do agy vêm do catálogo; sem ele, só os dados do Claude entram.
+    provedores="claude"
+    if contas="$(jangada_contas_agy)"; then
+      while IFS=$'\t' read -r conta _; do
+        [[ -n "$conta" ]] && provedores+=" agy-$conta"
+      done <<<"$contas"
+    else
+      echo "aviso: catálogo de contas do agy ilegível; os dados do agy ficam fora" >&2
+    fi
+    exec python3 "$JANGADA_CORE_PY/nucleo/retencao.py" "$JANGADA_ESTADO" "$provedores" "$@" -- "${JANGADA_TMUX[@]}"
+    ;;
   "")
     limpar_orfaos
     escolha="$(listar | awk -F'\t' '{printf "%s\t%s\t%s\n", $1, $2, $3}' | fzf \
@@ -850,7 +864,7 @@ case "${1:-}" in
     focar "$s"
     ;;
   -h|--ajuda)
-    sed -n '2,27s/^# \{0,1\}//p' "$0"
+    sed -n '2,28s/^# \{0,1\}//p' "$0"
     ;;
   *)
     echo "opção desconhecida: $1" >&2; exit 1
