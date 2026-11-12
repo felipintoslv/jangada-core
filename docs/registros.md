@@ -1011,6 +1011,38 @@ bordas para conferir assinaturas não entra nessas contagens.
   datas inteiras; modelo, pasta, custo e qualquer texto ficam de fora. Uma
   janela presente e inválida recusa a entrada inteira.
 
+## 13. limpezas.jsonl
+
+- **Caminho:** `$JANGADA_ESTADO/limpezas.jsonl`, modo 0600, desde 11/11/2026.
+- **Quem escreve:** `nucleo/retencao.py`, chamado por
+  `jangada-agentes --limpar-antigos --aplicar`, depois da confirmação
+  digitada e de cada remoção. Só fora do isolamento e com terminal.
+- **Formato:** JSON Lines, uma linha por sessão e tipo de dado apagado,
+  acrescentada sob trava. O arquivo é aberto sem seguir link e recusado se
+  não for regular ou tiver outra ligação.
+- **Campos:**
+  - `sessao`: sessão dona dos dados, com prova de encerramento.
+  - `tipo`: `codex`, `codex do revisor`, `provedor claude`,
+    `provedor agy-CONTA`, `inicios`, `rodadas em agentes`,
+    `rodadas em revisoes` ou `registro do fim`.
+  - `caminhos`: entradas apagadas, relativas a `$JANGADA_ESTADO`.
+  - `bytes`: espaço ocupado medido antes de apagar, sem seguir link.
+  - `encerrada`: data `fim` da sessão no `consumo-tarefas.jsonl` (seção 11),
+    com fuso.
+  - `quando`: data da remoção, com fuso.
+  - `resultado`: `removido`, ou `parcial` quando alguma entrada ficou pela
+    metade; o erro sai no terminal.
+- **Prova de encerramento:** arquivo íntegro da sessão em
+  `revisoes/arquivo/`, sem pendências; linha com `fim` no
+  `consumo-tarefas.jsonl` há mais de N dias (padrão 30); nenhuma cópia
+  `revisoes/SESSAO.json` nem `agentes/SESSAO.json`; nenhuma sessão viva no
+  tmux; nenhum dado alterado mais de uma hora depois do `fim`. Registros que
+  o agente grava (`agentes/`, `validar.jsonl` do estado, `eventos-agentes.jsonl`)
+  não provam nada. Sessão sem as provas fica no grupo "sem prova de
+  encerramento" da listagem, só para informar.
+- **Acúmulo e limpeza:** só acumula; nada o apaga. `revisoes/arquivo/`,
+  `consumo-tarefas.jsonl` e as travas ficam de fora da limpeza.
+
 ## Indicadores e registros
 
 | Grupo | Indicador | Registros | Observação |

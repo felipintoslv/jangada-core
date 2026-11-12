@@ -329,5 +329,17 @@
         }}
       }}
     }
+  },
+  "limpezas.jsonl": {
+    "secao": "13",
+    "campos": {
+      "sessao": {"tipo": ["texto"], "obrigatorio": true},
+      "tipo": {"tipo": ["texto"], "obrigatorio": true},
+      "caminhos": {"tipo": ["lista"], "obrigatorio": true},
+      "bytes": {"tipo": ["inteiro"], "obrigatorio": true},
+      "encerrada": {"tipo": ["data"], "obrigatorio": true},
+      "quando": {"tipo": ["data"], "obrigatorio": true},
+      "resultado": {"tipo": ["texto"], "obrigatorio": true}
+    }
   }
 }

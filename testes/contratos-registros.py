@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Testa o contrato K7 (docs/modularizacao-3.0/03-contratos.md): o formato dos
-registros das seções 1, 2, 4, 7, 8, 9 e 12 de docs/registros.md.
+registros das seções 1, 2, 4, 7, 8, 9, 12 e 13 de docs/registros.md.
 
 Os registros são gerados pelos comandos do jangada numa pasta temporária, com
 HOME, XDG_* e PATH próprios e um tmux falso; nada vem do estado da instalação
@@ -20,6 +20,7 @@ Uso: testes/contratos-registros.py
 
 import ambiente
 import copy
+import hashlib
 import json
 import os
 import pathlib
@@ -396,6 +397,36 @@ class Gerador:
             raise AssertionError(feito.stderr)
         return [('cotas', json.loads((self.estado / 'cotas.json').read_text(encoding='utf-8')))]
 
+    def limpezas(self):
+        """limpezas.jsonl, gravado pelo nucleo/retencao.py ao apagar (seção 13).
+
+        A remoção pelo jangada-agentes exige o controlador de fora e terminal;
+        aqui o módulo da árvore roda direto numa pasta de estado à parte, para
+        o registro sair igual dentro e fora do isolamento."""
+        estado = self.tmp / 'limpeza/jangada'
+        dados = estado / 'codex/antiga/sessions'
+        dados.mkdir(parents=True)
+        (dados / 'a.jsonl').write_text('{}\n')
+        bruto = json.dumps({'versao': 1, 'sessao': 'antiga', 'pendencias': []}).encode()
+        (estado / 'revisoes/arquivo').mkdir(parents=True)
+        (estado / f'revisoes/arquivo/{hashlib.sha256(bruto).hexdigest()}.json').write_bytes(bruto)
+        fim = time.strftime('%Y-%m-%dT%H:%M:%S%z', time.localtime(time.time() - 40 * 86400))
+        (estado / 'consumo-tarefas.jsonl').write_text(
+            json.dumps({'sessao': 'antiga', 'fim': fim[:-2] + ':' + fim[-2:]}) + '\n')
+        antigo = time.time() - 60 * 86400
+        for caminho in [*estado.rglob('*')]:
+            os.utime(caminho, (antigo, antigo), follow_symlinks=False)
+        codigo = ('import sys; sys.path.insert(0, sys.argv[1]); import retencao as r\n'
+                  'e = r.Estado(sys.argv[2], ["claude"], 30, [])\n'
+                  'g = r.agrupar(r.medir_todas(e)); fd = r.abrir_registro(e)\n'
+                  'print(r.aplicar(e, g, fd))\n')
+        feito = self.rodar(sys.executable, '-c', codigo, self.arvore / 'nucleo', estado)
+        if feito.returncode:
+            raise AssertionError(feito.stderr)
+        arquivo = estado / 'limpezas.jsonl'
+        linhas = arquivo.read_text(encoding='utf-8').splitlines() if arquivo.is_file() else []
+        return list(enumerate((json.loads(linha) for linha in linhas), 1))
+
     def tudo(self):
         """Todos os registros, por nome da tabela: lista de (rótulo, registro)."""
         registros = {nome: [] for nome in ('validar.jsonl', 'validacao-SESSAO.aprovado',
@@ -421,6 +452,7 @@ class Gerador:
         registros['coordenadores/SESSAO.json'] = self.atuacoes()
         registros['cota-claude.json'] = self.cota_claude()
         registros['cotas.json'] = self.cotas()
+        registros['limpezas.jsonl'] = self.limpezas()
         return registros
 
 
@@ -509,6 +541,9 @@ def main():
         conferir('o delegacoes.jsonl tem a delegação ao agy, a recusada e a local',
                  [(d.get('destino'), d.get('recusa')) for _, d in registros['delegacoes.jsonl']]
                  == [('agy', False), ('agy', True), ('local', False)])
+        conferir('o limpezas.jsonl tem uma linha pela pasta apagada',
+                 [(r.get('sessao'), r.get('tipo'), r.get('caminhos')) for _, r in registros['limpezas.jsonl']]
+                 == [('antiga', 'codex', ['codex/antiga'])], registros['limpezas.jsonl'])
         for nome in tabela:
             conferir(f'{nome}: campos e tipos conforme a tabela', not achados[nome], achados[nome])
             vistos = {c for _, registro in registros[nome] for c in presentes(registro, tabela[nome]['campos'])}
