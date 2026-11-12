@@ -50,6 +50,14 @@ def retrato(pasta):
     return itens
 
 
+def blocos(caminho):
+    """Espaço ocupado pela árvore, sem seguir link: a conta do medir, que depende do sistema de arquivos."""
+    total = os.lstat(caminho).st_blocks * 512
+    for raiz, pastas, arquivos in os.walk(caminho):
+        total += sum(os.lstat(os.path.join(raiz, nome)).st_blocks * 512 for nome in pastas + arquivos)
+    return total
+
+
 def dados(pasta):
     """O retrato sem o registro da limpeza e sem as travas, que ficam depois dela."""
     return [item for item in retrato(pasta)
@@ -215,8 +223,7 @@ class Listagem(Base):
         achado = [(l[0], ' '.join(l[1:-3]), l[-3]) for l in linhas[1:]]
         self.assertEqual(sorted(achado), sorted(esperado))
         for linha in linhas[1:]:
-            self.assertEqual(linha[-2:], ['4,0', 'KB'])
-            self.assertTrue(self.existe(linha[-3]))
+            self.assertEqual(' '.join(linha[-2:]), retencao.tamanho(blocos(self.estado / linha[-3])))
         self.assertNotIn('antiga', mantidos)
 
     def test_dias_muda_o_prazo(self):
