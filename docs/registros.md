@@ -1043,7 +1043,8 @@ bordas para conferir assinaturas não entra nessas contagens.
   tmux; nenhum dado alterado mais de uma hora depois do `fim`. Registros que
   o agente grava (`agentes/`, `validar.jsonl` do estado, `eventos-agentes.jsonl`)
   não provam nada. Sessão sem as provas fica no grupo "sem prova de
-  encerramento" da listagem, só para informar.
+  encerramento" da listagem, só para informar, com uma linha por entrada:
+  sessão, tipo, caminho relativo a `$JANGADA_ESTADO` e tamanho.
 - **Falhas de leitura:** nenhuma falha autoriza apagar.
   - Linha não vazia do `consumo-tarefas.jsonl` que não seja registro válido,
     ou o arquivo ilegível: nenhuma sessão tem prova e o `--aplicar` recusa.

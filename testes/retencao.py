@@ -183,6 +183,30 @@ class Listagem(Base):
         self.assertIn('Nada foi apagado.', p.stdout)
         self.assertNotIn('recente  ', p.stdout.split('Mantidos')[0])
 
+    def test_sem_prova_lista_cada_entrada(self):
+        self.encerrada('antiga')
+        self.dados('sem-prova')
+        self.envelhecer()
+        p = self.comando('--limpar-antigos')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        mantidos = p.stdout.split('sem prova de encerramento: 8 itens')[1].split('Nada foi apagado')[0]
+        linhas = [linha.split() for linha in mantidos.splitlines()[1:]]
+        self.assertEqual(linhas[0], ['SESSÃO', 'TIPO', 'CAMINHO', 'TAMANHO'])
+        esperado = [('sem-prova', 'codex', 'codex/sem-prova'),
+                    ('sem-prova', 'codex do revisor', 'codex/revisao-codex-sem-prova'),
+                    ('sem-prova', 'inicios', 'revisoes/inicios/sem-prova'),
+                    ('sem-prova', 'provedor claude', 'provedores/claude/sem-prova'),
+                    ('sem-prova', 'registro do fim', 'agentes/fim-sem-prova.log'),
+                    ('sem-prova', 'rodadas em agentes', 'agentes/validacao-sem-prova-r1.md.log'),
+                    ('sem-prova', 'rodadas em agentes', 'agentes/validacao-sem-prova-r2.contexto.json'),
+                    ('sem-prova', 'rodadas em revisoes', 'revisoes/validacao-sem-prova-r1.md.tmp')]
+        achado = [(l[0], ' '.join(l[1:-3]), l[-3]) for l in linhas[1:]]
+        self.assertEqual(sorted(achado), sorted(esperado))
+        for linha in linhas[1:]:
+            self.assertEqual(linha[-2:], ['4,0', 'KB'])
+            self.assertTrue(self.existe(linha[-3]))
+        self.assertNotIn('antiga', mantidos)
+
     def test_dias_muda_o_prazo(self):
         self.encerrada('recente', dias=10)
         self.envelhecer()

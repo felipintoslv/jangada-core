@@ -294,19 +294,21 @@ class Estado:
     def decidir(self, donos):
         """Todos os donos elegíveis, salvo nome sem rastro de sessão.
 
-        Devolve (motivo, sessão, tipo, fim, nomes das sessões elegíveis)."""
-        elegiveis, motivos = [], []
+        Devolve (motivo, sessão, tipo, fim, nomes das sessões elegíveis). Quando
+        nada é elegível, a sessão e o tipo são os do dono que mantém a entrada;
+        sem rastro de nenhum, os do último dono, o mais específico."""
+        elegiveis, motivos = [], {}
         for sessao, tipo in donos:
             motivo, fim = self.situacao(sessao)
             if motivo == 'elegivel':
                 elegiveis.append((sessao, tipo, fim))
             elif motivo != 'sem_prova' or self.conhecida(sessao):
-                motivos.append(motivo)
+                motivos.setdefault(motivo, (sessao, tipo))
         for motivo in ('aberta', 'recente', 'sem_prova'):
             if motivo in motivos:
-                return motivo, donos[0][0], donos[0][1], None, ()
+                return (motivo, *motivos[motivo], None, ())
         if not elegiveis:
-            return 'sem_prova', donos[0][0], donos[0][1], None, ()
+            return 'sem_prova', donos[-1][0], donos[-1][1], None, ()
         sessao, tipo, _ = elegiveis[0]
         return 'elegivel', sessao, tipo, max(f for _, _, f in elegiveis), tuple(s for s, _, _ in elegiveis)
 
@@ -655,10 +657,22 @@ def listar(estado, unidades, saida):
         if lista or motivo == 'sem_prova':
             escrever(f'  {texto.format(dias=plural(estado.dias, "dia", "dias"))}: {plural(len(lista), "item", "itens")}, '
                      f'{tamanho(sum(u["bytes"] for u in lista))}\n')
+            if motivo == 'sem_prova' and lista:
+                listar_entradas(lista, escrever)
     recusadas = sum(1 for u in unidades if u.get('motivo') == 'recusada')
     if recusadas:
         escrever(f'  recusados (link, montagem, tipo ou nome fora do padrão): {plural(recusadas, "item", "itens")}\n')
     return grupos
+
+
+
+def listar_entradas(unidades, escrever):
+    """Uma linha por entrada, com o caminho relativo à raiz do estado."""
+    linhas = sorted((u['sessao'], u['tipo'], '/'.join(u['partes'] + (u['nome'],)), tamanho(u['bytes']))
+                    for u in unidades)
+    largura = [max(len(linha[i]) for linha in linhas + [('SESSÃO', 'TIPO', 'CAMINHO')]) for i in range(3)]
+    for linha in [('SESSÃO', 'TIPO', 'CAMINHO', 'TAMANHO')] + linhas:
+        escrever(f'    {linha[0]:<{largura[0]}}  {linha[1]:<{largura[1]}}  {linha[2]:<{largura[2]}}  {linha[3]:>9}\n')
 
 
 def abrir_registro(estado):
