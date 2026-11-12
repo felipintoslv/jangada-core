@@ -417,7 +417,7 @@ class Gerador:
         for caminho in [*estado.rglob('*')]:
             os.utime(caminho, (antigo, antigo), follow_symlinks=False)
         codigo = ('import sys; sys.path.insert(0, sys.argv[1]); import retencao as r\n'
-                  'e = r.Estado(sys.argv[2], ["claude"], 30, [])\n'
+                  'e = r.Estado(sys.argv[2], ["claude"], 30, ["true"])\n'
                   'g = r.agrupar(r.medir_todas(e)); fd = r.abrir_registro(e)\n'
                   'print(r.aplicar(e, g, fd))\n')
         feito = self.rodar(sys.executable, '-c', codigo, self.arvore / 'nucleo', estado)

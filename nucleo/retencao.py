@@ -37,6 +37,11 @@ SUFIXO = '(?:' + '|'.join(re.escape(s) for s in SUFIXOS) + ')'
 RODADA = re.compile(r'validacao-(.+)-r[0-9]{1,9}' + SUFIXO)
 FIM_LOG = re.compile(r'fim-(.+)\.log')
 ARQUIVO = re.compile(r'[0-9a-f]{64}\.json')
+# Respostas do tmux 3.x sem servidor no socket: connect() com ECONNREFUSED (socket
+# sem ouvinte ou que não é socket) ou ENOENT (socket ausente). Outro erro, como
+# permissão negada ou servidor que caiu no meio da consulta, não prova nada.
+SEM_SERVIDOR = re.compile(r'(?:no server running on [^\n]+'
+                          r'|error connecting to [^\n]+ \(No such file or directory\))\n?')
 PROVEDOR = re.compile(r'claude|agy-[A-Za-z0-9_-]+')
 # O agente parado e o próprio encerramento ainda gravam depois da data `fim`
 # do consumo; alteração além desta folga indica uso da pasta depois do fim.
@@ -146,6 +151,7 @@ class Estado:
         self.agora = datetime.now().astimezone()
         self.limite = self.agora - timedelta(days=dias)
         self.avisos = []
+        self.arquivo_ilegivel = False
         self.atualizar()
 
     def fechar(self):
@@ -161,16 +167,21 @@ class Estado:
             self.avisos.append(texto)
 
     def sessoes_vivas(self):
+        """Sessões do tmux. Só a falta comprovada de servidor vale como nenhuma sessão."""
         if not self.tmux:
-            return set()
+            raise Recusa('falta o comando do tmux')
         try:
             feito = subprocess.run([*self.tmux, 'list-sessions', '-F', '#S'], capture_output=True,
                                    stdin=subprocess.DEVNULL, timeout=10, check=False)
-        except FileNotFoundError:
-            return set()
         except (OSError, subprocess.SubprocessError) as erro:
             raise Recusa(f'não foi possível listar as sessões do tmux: {erro}') from erro
-        return set(feito.stdout.decode('utf-8', 'replace').splitlines()) if feito.returncode == 0 else set()
+        if feito.returncode == 0:
+            return set(feito.stdout.decode('utf-8', 'replace').splitlines())
+        mensagem = feito.stderr.decode('utf-8', 'replace')
+        if feito.returncode == 1 and not feito.stdout and SEM_SERVIDOR.fullmatch(mensagem):
+            return set()
+        raise Recusa(f'não foi possível listar as sessões do tmux (código {feito.returncode}): '
+                     f'{mensagem.strip()[:200]}')
 
     def ler_arquivos(self):
         """Sessão -> nomes dos arquivos íntegros e sem pendência em revisoes/arquivo."""
@@ -199,6 +210,7 @@ class Estado:
             return None
         except (OSError, ValueError, RecursionError):
             self.avisar('arquivo de revisoes/arquivo ilegível ou adulterado não conta como prova')
+            self.arquivo_ilegivel = True
             return None
         if not isinstance(documento, dict) or documento.get('versao') != 1:
             return None
@@ -208,8 +220,11 @@ class Estado:
         return sessao
 
     def ler_consumo(self):
-        """Sessão -> data `fim` mais recente do consumo-tarefas.jsonl."""
-        fins = {}
+        """Sessão -> data `fim` mais recente do consumo-tarefas.jsonl.
+
+        Linha ilegível pode esconder um `fim` mais novo: a sessão cujo nome
+        aparece nela, ou cuja linha traz `fim` inválido, fica sem prova."""
+        fins, self.ruins, self.duvidas = {}, [], set()
         try:
             bruto = ler(self.fd, 'consumo-tarefas.jsonl')
         except FileNotFoundError:
@@ -218,17 +233,28 @@ class Estado:
             self.avisar('consumo-tarefas.jsonl ilegível; nenhuma sessão tem prova de encerramento')
             return fins
         for linha in bruto.decode('utf-8', 'replace').splitlines():
+            if not linha.strip():
+                continue
             try:
                 registro = json.loads(linha)
             except (ValueError, RecursionError):
-                continue
+                registro = None
             if not isinstance(registro, dict):
+                self.ruins.append(linha)
                 continue
             sessao, fim = registro.get('sessao'), data(registro.get('fim'))
-            if isinstance(sessao, str) and nome_valido(sessao) and fim is not None:
-                if sessao not in fins or fim > fins[sessao]:
-                    fins[sessao] = fim
+            if not isinstance(sessao, str) or not nome_valido(sessao):
+                self.ruins.append(linha)
+            elif fim is None:
+                self.duvidas.add(sessao)
+            elif sessao not in fins or fim > fins[sessao]:
+                fins[sessao] = fim
+        if self.ruins or self.duvidas:
+            self.avisar('consumo-tarefas.jsonl tem linha ilegível; as sessões citadas nela ficam sem prova')
         return fins
+
+    def duvidosa(self, sessao):
+        return sessao in self.duvidas or any(sessao in linha for linha in self.ruins)
 
     def existe(self, partes, nome):
         """Presença sem seguir link. Na dúvida, diz que existe."""
@@ -255,14 +281,16 @@ class Estado:
         if self.existe(('agentes',), sessao + '.json') or self.existe(('revisoes',), sessao + '.json'):
             return 'aberta', None
         fim = self.fins.get(sessao)
-        if sessao not in self.arquivados or fim is None:
+        if sessao not in self.arquivados or fim is None or self.duvidosa(sessao):
             return 'sem_prova', None
         if fim > self.limite:
             return 'recente', fim
         return 'elegivel', fim
 
     def conhecida(self, sessao):
-        return sessao in self.arquivados or sessao in self.fins or self.situacao(sessao)[0] == 'aberta'
+        """Nome com rastro de sessão. Com arquivo ilegível, todo nome conta como rastro."""
+        return (self.arquivo_ilegivel or sessao in self.arquivados or sessao in self.fins
+                or self.duvidosa(sessao) or self.situacao(sessao)[0] == 'aberta')
 
     def decidir(self, donos):
         """Todos os donos elegíveis, salvo nome sem rastro de sessão.
@@ -647,46 +675,53 @@ def registrar(fd, linha):
         fcntl.flock(fd, fcntl.LOCK_UN)
 
 
-def reconferir(estado, grupo):
-    """Unidades do grupo que continuam elegíveis com o estado lido agora."""
-    areas = estado.areas()
-    estado.reler_provas({s for u in grupo['unidades'] for s, _ in areas[u['area']][3](u['nome'])})
-    validas, mantidas = [], []
-    for unidade in grupo['unidades']:
-        try:
-            atual = estado.remedir(unidade)
-        except (Recusa, OSError):
-            atual = dict(motivo='recusada')
-        if (atual.get('motivo') == 'elegivel' and atual['sessao'] == grupo['sessao']
-                and atual['tipo'] == grupo['tipo']):
-            validas.append(dict(atual, area=unidade['area']))
-        else:
-            mantidas.append((unidade, atual['motivo']))
-    return validas, mantidas
+def reconferir(estado, unidade, grupo, travadas):
+    """(unidade lida agora, None) se continua elegível, ou (None, motivo).
+
+    Relê o tmux, o consumo e os arquivos de prova antes de cada entrada."""
+    estado.reler_provas({s for s, _ in estado.areas()[unidade['area']][3](unidade['nome'])})
+    try:
+        atual = estado.remedir(unidade)
+    except (Recusa, OSError):
+        return None, 'recusada'
+    if atual['motivo'] != 'elegivel':
+        return None, atual['motivo']
+    if atual['sessao'] != grupo['sessao'] or atual['tipo'] != grupo['tipo'] or not set(atual['travas']) <= travadas:
+        return None, 'dono'
+    return dict(atual, area=unidade['area']), None
 
 
 def aplicar(estado, grupos, registro, erro=sys.stderr):
-    """Apaga cada grupo sob as travas da sessão, depois de reconferir tudo."""
+    """Apaga cada grupo sob as travas da sessão, reconferindo cada entrada logo antes."""
     apagados = falhas = 0
-    textos = dict(MOTIVOS, sumiu='não existe mais', recusada='link, montagem, tipo ou nome fora do padrão')
+    textos = dict(MOTIVOS, sumiu='não existe mais', recusada='link, montagem, tipo ou nome fora do padrão',
+                  dono='donos diferentes dos listados')
+    prazo = plural(estado.dias, 'dia', 'dias')
     for grupo in grupos:
         travas = []
         rotulo = f'{grupo["sessao"]} ({grupo["tipo"]})'
+        removidos, total, resultado = [], 0, 'removido'
         try:
-            for sessao in sorted({s for u in grupo['unidades'] for s in u['travas']}):
+            travadas = {s for u in grupo['unidades'] for s in u['travas']}
+            for sessao in sorted(travadas):
                 travas.append(travar_revisao(estado, sessao))
                 for provedor in sorted({u['provedor'] for u in grupo['unidades'] if u['provedor']}):
                     travas.append(travar_provedor(estado, provedor, sessao))
-            validas, mantidas = reconferir(estado, grupo)
-            for unidade, motivo in mantidas:
-                caminho = '/'.join(unidade['partes'] + (unidade['nome'],))
-                erro.write(f'aviso: {caminho} mantido na reconferência: '
-                           f'{textos.get(motivo, motivo).format(dias=plural(estado.dias, "dia", "dias"))}\n')
-            removidos, total, resultado = [], 0, 'removido'
-            for unidade in validas:
+            for unidade in grupo['unidades']:
                 caminho = '/'.join(unidade['partes'] + (unidade['nome'],))
                 try:
-                    apagar(estado, unidade['partes'], unidade['nome'])
+                    atual, motivo = reconferir(estado, unidade, grupo, travadas)
+                except (Recusa, OSError) as falha:
+                    # Sem a consulta de agora, nenhuma entrada restante do grupo é apagada.
+                    erro.write(f'aviso: {caminho} mantido na reconferência, com o resto do grupo: {falha}\n')
+                    falhas += 1
+                    break
+                if atual is None:
+                    erro.write(f'aviso: {caminho} mantido na reconferência: '
+                               f'{textos.get(motivo, motivo).format(dias=prazo)}\n')
+                    continue
+                try:
+                    apagar(estado, atual['partes'], atual['nome'])
                 except FileNotFoundError:
                     continue
                 except (Recusa, OSError) as falha:
@@ -694,19 +729,19 @@ def aplicar(estado, grupos, registro, erro=sys.stderr):
                     resultado = 'parcial'
                     falhas += 1
                 removidos.append(caminho)
-                total += unidade['bytes']
-            if removidos:
-                registrar(registro, {'sessao': grupo['sessao'], 'tipo': grupo['tipo'], 'caminhos': removidos,
-                                     'bytes': total, 'encerrada': grupo['fim'].isoformat(timespec='seconds'),
-                                     'quando': datetime.now().astimezone().isoformat(timespec='seconds'),
-                                     'resultado': resultado})
-                apagados += 1
+                total += atual['bytes']
         except (Recusa, OSError) as falha:
             erro.write(f'aviso: {rotulo} mantido: {falha}\n')
             falhas += 1
         finally:
             for fd in travas:
                 os.close(fd)
+        if removidos:
+            registrar(registro, {'sessao': grupo['sessao'], 'tipo': grupo['tipo'], 'caminhos': removidos,
+                                 'bytes': total, 'encerrada': grupo['fim'].isoformat(timespec='seconds'),
+                                 'quando': datetime.now().astimezone().isoformat(timespec='seconds'),
+                                 'resultado': resultado})
+            apagados += 1
     return apagados, falhas
 
 
@@ -715,6 +750,8 @@ def opcoes(argumentos):
         raise ValueError('falta o comando do tmux depois de --')
     corte = argumentos.index('--')
     proprios, tmux = argumentos[:corte], argumentos[corte + 1:]
+    if not tmux:
+        raise ValueError('falta o comando do tmux depois de --')
     if len(proprios) < 2:
         raise ValueError('informe a pasta de estado e os provedores')
     raiz, provedores, resto = proprios[0], proprios[1].split(), proprios[2:]

@@ -58,6 +58,11 @@ def iso(quando):
     return quando.isoformat(timespec='seconds')
 
 
+# Com vivas.falha, responde como o tmux 3.x quando o socket não pode ser lido.
+FALSO_TMUX = ('[ ! -e "$0.falha" ] || { echo "error connecting to /tmp/s (Permission denied)" >&2; exit 1; }; '
+              '[ ! -e "$0" ] || cat "$0"')
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -123,7 +128,7 @@ class Base(unittest.TestCase):
 
     def abrir(self, dias=30, provedores=('claude',)):
         estado = retencao.Estado(str(self.estado), list(provedores), dias,
-                                 ['sh', '-c', 'cat "$0"', str(self.vivas)])
+                                 ['sh', '-c', FALSO_TMUX, str(self.vivas)])
         self.addCleanup(estado.fechar)
         return estado
 
@@ -469,6 +474,122 @@ class Remocao(Base):
         self.assertIn('em uso', erro)
         self.assertTrue(self.existe('codex/antiga'))
         self.assertEqual(self.registros(), [])
+
+    def test_consulta_ao_tmux_que_falha_nao_libera(self):
+        def vivas(*comando):
+            return retencao.Estado.sessoes_vivas(type('E', (), {'tmux': list(comando)})())
+        sem_servidor = ('no server running on /tmp/tmux-1000/jangada',
+                        'error connecting to /tmp/tmux-1000/jangada (No such file or directory)')
+        for mensagem in sem_servidor:
+            self.assertEqual(vivas('sh', '-c', f'echo "{mensagem}" >&2; exit 1'), set(), mensagem)
+        for script in ('echo "error connecting to /tmp/s (Permission denied)" >&2; exit 1',
+                       'echo "lost server" >&2; exit 1',
+                       'echo "no server running on /tmp/s" >&2; exit 2',
+                       'echo "no server running on /tmp/s" >&2; echo sobra >&2; exit 1',
+                       'echo antiga; echo "no server running on /tmp/s" >&2; exit 1',
+                       'exit 1'):
+            with self.assertRaises(retencao.Recusa, msg=script):
+                vivas('sh', '-c', script)
+        for comando in ((), (str(self.tmp / 'sem-tmux'),)):
+            with self.assertRaises(retencao.Recusa, msg=comando):
+                vivas(*comando)
+
+    @unittest.skipUnless(shutil.which('tmux'), 'tmux ausente')
+    def test_tmux_real_sem_servidor_e_sem_permissao(self):
+        socket = self.tmp / 's'
+        self.assertEqual(retencao.Estado.sessoes_vivas(type('E', (), {'tmux': ['tmux', '-S', str(socket)]})()),
+                         set())
+        fechada = self.tmp / 'fechada'
+        fechada.mkdir(mode=0o000)
+        try:
+            if os.access(fechada, os.R_OK | os.X_OK):
+                self.skipTest('permissão não se aplica a este usuário')
+            with self.assertRaises(retencao.Recusa):
+                retencao.Estado.sessoes_vivas(type('E', (), {'tmux': ['tmux', '-S', str(fechada / 's')]})())
+        finally:
+            fechada.chmod(0o700)
+
+    def test_tmux_que_falha_mantem_os_dados(self):
+        self.encerrada('antiga')
+        self.envelhecer()
+        antes = dados(self.estado)
+        Path(str(self.vivas) + '.falha').touch()
+        with self.assertRaises(retencao.Recusa):
+            self.abrir()
+        falso = self.tmp / 'bin/tmux'
+        falso.write_text('#!/bin/sh\necho "error connecting to /tmp/s (Permission denied)" >&2\nexit 1\n')
+        p = self.comando('--limpar-antigos')
+        self.assertEqual(p.returncode, 1)
+        self.assertIn('não foi possível listar as sessões do tmux', p.stderr)
+        self.assertEqual(dados(self.estado), antes)
+        Path(str(self.vivas) + '.falha').unlink()
+        _, erro = self.aplicar(antes=lambda: Path(str(self.vivas) + '.falha').touch())
+        self.assertIn('não foi possível listar as sessões do tmux', erro)
+        self.assertEqual(dados(self.estado), antes)
+        self.assertEqual(self.registros(), [])
+
+    def mudar_entre_remocoes(self, mudanca):
+        """Muda o estado logo depois da primeira remoção das rodadas em agentes."""
+        self.encerrada('antiga')
+        self.envelhecer()
+        original, feitas = retencao.apagar, []
+
+        def apagar(estado, partes, nome):
+            original(estado, partes, nome)
+            feitas.append(nome)
+            if nome == 'validacao-antiga-r1.md.log':
+                mudanca()
+        retencao.apagar = apagar
+        try:
+            _, erro = self.aplicar()
+        finally:
+            retencao.apagar = original
+        self.assertFalse(self.existe('agentes/validacao-antiga-r1.md.log'))
+        self.assertTrue(self.existe('agentes/validacao-antiga-r2.contexto.json'), erro)
+        self.assertNotIn('validacao-antiga-r2.contexto.json', feitas)
+        self.assertIn('agentes/validacao-antiga-r2.contexto.json mantido', erro)
+        linhas = [r for r in self.registros() if r['tipo'] == 'rodadas em agentes']
+        self.assertEqual([r['caminhos'] for r in linhas], [['agentes/validacao-antiga-r1.md.log']])
+        return erro
+
+    def test_sessao_reaberta_entre_duas_remocoes(self):
+        erro = self.mudar_entre_remocoes(lambda: self.gravar('agentes/antiga.json', '{}'))
+        self.assertIn('sessão viva ou aberta', erro)
+        self.assertTrue(self.existe('revisoes/validacao-antiga-r1.md.tmp'))
+
+    def test_sessao_viva_entre_duas_remocoes(self):
+        self.assertIn('sessão viva ou aberta', self.mudar_entre_remocoes(lambda: self.vivas.write_text('antiga\n')))
+
+    def test_alvo_alterado_entre_duas_remocoes(self):
+        alvo = self.estado / 'agentes/validacao-antiga-r2.contexto.json'
+        self.assertIn('alterada depois do encerramento', self.mudar_entre_remocoes(lambda: os.utime(alvo)))
+
+    def test_tmux_falha_entre_duas_remocoes(self):
+        erro = self.mudar_entre_remocoes(lambda: Path(str(self.vivas) + '.falha').touch())
+        self.assertIn('não foi possível listar as sessões do tmux', erro)
+
+    def test_consumo_ilegivel_nao_prova(self):
+        self.encerrada('antiga')
+        self.encerrada('outra')
+        self.encerrada('terceira')
+        with open(self.estado / 'consumo-tarefas.jsonl', 'a') as arquivo:
+            arquivo.write('{"sessao":"antiga","fim":"2026-11\n')
+            arquivo.write(json.dumps(dict(sessao='outra', fim='ontem')) + '\n')
+            arquivo.write('\n')
+        self.envelhecer()
+        unidades, _ = self.aplicar()
+        self.assertTrue(self.existe('codex/antiga'))
+        self.assertTrue(self.existe('codex/outra'))
+        self.assertFalse(self.existe('codex/terceira'))
+        self.assertTrue(all(u['motivo'] == 'sem_prova' for u in unidades if u.get('sessao') in ('antiga', 'outra')))
+
+    def test_arquivo_ilegivel_faz_dono_desconhecido_pesar(self):
+        self.encerrada('antiga')
+        self.gravar('revisoes/arquivo/' + '0' * 64 + '.json', '{}')
+        self.envelhecer()
+        self.aplicar()
+        self.assertTrue(self.existe('codex/revisao-codex-antiga'))
+        self.assertFalse(self.existe('codex/antiga'))
 
     def test_ponto_de_montagem_recusado(self):
         self.encerrada('antiga')
