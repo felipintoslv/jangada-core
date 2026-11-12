@@ -154,7 +154,7 @@ Pasta `$JANGADA_ESTADO/agentes/`. Em 26/09/2026 havia 41 arquivos.
 |---|---|---|---|---|
 | `validacao-SESSAO-rN.md` | 16 | 26/09 20:54 a 23:37 | `bin/jangada-validar:773` (e a reprovação local, linhas 690 a 709) | `bin/jangada-agente-fim:261` a `:264`, ao encerrar a sessão |
 | `validacao-SESSAO.aprovado` | 1 | 26/09 | `bin/jangada-validar:794` | `bin/jangada-agente-fim:264` |
-| `validacao-SESSAO-rN.contexto.json`, `validacao-SESSAO-rN.verificacoes.tsv`, `validacao-SESSAO-rN.md.log` | não medido | não medido | `bin/jangada-validar`, a cada rodada: identidade e pedido da revisão (`:618` a `:627`), estado de cada verificação local (`:667`) e registro do revisor (`:1053`) | ninguém: `bin/jangada-agente-fim:268` a `:272` só apaga `-rN.md` e `.aprovado` |
+| `validacao-SESSAO-rN.contexto.json`, `validacao-SESSAO-rN.verificacoes.tsv`, `validacao-SESSAO-rN.md.log` | não medido | não medido | `bin/jangada-validar`, a cada rodada: identidade e pedido da revisão (`:618` a `:627`) e, quando a rodada traz `--resposta`, `resposta_sha256` (SHA-256 da resposta com os espaços colapsados, que reconhece a contestação repetida), estado de cada verificação local (`:667`) e registro do revisor (`:1053`) | ninguém: `bin/jangada-agente-fim:268` a `:272` só apaga `-rN.md` e `.aprovado` |
 | `parecer-SESSAO-rN.md` | 12 | 20/09 a 21/09 | antigo `bin/jangada-par` (removido no commit 411d273, 22/09) | ninguém |
 | `avaliacao-SESSAO-rN.md` | 2 | 21/09 | antigo `bin/jangada-par` (avaliação do Claude sobre o parecer, não é revisão) | ninguém |
 | `revisao-SESSAO-rN.log` | 5 | 20/09 a 21/09 | antigo `bin/jangada-par` (erro do agy, vários vazios) | ninguém |

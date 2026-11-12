@@ -173,7 +173,10 @@ uma sessão de agente roda fora, pedida pelo soquete.
   em `fotos/`, roda a verificação local e o revisor sob a trava de
   `revisoes/travas/`, e grava parecer, contexto, marca e linha de
   `validar.jsonl` em `revisoes/`. O sha já revisado contra a mesma base
-  devolve o parecer gravado, sem chamar o revisor e sem gastar rodada.
+  devolve o parecer gravado, sem chamar o revisor e sem gastar rodada, salvo
+  a contestação: REVISAR do revisor com `--resposta` que esse sha ainda não
+  recebeu vai ao revisor e gasta rodada
+  ([validação](ciclo-da-tarefa.md#validação-da-entrega)).
 - **Erros do revisor:** a rodada em que o revisor falha ou vence o prazo
   (`JANGADA_VALIDAR_PRAZO`) não grava parecer e não conta no limite. O
   `--atendido` conta os erros seguidos em `revisoes/validacao-SESSAO.erros`;

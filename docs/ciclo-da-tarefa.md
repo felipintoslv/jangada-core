@@ -400,6 +400,17 @@ flowchart TD
   comando sai com 1 e pede o coordenador; depois de 3 erros seguidos do
   revisor, também. Detalhes em
   [isolamento](isolamento.md#o-atendente-da-revisão).
+- **Contestação.** O sha já revisado contra a mesma base devolve o parecer
+  gravado, sem chamar o revisor. Quando o parecer é REVISAR do revisor e o
+  autor discorda de um apontamento sem ter o que mudar, ele responde com
+  `jangada-validar --resposta "1 não procede: motivo"`, sem commit novo. A
+  resposta vai ao revisor com o parecer anterior, como na rodada seguinte a
+  um commit, e gasta uma rodada dentro do limite. O resumo dela fica em
+  `resposta_sha256` no `.contexto.json` da rodada, em `revisoes/`: a mesma
+  resposta para o mesmo sha e base, mesmo com outros espaços, devolve o
+  último parecer gravado. APROVADO e REVISAR da verificação local também
+  devolvem o parecer gravado, com ou sem resposta. No pedido, a resposta vai
+  delimitada, como argumento do autor a conferir no código.
 - **Ponto de comparação.** Parte do `merge-base` entre a base e o `HEAD`.
   Direto no ramo base, vale o commit `inicio` gravado na abertura. Depois de
   um APROVADO, a próxima chamada é outra entrega: a revisão parte do commit

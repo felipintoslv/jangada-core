@@ -666,6 +666,10 @@ porta de entrada. O que se aprendeu com ele vale para o revisor agy:
 - O `gitleaks dir` lê sozinho o `.gitleaks.toml` e o `.gitleaksignore` da
   pasta examinada. O espelho das linhas novas não copia esses dois arquivos;
   as regras vão por `--config` e `--gitleaks-ignore-path`, tiradas da base.
+- REVISAR com premissa errada, sem nada a mudar no código: responda com
+  `jangada-validar --resposta "1 não procede: motivo"`, sem commit vazio nem
+  `--forcar`. Cada contestação nova gasta rodada; a mesma resposta repetida
+  devolve o parecer gravado.
 - Ao atingir o limite de rodadas, `--reverter-se-limite` preserva arquivos e
   commits. A reversão automática está bloqueada. O `reverter` manual do
   shell ainda confirma descarte, mas o ramo de cópia guarda somente commits:
