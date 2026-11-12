@@ -1039,7 +1039,11 @@ bordas para conferir assinaturas não entra nessas contagens.
   tmux; nenhum dado alterado mais de uma hora depois do `fim`. Registros que
   o agente grava (`agentes/`, `validar.jsonl` do estado, `eventos-agentes.jsonl`)
   não provam nada. Sessão sem as provas fica no grupo "sem prova de
-  encerramento" da listagem, só para informar.
+  encerramento" da listagem, só para informar. Linha ilegível do
+  `consumo-tarefas.jsonl` tira a prova das sessões citadas nela. Consulta ao
+  tmux que falha recusa a limpeza; só a falta comprovada de servidor vale
+  como nenhuma sessão viva. As provas são lidas de novo antes de cada
+  entrada apagada, com as travas da sessão mantidas.
 - **Acúmulo e limpeza:** só acumula; nada o apaga. `revisoes/arquivo/`,
   `consumo-tarefas.jsonl` e as travas ficam de fora da limpeza.
 
