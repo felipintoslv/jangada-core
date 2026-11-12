@@ -546,6 +546,17 @@ Uma confirmação de descarte perde arquivos sem commit: faça cópia antes.
 Chamado de dentro da própria sessão, o `limpar` roda em segundo plano, com
 registro, porque fechar o tmux encerraria o próprio comando.
 
+O encerramento deixa no estado as pastas do Codex (`codex/SESSAO` e
+`codex/revisao-codex-SESSAO`), as dos provedores (`provedores/PROVEDOR/SESSAO`),
+`revisoes/inicios/SESSAO`, o `agentes/fim-SESSAO.log` e as sobras das rodadas.
+Nada as apaga sozinho. `jangada-agentes --limpar-antigos [--dias N]` lista as
+de sessões com prova de encerramento há mais de N dias (padrão 30): arquivo
+em `revisoes/arquivo/`, linha no `consumo-tarefas.jsonl`, sem cópia
+`revisoes/SESSAO.json` e sem tmux vivo. Com `--aplicar`, fora do isolamento e
+num terminal, apaga depois de o usuário digitar `apagar`, sem cópia de
+segurança, e grava cada remoção no `limpezas.jsonl`
+([registros](registros.md), seção 13). `revisoes/arquivo/` e o consumo ficam.
+
 ## Sessões órfãs
 
 As consultas `jangada-agentes --lista`, `--lista-atualizada` e `--waybar`
