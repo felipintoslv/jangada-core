@@ -630,7 +630,7 @@ zerar_erros() { ((!fora)) || rm -f "$arq_erros"; }
 # repetida. Os espaços colapsam: a mesma resposta reformatada não abre rodada.
 resposta_sha256=""
 if [[ -n "${resposta//[[:space:]]/}" ]]; then
-  resposta_sha256="$(python3 -c 'import hashlib, sys
+  resposta_sha256="$(python3 -I -c 'import hashlib, sys
 print(hashlib.sha256(" ".join(sys.argv[1].split()).encode("utf-8", "surrogateescape")).hexdigest())' "$resposta")" \
     || { echo "jangada-validar: não foi possível resumir a resposta" >&2; exit 1; }
 fi

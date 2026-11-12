@@ -231,6 +231,24 @@ conferir "caso 2b: resposta pontuada e item sem classe" jq -e \
   'objects | select(.resposta.corrigidos == 1 and .resposta.rejeitados == 1 and .resposta.sem_classificar == 1 and .responde_a.rodada == 1 and .responde_a.revisor == "agy")' \
   "$rev/validar.jsonl"
 
+# Caso 2c: na rodada direta a pasta atual é a do agente; o Python do
+# jangada-validar não importa módulo dela.
+mkdir -p "$tmp/armadilha"
+for m in hashlib json re; do
+  printf 'open("%s", "w").write("x")\n' "$tmp/armadilha/pegou-$m" >"$tmp/armadilha/$m.py"
+done
+echo "linha 3" >>"$tmp/projeto/arquivo.txt"
+git -C "$tmp/projeto" add arquivo.txt
+git -C "$tmp/projeto" -c user.name=t -c user.email=t@t commit -qm "commit 3"
+sessao_de claude agy
+validar 'STATUS: REVISAR\n1. arquivo.txt:1: conferir'; rc=$?
+(cd "$tmp/armadilha" && validar 'STATUS: APROVADO' --resposta "1 rejeitado: MARCA-ARMADILHA"); rc=$?
+conferir "caso 2c: o resumo da resposta não importa o hashlib da pasta atual" test ! -e "$tmp/armadilha/pegou-hashlib"
+conferir "caso 2c: com a resposta, a rodada aprova sem importar json nem re da pasta atual" \
+  bash -c '[[ "$1" == 0 ]] && ! test -e "$2/pegou-json" && ! test -e "$2/pegou-re" \
+    && jq -e "objects | select(.resposta == {corrigidos:0,rejeitados:1,sem_classificar:0} and .rodada == 2)" "$3" >/dev/null' \
+  _ "$rc" "$tmp/armadilha" "$rev/validar.jsonl"
+
 # Caso 3: sessão do agy, o revisor é o Claude; status com Markdown.
 sessao_de agy
 validar '## **STATUS: APROVADO**'; rc=$?
