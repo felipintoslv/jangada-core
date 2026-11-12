@@ -1049,12 +1049,18 @@ bordas para conferir assinaturas não entra nessas contagens.
   da sessão X quando o arquivo de X em `revisoes/arquivo/` traz um
   `revisoes/validacao-X-rN.contexto.json` com confiança `controlador`,
   SHA-256 conferido, `sessao` X, `protegido` verdadeiro e `codex` em
-  `revisor_solicitado` ou `revisor_executado`, e quando a sessão de nome
-  inteiro `revisao-codex-X` não tem rastro (arquivo, `fim` no consumo,
-  cópia de estado ou tmux vivo). Sem a prova, a pasta segue as provas da
+  `revisor_solicitado` ou `revisor_executado`, e quando o nome inteiro
+  `revisao-codex-X` não tem nenhum rastro no estado. Conta como rastro,
+  só para decidir o dono dessa pasta: arquivo em `revisoes/arquivo/` com
+  esse nome de sessão, com ou sem pendências; qualquer linha do consumo
+  com essa sessão, com ou sem `fim`; cópia de estado; sessão viva no tmux;
+  `fim-NOME.log` ou `validacao-NOME-rN.*` em `agentes/`; rodada em
+  `revisoes/`; `revisoes/inicios/NOME`; e `provedores/*/NOME`. Pasta que
+  não se lê conta como rastro. Sem a prova, a pasta segue as provas da
   sessão de nome inteiro e, sem rastro dela, fica em "sem prova de
-  encerramento". Com a prova e o rastro, o dono fica em dúvida e a pasta
-  também fica nesse grupo.
+  encerramento". Com a prova e algum rastro, o dono fica em dúvida e a
+  pasta também fica nesse grupo. A elegibilidade de cada sessão continua
+  exigindo as provas acima.
 - **Falhas de leitura:** nenhuma falha autoriza apagar.
   - Linha não vazia do `consumo-tarefas.jsonl` que não seja registro válido,
     ou o arquivo ilegível: nenhuma sessão tem prova e o `--aplicar` recusa.

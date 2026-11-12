@@ -893,23 +893,37 @@ class Remocao(Base):
         self.assertIn('codex/revisao-codex-antiga', [c for r in self.registros() for c in r['caminhos']])
 
     def test_pasta_do_revisor_com_rastro_do_nome_inteiro_fica(self):
-        for rastro in ('consumo', 'estado', 'arquivo'):
+        nome = 'revisao-codex-antiga'
+        rastros = {'consumo': lambda: self.consumir(nome, 40),
+                   'estado': lambda: self.gravar(f'agentes/{nome}.json'),
+                   'arquivo': lambda: self.arquivar(nome, codex=False),
+                   'arquivo pendente': lambda: self.arquivar(nome, codex=False, pendencias=['revisão']),
+                   'arquivo de outra versão': lambda: self.arquivar(nome, codex=False, versao=2),
+                   'rodada em agentes': lambda: self.gravar(f'agentes/validacao-{nome}-r1.md'),
+                   'rodada em revisoes': lambda: self.gravar(f'revisoes/validacao-{nome}-r2.contexto.json'),
+                   'registro do fim': lambda: self.gravar(f'agentes/fim-{nome}.log'),
+                   'início': lambda: self.gravar(f'revisoes/inicios/{nome}/a.json'),
+                   'provedor': lambda: self.gravar(f'provedores/agy-conta/{nome}/e.json')}
+        for rastro, criar in rastros.items():
             with self.subTest(rastro=rastro):
                 shutil.rmtree(self.estado)
                 self.estado.mkdir()
                 self.encerrada('antiga')
-                if rastro == 'consumo':
-                    self.consumir('revisao-codex-antiga', 40)
-                elif rastro == 'estado':
-                    self.gravar('agentes/revisao-codex-antiga.json')
-                else:
-                    self.arquivar('revisao-codex-antiga', codex=False)
+                criar()
                 self.envelhecer()
                 unidade = self.motivo_do_revisor()
                 self.assertEqual((unidade['motivo'], unidade['tipo']), ('sem_prova', retencao.DUVIDA))
                 self.aplicar()
                 self.assertTrue(self.existe('codex/revisao-codex-antiga/b.jsonl'))
                 self.assertFalse(self.existe('codex/antiga'))
+
+    def test_pasta_do_revisor_com_linha_do_consumo_sem_fim_fica_em_duvida(self):
+        self.encerrada('antiga')
+        with open(self.estado / 'consumo-tarefas.jsonl', 'a') as arquivo:
+            arquivo.write(json.dumps(dict(sessao='revisao-codex-antiga')) + '\n')
+        self.envelhecer()
+        unidade = self.motivo_do_revisor()
+        self.assertEqual((unidade['motivo'], unidade['tipo']), ('sem_prova', retencao.DUVIDA))
 
     def test_ponto_de_montagem_recusado(self):
         self.encerrada('antiga')

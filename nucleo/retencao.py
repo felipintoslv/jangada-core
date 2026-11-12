@@ -185,6 +185,7 @@ class Estado:
     def atualizar(self):
         """Lê de novo todas as provas. Impedimento recusa a aplicação inteira."""
         self.impedimentos, self.arquivo_ilegivel, self.revisadas_codex = set(), False, set()
+        self.vistos, self.no_consumo = set(), set()
         self.vivas = self.sessoes_vivas()
         self.arquivados = self.ler_arquivos()
         self.fins = self.ler_consumo()
@@ -239,9 +240,11 @@ class Estado:
             self.avisar('arquivo de revisoes/arquivo ilegível ou adulterado não conta como prova')
             self.arquivo_ilegivel = True
             return None
+        sessao = documento.get('sessao') if isinstance(documento, dict) else None
+        if isinstance(sessao, str):
+            self.vistos.add(sessao)
         if not isinstance(documento, dict) or documento.get('versao') != 1:
             return None
-        sessao = documento.get('sessao')
         if not isinstance(sessao, str) or not nome_valido(sessao) or documento.get('pendencias', []) != []:
             return None
         if revisao_codex(documento, sessao):
@@ -253,7 +256,7 @@ class Estado:
 
         Uma linha não vazia que não seja registro válido pode esconder um `fim`
         mais novo de qualquer sessão: nenhuma sessão tem prova e nada é apagado."""
-        fins = {}
+        fins, invalida = {}, None
         try:
             bruto = ler(self.fd, 'consumo-tarefas.jsonl')
         except FileNotFoundError:
@@ -266,14 +269,17 @@ class Estado:
             try:
                 registro = json.loads(linha.decode('utf-8'))
             except (ValueError, RecursionError):
-                return self.consumo_invalido(f'linha {numero} inválida')
+                invalida = invalida or f'linha {numero} inválida'
+                continue
             sessao = registro.get('sessao') if isinstance(registro, dict) else None
             fim = data(registro.get('fim')) if isinstance(registro, dict) else None
+            if isinstance(sessao, str):
+                self.no_consumo.add(sessao)
             if not isinstance(sessao, str) or not nome_valido(sessao) or fim is None:
-                return self.consumo_invalido(f'linha {numero} sem sessão ou fim válidos')
-            if sessao not in fins or fim > fins[sessao]:
+                invalida = invalida or f'linha {numero} sem sessão ou fim válidos'
+            elif sessao not in fins or fim > fins[sessao]:
                 fins[sessao] = fim
-        return fins
+        return self.consumo_invalido(invalida) if invalida else fins
 
     def consumo_invalido(self, motivo):
         texto = f'consumo-tarefas.jsonl {motivo}; nenhuma sessão tem prova de encerramento'
@@ -314,8 +320,40 @@ class Estado:
 
     def conhecida(self, sessao):
         """Nome com rastro de sessão. Com arquivo ilegível, todo nome conta como rastro."""
-        return (self.arquivo_ilegivel or sessao in self.arquivados or sessao in self.fins
-                or self.situacao(sessao)[0] == 'aberta')
+        return (self.arquivo_ilegivel or sessao in self.arquivados or sessao in self.vistos
+                or sessao in self.fins or sessao in self.no_consumo or self.situacao(sessao)[0] == 'aberta')
+
+    def rastro(self, sessao):
+        """Qualquer evidência do nome no estado, só para decidir o dono da pasta do
+        revisor: arquivo com ou sem pendência, linha do consumo, cópia de estado,
+        tmux, rodada, registro do fim, início ou dado de provedor. Na dúvida, há rastro."""
+        if self.conhecida(sessao):
+            return True
+        rodada = re.compile('validacao-' + re.escape(sessao) + r'-r[0-9]+(?:\..*)?', re.S)
+        for partes in (('agentes',), ('revisoes',)):
+            nomes = self.nomes(partes)
+            if nomes is None or any(rodada.fullmatch(n) for n in nomes):
+                return True
+        if self.existe(('agentes',), f'fim-{sessao}.log') or self.existe(('revisoes', 'inicios'), sessao):
+            return True
+        provedores = self.nomes(('provedores',))
+        return provedores is None or any(self.existe(('provedores', p), sessao) for p in provedores)
+
+    def nomes(self, partes):
+        """Nomes da pasta; vazio se ela não existe, None se não se lê."""
+        try:
+            fd = abrir_pasta(self.fd, partes)
+        except OSError:
+            return None
+        if fd is None:
+            return set()
+        try:
+            with os.scandir(fd) as entradas:
+                return {e.name for e in entradas}
+        except OSError:
+            return None
+        finally:
+            os.close(fd)
 
     def decidir(self, donos):
         """Todos os donos elegíveis, salvo nome sem rastro de sessão.
@@ -369,7 +407,7 @@ class Estado:
         revisada = nome[len(PREFIXO_REVISOR):]
         if not (nome.startswith(PREFIXO_REVISOR) and nome_valido(revisada)) or revisada not in self.revisadas_codex:
             return [(nome, 'codex')]
-        if self.conhecida(nome):
+        if self.rastro(nome):
             return [(revisada, DUVIDA), (nome, DUVIDA)]
         return [(revisada, 'codex do revisor')]
 
