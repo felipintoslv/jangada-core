@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -51,6 +52,7 @@ FOLGA = 3600
 ESPERA_TRAVA = 5
 PROFUNDIDADE = 256
 PASTA = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+SINAIS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 MOTIVOS = (('sem_prova', 'sem prova de encerramento'),
            ('aberta', 'sessão viva ou aberta'),
@@ -66,6 +68,17 @@ class Recusa(Exception):
 
 class Ausente(Exception):
     """O alvo já não existia antes de qualquer exclusão: nada a registrar."""
+
+
+class Interrompida(BaseException):
+    """Sinal de interrupção entregue entre dois grupos."""
+
+    def __init__(self, numero):
+        super().__init__(signal.Signals(numero).name)
+
+
+def interromper(numero, _quadro):
+    raise Interrompida(numero)
 
 
 class RegistroDanificado(Recusa):
@@ -877,98 +890,137 @@ def aplicar(estado, grupos, registro, erro=sys.stderr):
 
     O que foi apagado, inteiro ou em parte, sempre recebe a linha no registro;
     se a gravação falha, o erro sai com a lista e nada mais é apagado."""
+    mascara = signal.pthread_sigmask(signal.SIG_BLOCK, ())
+    # Sinal ignorado por quem chamou continua ignorado.
+    anteriores = {n: signal.getsignal(n) for n in SINAIS if signal.getsignal(n) is not signal.SIG_IGN}
+    try:
+        for numero in anteriores:
+            signal.signal(numero, interromper)
+        return aplicar_grupos(estado, grupos, registro, erro, mascara)
+    finally:
+        # Bloqueado durante a troca: sinal que chegar agora vai ao tratador anterior.
+        signal.pthread_sigmask(signal.SIG_BLOCK, SINAIS)
+        try:
+            for numero, tratador in anteriores.items():
+                signal.signal(numero, signal.SIG_DFL if tratador is None else tratador)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mascara)
+
+
+def aplicar_grupos(estado, grupos, registro, erro, mascara):
+    """Os sinais de interrupção ficam bloqueados das travas de cada grupo até a
+    linha gravada e as travas soltas; o pendente é entregue entre dois grupos."""
     apagados = falhas = 0
-    parar = False
     textos = dict(MOTIVOS, sumiu='não existe mais', recusada='link, montagem, tipo ou nome fora do padrão',
                   dono='donos diferentes dos listados')
     prazo = plural(estado.dias, 'dia', 'dias')
-    for grupo in grupos:
-        travas, registro_travado, interrupcao = [], False, None
-        rotulo = f'{grupo["sessao"]} ({grupo["tipo"]})'
-        removidos, total, resultado = [], 0, 'removido'
-        try:
+    rotulo = None
+    try:
+        for grupo in grupos:
             try:
-                # O registro primeiro: sem ele, nada do grupo é apagado.
-                esperar_trava(registro, 'limpezas.jsonl')
-                registro_travado = True
-                registro_integro(registro)
-                travadas = {s for u in grupo['unidades'] for s in u['travas']}
-                for sessao in sorted(travadas):
-                    travas.append(travar_revisao(estado, sessao))
-                    for provedor in sorted({u['provedor'] for u in grupo['unidades'] if u['provedor']}):
-                        travas.append(travar_provedor(estado, provedor, sessao))
-                for unidade in grupo['unidades']:
-                    caminho = '/'.join(unidade['partes'] + (unidade['nome'],))
-                    try:
-                        atual, motivo = reconferir(estado, unidade, grupo, travadas)
-                    except Exception as falha:
-                        # Sem a consulta de agora, nenhuma entrada restante do grupo é apagada.
-                        erro.write(f'aviso: {caminho} mantido na reconferência, com o resto do grupo: {falha}\n')
-                        falhas += 1
-                        break
-                    if atual is None:
-                        erro.write(f'aviso: {caminho} mantido na reconferência: '
-                                   f'{textos.get(motivo, motivo).format(dias=prazo)}\n')
-                        continue
-                    feitas = [0]
-                    try:
-                        apagar(estado, atual['partes'], atual['nome'], feitas)
-                    except Ausente:
-                        continue
-                    except BaseException as falha:
-                        if not feitas[0]:
-                            if not isinstance(falha, Exception):
-                                raise
-                            erro.write(f'aviso: {caminho} mantido: {falha}\n')
-                            falhas += 1
-                            continue
-                        erro.write(f'erro: {caminho} não foi apagado por inteiro: {falha}\n')
-                        resultado = 'parcial'
-                        falhas += 1
-                        removidos.append(caminho)
-                        total += atual['bytes']
+                signal.pthread_sigmask(signal.SIG_BLOCK, SINAIS)
+                apagado, falhou, parar = aplicar_grupo(estado, grupo, registro, erro, textos, prazo)
+                apagados, falhas, rotulo = apagados + apagado, falhas + falhou, f'{grupo["sessao"]} ({grupo["tipo"]})'
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, mascara)
+            if parar:
+                break
+    except (Interrompida, KeyboardInterrupt) as sinal:
+        depois = f' depois de {rotulo}' if rotulo else ''
+        erro.write(f'erro: limpeza interrompida ({sinal or "SIGINT"}){depois}; os grupos seguintes ficam mantidos\n')
+        falhas += 1
+    return apagados, falhas
+
+
+def aplicar_grupo(estado, grupo, registro, erro, textos, prazo):
+    """Devolve (apagados, falhas, parar). Quem chama bloqueia os sinais de interrupção."""
+    apagados = falhas = 0
+    parar = False
+    travas, registro_travado, interrupcao = [], False, None
+    rotulo = f'{grupo["sessao"]} ({grupo["tipo"]})'
+    removidos, total, resultado = [], 0, 'removido'
+    try:
+        try:
+            # O registro primeiro: sem ele, nada do grupo é apagado.
+            esperar_trava(registro, 'limpezas.jsonl')
+            registro_travado = True
+            registro_integro(registro)
+            travadas = {s for u in grupo['unidades'] for s in u['travas']}
+            for sessao in sorted(travadas):
+                travas.append(travar_revisao(estado, sessao))
+                for provedor in sorted({u['provedor'] for u in grupo['unidades'] if u['provedor']}):
+                    travas.append(travar_provedor(estado, provedor, sessao))
+            for unidade in grupo['unidades']:
+                caminho = '/'.join(unidade['partes'] + (unidade['nome'],))
+                try:
+                    atual, motivo = reconferir(estado, unidade, grupo, travadas)
+                except Exception as falha:
+                    # Sem a consulta de agora, nenhuma entrada restante do grupo é apagada.
+                    erro.write(f'aviso: {caminho} mantido na reconferência, com o resto do grupo: {falha}\n')
+                    falhas += 1
+                    break
+                if atual is None:
+                    erro.write(f'aviso: {caminho} mantido na reconferência: '
+                               f'{textos.get(motivo, motivo).format(dias=prazo)}\n')
+                    continue
+                feitas = [0]
+                try:
+                    apagar(estado, atual['partes'], atual['nome'], feitas)
+                except Ausente:
+                    continue
+                except BaseException as falha:
+                    if not feitas[0]:
                         if not isinstance(falha, Exception):
                             raise
+                        erro.write(f'aviso: {caminho} mantido: {falha}\n')
+                        falhas += 1
                         continue
+                    erro.write(f'erro: {caminho} não foi apagado por inteiro: {falha}\n')
+                    resultado = 'parcial'
+                    falhas += 1
                     removidos.append(caminho)
                     total += atual['bytes']
-            except Exception as falha:
-                if removidos:
-                    erro.write(f'aviso: {rotulo}: resto do grupo mantido: {falha}\n')
-                elif isinstance(falha, RegistroDanificado):
-                    erro.write(f'erro: {falha}; {rotulo} e os grupos seguintes ficam mantidos\n')
-                    parar = True
-                else:
-                    erro.write(f'aviso: {rotulo} mantido: {falha}\n')
-                falhas += 1
-            except BaseException as falha:
-                # Interrupção: o já apagado ainda recebe a linha antes de parar.
-                interrupcao = falha
+                    if not isinstance(falha, Exception):
+                        raise
+                    continue
+                removidos.append(caminho)
+                total += atual['bytes']
+        except Exception as falha:
             if removidos:
-                try:
-                    registrar(registro, {'sessao': grupo['sessao'], 'tipo': grupo['tipo'], 'caminhos': removidos,
-                                         'bytes': total, 'encerrada': grupo['fim'].isoformat(timespec='seconds'),
-                                         'quando': datetime.now().astimezone().isoformat(timespec='seconds'),
-                                         'resultado': resultado})
-                    apagados += 1
-                except Exception as falha:
-                    erro.write(f'erro: {rotulo}: apagado sem registro completo em limpezas.jsonl ({falha}): '
-                               f'{", ".join(removidos)}\n')
-                    erro.write('erro: registro com falha; os grupos seguintes ficam mantidos\n')
-                    falhas += 1
-                    parar = True
-        finally:
-            for fd in travas:
-                os.close(fd)
-            if registro_travado:
-                fcntl.flock(registro, fcntl.LOCK_UN)
-        if interrupcao is not None:
-            erro.write(f'erro: limpeza interrompida em {rotulo}; os grupos seguintes ficam mantidos\n')
+                erro.write(f'aviso: {rotulo}: resto do grupo mantido: {falha}\n')
+            elif isinstance(falha, RegistroDanificado):
+                erro.write(f'erro: {falha}; {rotulo} e os grupos seguintes ficam mantidos\n')
+                parar = True
+            else:
+                erro.write(f'aviso: {rotulo} mantido: {falha}\n')
             falhas += 1
-            parar = True
-        if parar:
-            break
-    return apagados, falhas
+        except BaseException as falha:
+            # Como um sinal que chegou logo antes do bloqueio: o já apagado ainda
+            # recebe a linha antes de parar.
+            interrupcao = falha
+        if removidos:
+            try:
+                registrar(registro, {'sessao': grupo['sessao'], 'tipo': grupo['tipo'], 'caminhos': removidos,
+                                     'bytes': total, 'encerrada': grupo['fim'].isoformat(timespec='seconds'),
+                                     'quando': datetime.now().astimezone().isoformat(timespec='seconds'),
+                                     'resultado': resultado})
+                apagados += 1
+            except Exception as falha:
+                erro.write(f'erro: {rotulo}: apagado sem registro completo em limpezas.jsonl ({falha}): '
+                           f'{", ".join(removidos)}\n')
+                erro.write('erro: registro com falha; os grupos seguintes ficam mantidos\n')
+                falhas += 1
+                parar = True
+    finally:
+        for fd in travas:
+            os.close(fd)
+        if registro_travado:
+            fcntl.flock(registro, fcntl.LOCK_UN)
+    if interrupcao is not None:
+        erro.write(f'erro: limpeza interrompida em {rotulo}; os grupos seguintes ficam mantidos\n')
+        falhas += 1
+        parar = True
+    return apagados, falhas, parar
 
 
 def opcoes(argumentos):

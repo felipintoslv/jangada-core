@@ -1036,8 +1036,14 @@ bordas para conferir assinaturas não entra nessas contagens.
   pulada, sem linha e sem erro. Descendente que some no meio da remoção
   não é falha. Falha antes da primeira exclusão mantém a entrada, sem
   linha, com aviso e código 1; depois dela, a entrada entra na linha do
-  grupo com `resultado` `parcial`. Interrupção pelo teclado grava a linha
-  do que já foi apagado e para com código 1.
+  grupo com `resultado` `parcial`.
+- **Interrupção:** SIGINT, SIGTERM e SIGHUP ficam bloqueados do começo ao
+  fim de cada grupo, das travas até a linha gravada e as travas soltas, e
+  são entregues entre um grupo e outro. A limpeza para ali, com os grupos
+  seguintes intactos, a mensagem `limpeza interrompida` e código 1. Sinal
+  que quem chamou ignorava continua ignorado; a máscara e os tratadores
+  anteriores voltam no fim. SIGKILL e queda de energia não têm defesa: o
+  grupo em curso pode ficar apagado sem linha, ou com a linha incompleta.
 - **Falha na gravação:** a linha é gravada até o fim; escrita que falha ou
   não avança encerra a limpeza com código 1, diz no terminal o que foi
   apagado sem registro completo e mantém os grupos seguintes. O arquivo

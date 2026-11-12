@@ -18,6 +18,7 @@ import os
 import pty
 import select
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1146,6 +1147,74 @@ class Remocao(Base):
         linha, = [r for r in self.registros() if r['tipo'] == 'rodadas em agentes']
         self.assertEqual(linha['caminhos'], ['agentes/validacao-antiga-r1.md.log'])
         self.assertTrue(self.existe('agentes/validacao-antiga-r2.contexto.json'))
+
+    def sinais_como_antes(self):
+        self.assertIs(signal.getsignal(signal.SIGINT), signal.default_int_handler)
+        self.assertIs(signal.getsignal(signal.SIGTERM), signal.SIG_DFL)
+        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, ()), set())
+
+    def so_o_primeiro_grupo(self, antes, erro, nome):
+        """Uma linha completa, nada apagado sem linha e o resto das duas sessões intacto."""
+        linha, = self.registros()
+        self.assertIn(f'erro: limpeza interrompida ({nome}) depois de {linha["sessao"]} ({linha["tipo"]}); '
+                      'os grupos seguintes ficam mantidos', erro)
+        self.assertEqual(self.removidos_sem_registro(antes), set())
+        depois = {item[0] for item in dados(self.estado)}
+        sumidos = {item[0] for item in antes if item[0] not in depois}
+        self.assertTrue(all(any(c == r or c.startswith(r + '/') for r in linha['caminhos']) for c in sumidos))
+        self.assertTrue(self.existe('codex/outra'))
+        self.sinais_como_antes()
+
+    def test_sinal_durante_a_gravacao_do_registro_completa_a_linha(self):
+        for numero in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(sinal=numero.name):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                self.encerrada('outra')
+                self.envelhecer()
+                antes = dados(self.estado)
+
+                def escrever(original, fd, dados):
+                    os.kill(os.getpid(), numero)
+                    return original(fd, dados[:5])
+                with self.escrita_no_registro(escrever):
+                    codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+                self.assertEqual(codigo, 1, erro)
+                self.so_o_primeiro_grupo(antes, erro, numero.name)
+
+    def test_sinal_entre_dois_grupos_para_antes_do_segundo(self):
+        self.encerrada('antiga')
+        self.encerrada('outra')
+        self.envelhecer()
+        antes = dados(self.estado)
+        original, restauradas = signal.pthread_sigmask, []
+
+        def mascara(como, sinais):
+            resposta = original(como, sinais)
+            if como == signal.SIG_SETMASK and not restauradas:
+                restauradas.append(como)
+                os.kill(os.getpid(), signal.SIGTERM)
+            return resposta
+        with mock.patch.object(retencao.signal, 'pthread_sigmask', mascara):
+            codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 1, erro)
+        self.so_o_primeiro_grupo(antes, erro, 'SIGTERM')
+
+    def test_sinal_ignorado_continua_ignorado(self):
+        self.encerrada('antiga')
+        self.envelhecer()
+        anterior = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        self.addCleanup(signal.signal, signal.SIGHUP, anterior)
+
+        def escrever(original, fd, dados):
+            os.kill(os.getpid(), signal.SIGHUP)
+            return original(fd, dados)
+        with self.escrita_no_registro(escrever):
+            codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 0, erro)
+        self.assertFalse(self.existe('codex/revisao-codex-antiga'))
+        self.assertIs(signal.getsignal(signal.SIGHUP), signal.SIG_IGN)
 
     def test_interrupcao_no_meio_registra_o_que_foi_apagado(self):
         self.arvore_do_codex()
