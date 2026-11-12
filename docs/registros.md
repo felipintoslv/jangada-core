@@ -1032,6 +1032,10 @@ bordas para conferir assinaturas não entra nessas contagens.
   - `quando`: data da remoção, com fuso.
   - `resultado`: `removido`, ou `parcial` quando alguma entrada ficou pela
     metade; o erro sai no terminal.
+- **Falha na gravação:** a linha é gravada até o fim; escrita que falha ou
+  não avança encerra a limpeza com código 1, diz no terminal o que foi
+  apagado sem registro completo e mantém os grupos seguintes. O arquivo
+  pode ficar com a linha incompleta.
 - **Prova de encerramento:** arquivo íntegro da sessão em
   `revisoes/arquivo/`, sem pendências; linha com `fim` no
   `consumo-tarefas.jsonl` há mais de N dias (padrão 30); nenhuma cópia

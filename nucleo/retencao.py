@@ -672,8 +672,13 @@ def abrir_registro(estado):
 
 
 def registrar(fd, linha):
-    """Grava uma linha; quem chama já tem a trava do registro."""
-    os.write(fd, (json.dumps(linha, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8'))
+    """Grava a linha inteira; quem chama já tem a trava do registro."""
+    dados = (json.dumps(linha, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8')
+    while dados:
+        escritos = os.write(fd, dados)
+        if escritos <= 0:
+            raise OSError(f'escrita parou com {len(dados)} bytes da linha por gravar')
+        dados = dados[escritos:]
 
 
 def reconferir(estado, unidade, grupo, travadas):
@@ -697,6 +702,7 @@ def reconferir(estado, unidade, grupo, travadas):
 def aplicar(estado, grupos, registro, erro=sys.stderr):
     """Apaga cada grupo sob a trava do registro e as da sessão, reconferindo cada entrada logo antes."""
     apagados = falhas = 0
+    registro_falhou = False
     textos = dict(MOTIVOS, sumiu='não existe mais', recusada='link, montagem, tipo ou nome fora do padrão',
                   dono='donos diferentes dos listados')
     prazo = plural(estado.dias, 'dia', 'dias')
@@ -743,15 +749,21 @@ def aplicar(estado, grupos, registro, erro=sys.stderr):
                                      'resultado': resultado})
                 apagados += 1
         except (Recusa, OSError) as falha:
-            erro.write(f'aviso: {rotulo} mantido: {falha}\n')
             if removidos:
-                erro.write(f'erro: apagado sem registro em limpezas.jsonl: {", ".join(removidos)}\n')
+                erro.write(f'erro: {rotulo}: apagado sem registro completo em limpezas.jsonl ({falha}): '
+                           f'{", ".join(removidos)}\n')
+                erro.write('erro: registro com falha; os grupos seguintes ficam mantidos\n')
+                registro_falhou = True
+            else:
+                erro.write(f'aviso: {rotulo} mantido: {falha}\n')
             falhas += 1
         finally:
             for fd in travas:
                 os.close(fd)
             if registro_travado:
                 fcntl.flock(registro, fcntl.LOCK_UN)
+        if registro_falhou:
+            break
     return apagados, falhas
 
 
@@ -837,7 +849,7 @@ def main(argumentos):
         # Aberto antes da primeira remoção: sem registro, nada é apagado.
         registro = abrir_registro(estado)
         try:
-            apagados, falhas = aplicar(estado, grupos, registro)
+            apagados, falhas = aplicar(estado, grupos, registro, sys.stderr)
         finally:
             os.close(registro)
         print(f'Apagados: {plural(apagados, "item", "itens")}; registro em {raiz}/limpezas.jsonl.')

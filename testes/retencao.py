@@ -751,6 +751,64 @@ class Remocao(Base):
         finally:
             pilha.close()
 
+    def escrita_no_registro(self, falsa):
+        """Troca os.write só para o descritor de limpezas.jsonl."""
+        original = os.write
+
+        def escrever(fd, dados):
+            if os.readlink(f'/proc/self/fd/{fd}') == str(self.estado / 'limpezas.jsonl'):
+                return falsa(original, fd, dados)
+            return original(fd, dados)
+        os.write = escrever
+        pilha = contextlib.ExitStack()
+        pilha.callback(setattr, os, 'write', original)
+        return pilha
+
+    def test_escrita_parcial_do_registro_completa_a_linha(self):
+        self.encerrada('antiga')
+        self.encerrada('outra')
+        self.envelhecer()
+        chamadas = []
+
+        def parcial(original, fd, dados):
+            chamadas.append(len(dados))
+            return original(fd, dados[:7])
+        with self.escrita_no_registro(parcial):
+            codigo, saida, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 0, erro)
+        self.assertGreater(len(chamadas), 14)
+        registros = self.registros()
+        self.assertEqual(len(registros), 14)
+        self.assertEqual({r['sessao'] for r in registros}, {'antiga', 'outra'})
+        caminhos = [c for r in registros for c in r['caminhos']]
+        self.assertEqual(len(caminhos), 16)
+        self.assertIn('codex/antiga', caminhos)
+        self.assertIn('agentes/validacao-outra-r2.contexto.json', caminhos)
+        self.assertFalse(self.existe('codex/antiga'))
+        self.assertTrue((self.estado / 'limpezas.jsonl').read_bytes().endswith(b'}\n'))
+
+    def test_falha_do_registro_e_falha_explicita(self):
+        for nome, falsa in (('zero', lambda original, fd, dados: 0),
+                            ('parcial e zero', lambda original, fd, dados:
+                             original(fd, dados[:7]) if dados.startswith(b'{') else 0),
+                            ('erro', lambda original, fd, dados: (_ for _ in ()).throw(OSError(28, 'sem espaço')))):
+            with self.subTest(falha=nome):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                self.encerrada('outra')
+                self.envelhecer()
+                with self.escrita_no_registro(falsa):
+                    codigo, saida, erro = self.aplicar_pelo_main(resposta='apagar')
+                self.assertEqual(codigo, 1, erro)
+                self.assertIn('erro: antiga (codex): apagado sem registro completo em limpezas.jsonl', erro)
+                self.assertIn('codex/antiga', erro.split('sem registro completo')[1])
+                self.assertIn('os grupos seguintes ficam mantidos', erro)
+                self.assertIn('Apagados: 0 itens', saida)
+                self.assertFalse(self.existe('codex/antiga'))
+                self.assertTrue(self.existe('codex/outra'))
+                self.assertTrue(self.existe('codex/revisao-codex-antiga'))
+
     def test_ponto_de_montagem_recusado(self):
         self.encerrada('antiga')
         pasta = str(self.estado / 'codex')
