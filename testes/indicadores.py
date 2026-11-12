@@ -23,8 +23,8 @@ def acrescentar_linha_aninhada(caminho):
 
 def classificar_resposta(texto, caminho='/nao-existe'):
     validar = (RAIZ / 'bin/jangada-validar').read_text(encoding='utf-8')
-    bloco = validar.split('resposta_json="$(python3 - "$resposta"', 1)[1].split("<<'PY'\n", 1)[1].split('\nPY', 1)[0]
-    saida = subprocess.check_output(['python3', '-', texto, str(caminho), 'sessao', 'execucao', '2'],
+    bloco = validar.split('resposta_json="$(python3 -I - "$resposta"', 1)[1].split("<<'PY'\n", 1)[1].split('\nPY', 1)[0]
+    saida = subprocess.check_output(['python3', '-I', '-', texto, str(caminho), 'sessao', 'execucao', '2'],
                                     input=bloco, text=True)
     return json.loads(saida)
 
