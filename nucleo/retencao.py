@@ -11,6 +11,7 @@ Uso: retencao.py ESTADO PROVEDORES [--dias N] [--aplicar] -- COMANDO_TMUX...
 """
 
 from datetime import datetime, timedelta
+import base64
 import fcntl
 import hashlib
 import json
@@ -31,6 +32,7 @@ DIAS = 30
 DIAS_MAX = 36500
 CONFIRMACAO = 'apagar'
 PREFIXO_REVISOR = 'revisao-codex-'
+DUVIDA = 'codex de dono em dúvida'
 SUFIXOS = ('.md', '.md.log', '.md.tmp', '.md.cobertura', '.md.incompleto',
            '.contexto.json', '.contexto.json.tmp', '.verificacoes.tsv')
 SUFIXO = '(?:' + '|'.join(re.escape(s) for s in SUFIXOS) + ')'
@@ -70,6 +72,28 @@ def isolado(mountinfo='/proc/self/mountinfo'):
             return any(linha.split()[4] == MARCA for linha in arquivo)
     except (OSError, IndexError):
         return True
+
+
+def revisao_codex(documento, sessao):
+    """O arquivo da sessão traz o contexto de uma rodada feita fora do isolamento,
+    gravado pelo controlador, com o Codex como revisor pedido ou executado."""
+    documentos = documento.get('documentos')
+    if not isinstance(documentos, dict):
+        return False
+    padrao = re.compile(r'revisoes/validacao-' + re.escape(sessao) + r'-r[0-9]+\.contexto\.json')
+    for chave, item in documentos.items():
+        if not (padrao.fullmatch(chave) and isinstance(item, dict) and item.get('confianca') == 'controlador'):
+            continue
+        try:
+            conteudo = base64.b64decode(item['conteudo_base64'], validate=True)
+            contexto = json.loads(conteudo)
+        except (KeyError, TypeError, ValueError, RecursionError):
+            continue
+        if (hashlib.sha256(conteudo).hexdigest() == item.get('sha256') and isinstance(contexto, dict)
+                and contexto.get('sessao') == sessao and contexto.get('protegido') is True
+                and 'codex' in (contexto.get('revisor_solicitado'), contexto.get('revisor_executado'))):
+            return True
+    return False
 
 
 def montagens():
@@ -160,7 +184,7 @@ class Estado:
 
     def atualizar(self):
         """Lê de novo todas as provas. Impedimento recusa a aplicação inteira."""
-        self.impedimentos, self.arquivo_ilegivel = set(), False
+        self.impedimentos, self.arquivo_ilegivel, self.revisadas_codex = set(), False, set()
         self.vivas = self.sessoes_vivas()
         self.arquivados = self.ler_arquivos()
         self.fins = self.ler_consumo()
@@ -220,6 +244,8 @@ class Estado:
         sessao = documento.get('sessao')
         if not isinstance(sessao, str) or not nome_valido(sessao) or documento.get('pendencias', []) != []:
             return None
+        if revisao_codex(documento, sessao):
+            self.revisadas_codex.add(sessao)
         return sessao
 
     def ler_consumo(self):
@@ -297,6 +323,8 @@ class Estado:
         Devolve (motivo, sessão, tipo, fim, nomes das sessões elegíveis). Quando
         nada é elegível, a sessão e o tipo são os do dono que mantém a entrada;
         sem rastro de nenhum, os do último dono, o mais específico."""
+        if any(tipo == DUVIDA for _, tipo in donos):
+            return 'sem_prova', donos[0][0], DUVIDA, None, ()
         elegiveis, motivos = [], {}
         for sessao, tipo in donos:
             motivo, fim = self.situacao(sessao)
@@ -335,13 +363,15 @@ class Estado:
         finally:
             os.close(fd)
 
-    @staticmethod
-    def donos_codex(nome):
-        donos = [(nome, 'codex')]
+    def donos_codex(self, nome):
+        """A pasta só é do revisor de X com prova protegida da revisão do Codex
+        de X e sem rastro da sessão de nome inteiro; com os dois, fica em dúvida."""
         revisada = nome[len(PREFIXO_REVISOR):]
-        if nome.startswith(PREFIXO_REVISOR) and nome_valido(revisada):
-            donos.append((revisada, 'codex do revisor'))
-        return donos
+        if not (nome.startswith(PREFIXO_REVISOR) and nome_valido(revisada)) or revisada not in self.revisadas_codex:
+            return [(nome, 'codex')]
+        if self.conhecida(nome):
+            return [(revisada, DUVIDA), (nome, DUVIDA)]
+        return [(revisada, 'codex do revisor')]
 
     @staticmethod
     def dono_rodada(nome):

@@ -7,6 +7,7 @@ digitada, exige o controlador de fora e vira pulado ali.
 """
 
 import ambiente
+import base64
 import contextlib
 import fcntl
 import hashlib
@@ -97,8 +98,19 @@ class Base(unittest.TestCase):
         caminho.write_text(texto)
         return caminho
 
-    def arquivar(self, sessao, **campos):
-        documento = dict(dict(versao=1, sessao=sessao, pendencias=[]), **campos)
+    @staticmethod
+    def contexto_codex(sessao, confianca='controlador', sha256=None, **campos):
+        """Documento do arquivo com o contexto de uma rodada revisada pelo Codex fora do isolamento."""
+        contexto = json.dumps(dict(dict(sessao=sessao, rodada=1, revisor_solicitado='codex', protegido=True),
+                                   **campos)).encode()
+        return {f'revisoes/validacao-{sessao}-r1.contexto.json': dict(
+            sha256=sha256 or hashlib.sha256(contexto).hexdigest(),
+            conteudo_base64=base64.b64encode(contexto).decode(), confianca=confianca)}
+
+    def arquivar(self, sessao, codex=True, **campos):
+        """Arquivo protegido da sessão; com codex, traz a prova da revisão do Codex."""
+        documentos = self.contexto_codex(sessao) if codex else {}
+        documento = dict(dict(versao=1, sessao=sessao, pendencias=[], documentos=documentos), **campos)
         bruto = json.dumps(documento).encode()
         self.gravar(f'revisoes/arquivo/{hashlib.sha256(bruto).hexdigest()}.json', bruto.decode())
 
@@ -193,7 +205,7 @@ class Listagem(Base):
         linhas = [linha.split() for linha in mantidos.splitlines()[1:]]
         self.assertEqual(linhas[0], ['SESSÃO', 'TIPO', 'CAMINHO', 'TAMANHO'])
         esperado = [('sem-prova', 'codex', 'codex/sem-prova'),
-                    ('sem-prova', 'codex do revisor', 'codex/revisao-codex-sem-prova'),
+                    ('revisao-codex-sem-prova', 'codex', 'codex/revisao-codex-sem-prova'),
                     ('sem-prova', 'inicios', 'revisoes/inicios/sem-prova'),
                     ('sem-prova', 'provedor claude', 'provedores/claude/sem-prova'),
                     ('sem-prova', 'registro do fim', 'agentes/fim-sem-prova.log'),
@@ -832,6 +844,65 @@ class Remocao(Base):
                 self.assertFalse(self.existe('codex/antiga'))
                 self.assertTrue(self.existe('codex/outra'))
                 self.assertTrue(self.existe('codex/revisao-codex-antiga'))
+
+    def motivo_do_revisor(self, sessao='antiga'):
+        estado = self.abrir()
+        unidade, = [u for u in retencao.medir_todas(estado)
+                    if u['partes'] == ('codex',) and u['nome'] == f'revisao-codex-{sessao}']
+        return unidade
+
+    def test_pasta_do_revisor_sem_prova_do_codex_fica(self):
+        provas = {'sem contexto': {},
+                  'do executor': self.contexto_codex('antiga', confianca='declarado_pelo_executor'),
+                  'dentro do isolamento': self.contexto_codex('antiga', protegido=False),
+                  'outro revisor': self.contexto_codex('antiga', revisor_solicitado='agy'),
+                  'outra sessão': {'revisoes/validacao-antiga-r1.contexto.json':
+                                   self.contexto_codex('outra')['revisoes/validacao-outra-r1.contexto.json']},
+                  'resumo errado': self.contexto_codex('antiga', sha256='0' * 64)}
+        for nome, documentos in provas.items():
+            with self.subTest(prova=nome):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga', arquivo=False)
+                self.arquivar('antiga', codex=False, documentos=documentos)
+                self.envelhecer()
+                unidade = self.motivo_do_revisor()
+                self.assertEqual((unidade['motivo'], unidade['sessao'], unidade['tipo']),
+                                 ('sem_prova', 'revisao-codex-antiga', 'codex'))
+                self.aplicar()
+                self.assertTrue(self.existe('codex/revisao-codex-antiga/b.jsonl'))
+                self.assertFalse(self.existe('codex/antiga'))
+                self.assertNotIn('codex/revisao-codex-antiga',
+                                 [c for r in self.registros() for c in r['caminhos']])
+
+    def test_pasta_do_revisor_com_prova_do_codex_apaga(self):
+        self.encerrada('antiga')
+        self.envelhecer()
+        unidade = self.motivo_do_revisor()
+        self.assertEqual((unidade['motivo'], unidade['sessao'], unidade['tipo']),
+                         ('elegivel', 'antiga', 'codex do revisor'))
+        self.aplicar()
+        self.assertFalse(self.existe('codex/revisao-codex-antiga'))
+        self.assertIn('codex/revisao-codex-antiga', [c for r in self.registros() for c in r['caminhos']])
+
+    def test_pasta_do_revisor_com_rastro_do_nome_inteiro_fica(self):
+        for rastro in ('consumo', 'estado', 'arquivo'):
+            with self.subTest(rastro=rastro):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                if rastro == 'consumo':
+                    self.consumir('revisao-codex-antiga', 40)
+                elif rastro == 'estado':
+                    self.gravar('agentes/revisao-codex-antiga.json')
+                else:
+                    self.arquivar('revisao-codex-antiga', codex=False)
+                self.envelhecer()
+                unidade = self.motivo_do_revisor()
+                self.assertEqual((unidade['motivo'], unidade['tipo']), ('sem_prova', retencao.DUVIDA))
+                self.aplicar()
+                self.assertTrue(self.existe('codex/revisao-codex-antiga/b.jsonl'))
+                self.assertFalse(self.existe('codex/antiga'))
 
     def test_ponto_de_montagem_recusado(self):
         self.encerrada('antiga')

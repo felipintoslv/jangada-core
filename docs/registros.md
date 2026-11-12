@@ -1045,6 +1045,16 @@ bordas para conferir assinaturas não entra nessas contagens.
   não provam nada. Sessão sem as provas fica no grupo "sem prova de
   encerramento" da listagem, só para informar, com uma linha por entrada:
   sessão, tipo, caminho relativo a `$JANGADA_ESTADO` e tamanho.
+- **Pasta do revisor Codex:** `codex/revisao-codex-X` só conta como dado
+  da sessão X quando o arquivo de X em `revisoes/arquivo/` traz um
+  `revisoes/validacao-X-rN.contexto.json` com confiança `controlador`,
+  SHA-256 conferido, `sessao` X, `protegido` verdadeiro e `codex` em
+  `revisor_solicitado` ou `revisor_executado`, e quando a sessão de nome
+  inteiro `revisao-codex-X` não tem rastro (arquivo, `fim` no consumo,
+  cópia de estado ou tmux vivo). Sem a prova, a pasta segue as provas da
+  sessão de nome inteiro e, sem rastro dela, fica em "sem prova de
+  encerramento". Com a prova e o rastro, o dono fica em dúvida e a pasta
+  também fica nesse grupo.
 - **Falhas de leitura:** nenhuma falha autoriza apagar.
   - Linha não vazia do `consumo-tarefas.jsonl` que não seja registro válido,
     ou o arquivo ilegível: nenhuma sessão tem prova e o `--aplicar` recusa.
