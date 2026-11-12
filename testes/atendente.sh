@@ -391,7 +391,7 @@ conferir "caso 13: REVISAR local contestado devolve o parecer, sem revisor nem r
     && grep -q "parecer gravado em .*, sem chamar o revisor" "$8"' _ \
   "$(rc v1)" "$(rc v2)" "$F/v2.out" "$antes" "$(chamadas)" "$antes_p" "$(pareceres)" "$F/v2.err"
 git -C "$tmp/wt" rm -q conflito.txt
-git -C "$tmp/wt" -c user.name=t -c user.email=t@t commit -q -m "fix: sem conflito"
+commitar
 
 echo 'STATUS: REVISAR\n1. arquivo.txt:1 MARCA-PREMISSA' >"$F/resposta"
 pedir k1 "$validar"
