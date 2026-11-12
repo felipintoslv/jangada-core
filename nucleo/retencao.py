@@ -363,9 +363,9 @@ class Estado:
         pontos = montagens()
         for partes, tipo, espera_pasta, dono, apaga in self.areas():
             try:
-                fd, base = self.abrir_area(partes)
+                fd, base = self.abrir_area(partes, pontos)
             except (Recusa, OSError):
-                texto = '/'.join(partes) + '/ é link, não abre ou está fora do caminho esperado'
+                texto = '/'.join(partes) + '/ é link, montagem, não abre ou está fora do caminho esperado'
                 self.avisar(texto + '; nada é apagado enquanto isso')
                 self.impedimentos.add(texto)
                 continue
@@ -386,15 +386,29 @@ class Estado:
             finally:
                 os.close(fd)
 
-    def abrir_area(self, partes):
-        """(fd, caminho real) da área, ou (None, None) quando ela não existe."""
+    def abrir_area(self, partes, pontos):
+        """(fd, caminho real) da área, ou (None, None) quando ela não existe.
+
+        Nenhum componente abaixo da raiz até a área pode ser ponto de montagem
+        nem estar em outro dispositivo: uma pasta de fora montada ali teria o
+        mesmo caminho real.
+        """
         fd = abrir_pasta(self.fd, partes)
         if fd is None:
             return None, None
-        base = real(fd)
-        if base != os.path.join(self.raiz, *partes):
+        try:
+            base = real(fd)
+            if base != os.path.join(self.raiz, *partes):
+                raise Recusa('área fora do caminho esperado')
+            dispositivo = os.fstat(self.fd).st_dev
+            for fim in range(1, len(partes) + 1):
+                relativo = '/'.join(partes[:fim])
+                if (os.path.join(self.raiz, relativo) in pontos
+                        or os.stat(relativo, dir_fd=self.fd, follow_symlinks=False).st_dev != dispositivo):
+                    raise Recusa(f'{relativo}/ é ponto de montagem ou está em outro dispositivo')
+        except BaseException:
             os.close(fd)
-            raise Recusa('área fora do caminho esperado')
+            raise
         return fd, base
 
     def unidade(self, fd, base, partes, nome, tipo, espera_pasta, donos, pontos, apaga):
@@ -493,13 +507,11 @@ def apagar_arvore(fd, dispositivo, profundidade):
 
 def apagar(estado, partes, nome):
     """Apaga uma entrada direta da área, conferida de novo pelo caminho real."""
-    fd = abrir_pasta(estado.fd, partes)
+    pontos = montagens()
+    fd, base = estado.abrir_area(partes, pontos)
     if fd is None:
         raise FileNotFoundError(nome)
     try:
-        base = real(fd)
-        if base != os.path.join(estado.raiz, *partes):
-            raise Recusa('área fora do caminho esperado')
         caminho = os.path.join(base, nome)
         if os.path.realpath(caminho) != caminho:
             raise Recusa('fora da pasta esperada')
@@ -509,7 +521,7 @@ def apagar(estado, partes, nome):
                 raise Recusa('esperado arquivo regular')
             os.unlink(nome, dir_fd=fd)
             return
-        if cruza_montagem(caminho, montagens()):
+        if cruza_montagem(caminho, pontos):
             raise Recusa('ponto de montagem')
         filho = os.open(nome, PASTA, dir_fd=fd)
         try:

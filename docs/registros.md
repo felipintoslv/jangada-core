@@ -1043,7 +1043,10 @@ bordas para conferir assinaturas não entra nessas contagens.
 - **Falhas de leitura:** nenhuma falha autoriza apagar.
   - Linha não vazia do `consumo-tarefas.jsonl` que não seja registro válido,
     ou o arquivo ilegível: nenhuma sessão tem prova e o `--aplicar` recusa.
-  - Pasta de área que não abre ou é link: o `--aplicar` recusa.
+  - Pasta de área que não abre ou é link, ou componente entre a raiz do
+    estado (exclusive) e a área (inclusive) que seja ponto de montagem ou
+    esteja em outro dispositivo: o `--aplicar` recusa. A mesma conferência
+    vale na reconferência e na remoção.
   - Consulta ao tmux que falha recusa a limpeza; só a falta comprovada de
     servidor vale como nenhuma sessão viva.
   - Entrada que não se mede (link, montagem, permissão) mantém todos os dados

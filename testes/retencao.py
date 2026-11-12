@@ -571,11 +571,11 @@ class Remocao(Base):
         erro = self.mudar_entre_remocoes(lambda: Path(str(self.vivas) + '.falha').touch())
         self.assertIn('não foi possível listar as sessões do tmux', erro)
 
-    def aplicar_pelo_main(self):
-        """O main com --aplicar, como se fosse fora do isolamento e num terminal, sem confirmar."""
+    def aplicar_pelo_main(self, resposta='nao'):
+        """O main com --aplicar, como se fosse fora do isolamento e num terminal."""
         saida, erro = io.StringIO(), io.StringIO()
         isolado, isatty, entrada = retencao.isolado, os.isatty, sys.stdin
-        retencao.isolado, os.isatty, sys.stdin = (lambda *_: False), (lambda _: True), io.StringIO('nao\n')
+        retencao.isolado, os.isatty, sys.stdin = (lambda *_: False), (lambda _: True), io.StringIO(resposta + '\n')
         try:
             with contextlib.redirect_stdout(saida), contextlib.redirect_stderr(erro):
                 codigo = retencao.main([str(self.estado), 'claude', '--aplicar', '--',
@@ -686,6 +686,70 @@ class Remocao(Base):
         self.aplicar()
         self.assertTrue(self.existe('codex/revisao-codex-antiga'))
         self.assertFalse(self.existe('codex/antiga'))
+
+    def montado(self, relativos):
+        """montagens() com as pastas do estado acrescentadas, como se viessem do mountinfo."""
+        original = retencao.montagens
+        retencao.montagens = lambda: original() + [str(self.estado / r) for r in relativos]
+        pilha = contextlib.ExitStack()
+        pilha.callback(setattr, retencao, 'montagens', original)
+        return pilha
+
+    def test_area_ou_pasta_acima_montada_impede_tudo(self):
+        for montada, partes in (('codex', ('codex',)), ('provedores', ('provedores', 'claude')),
+                                ('provedores/claude', ('provedores', 'claude')),
+                                ('revisoes', ('revisoes', 'inicios')), ('agentes', ('agentes',))):
+            with self.subTest(montada=montada):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                self.envelhecer()
+                antes = dados(self.estado)
+                with self.montado([montada]):
+                    estado = self.abrir()
+                    unidades = list(estado.unidades())
+                    self.assertTrue(any(i.startswith('/'.join(partes)) for i in estado.impedimentos),
+                                    estado.impedimentos)
+                    self.assertFalse(any(u['partes'] == partes for u in unidades))
+                    codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+                    self.assertEqual(codigo, 1)
+                    self.assertIn('nada foi apagado', erro)
+                    _, erro = self.aplicar()
+                    self.assertIn('mantido na reconferência', erro)
+                    nome = os.listdir(self.estado.joinpath(*partes))[0]
+                    with self.assertRaises(retencao.Recusa):
+                        retencao.apagar(estado, partes, nome)
+                self.assertEqual(dados(self.estado), antes)
+                self.assertFalse(self.existe('limpezas.jsonl') and self.registros())
+
+    def test_area_em_outro_dispositivo_impede_tudo(self):
+        self.encerrada('antiga')
+        self.envelhecer()
+        antes = dados(self.estado)
+        estado = self.abrir()
+        original = os.stat
+
+        def outro(caminho, *args, **kwargs):
+            info = original(caminho, *args, **kwargs)
+            if caminho == 'codex' and kwargs.get('dir_fd') == estado.fd:
+                return os.stat_result((*info[:2], info.st_dev + 1, *info[3:10]))
+            return info
+        os.stat = outro
+        try:
+            list(estado.unidades())
+            self.assertTrue(any(i.startswith('codex/') for i in estado.impedimentos), estado.impedimentos)
+            with self.assertRaises(retencao.Recusa):
+                retencao.apagar(estado, ('codex',), 'antiga')
+        finally:
+            os.stat = original
+        self.assertEqual(dados(self.estado), antes)
+
+    def test_montagem_entre_duas_remocoes(self):
+        pilha = contextlib.ExitStack()
+        try:
+            self.mudar_entre_remocoes(lambda: pilha.enter_context(self.montado(['agentes'])))
+        finally:
+            pilha.close()
 
     def test_ponto_de_montagem_recusado(self):
         self.encerrada('antiga')
