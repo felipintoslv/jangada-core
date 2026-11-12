@@ -47,7 +47,7 @@ PASTA = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 MOTIVOS = (('sem_prova', 'sem prova de encerramento'),
            ('aberta', 'sessão viva ou aberta'),
-           ('recente', 'encerrada há menos de {dias} dias'),
+           ('recente', 'encerrada há menos de {dias}'),
            ('alterada', 'alterada depois do encerramento'))
 
 
@@ -604,7 +604,7 @@ def listar(estado, unidades, saida):
     grupos = agrupar(unidades)
     escrever = saida.write
     if grupos:
-        escrever(f'Dados de sessões encerradas há mais de {estado.dias} dias, com prova de encerramento:\n')
+        escrever(f'Dados de sessões encerradas há mais de {plural(estado.dias, "dia", "dias")}, com prova de encerramento:\n')
         largura = max(len(g['sessao']) for g in grupos)
         largura_tipo = max(len(g['tipo']) for g in grupos)
         escrever(f'  {"SESSÃO":<{largura}}  {"TIPO":<{largura_tipo}}  {"TAMANHO":>9}  ENCERRADA EM\n')
@@ -615,12 +615,12 @@ def listar(estado, unidades, saida):
         escrever(f'Total: {plural(len(grupos), "item", "itens")} de {plural(sessoes, "sessão", "sessões")}, '
                  f'{tamanho(sum(g["bytes"] for g in grupos))}.\n')
     else:
-        escrever(f'Nenhum dado de sessão encerrada há mais de {estado.dias} dias com prova de encerramento.\n')
+        escrever(f'Nenhum dado de sessão encerrada há mais de {plural(estado.dias, "dia", "dias")} com prova de encerramento.\n')
     escrever('\nMantidos, só para informação:\n')
     for motivo, texto in MOTIVOS:
         lista = [u for u in unidades if u.get('motivo') == motivo]
         if lista or motivo == 'sem_prova':
-            escrever(f'  {texto.format(dias=estado.dias)}: {plural(len(lista), "item", "itens")}, '
+            escrever(f'  {texto.format(dias=plural(estado.dias, "dia", "dias"))}: {plural(len(lista), "item", "itens")}, '
                      f'{tamanho(sum(u["bytes"] for u in lista))}\n')
     recusadas = sum(1 for u in unidades if u.get('motivo') == 'recusada')
     if recusadas:
@@ -681,7 +681,7 @@ def aplicar(estado, grupos, registro, erro=sys.stderr):
             for unidade, motivo in mantidas:
                 caminho = '/'.join(unidade['partes'] + (unidade['nome'],))
                 erro.write(f'aviso: {caminho} mantido na reconferência: '
-                           f'{textos.get(motivo, motivo).format(dias=estado.dias)}\n')
+                           f'{textos.get(motivo, motivo).format(dias=plural(estado.dias, "dia", "dias"))}\n')
             removidos, total, resultado = [], 0, 'removido'
             for unidade in validas:
                 caminho = '/'.join(unidade['partes'] + (unidade['nome'],))

@@ -185,6 +185,19 @@ class Listagem(Base):
         self.assertIn('recente', p.stdout.split('Mantidos')[0])
         self.assertIn('--limpar-antigos --dias 5 --aplicar', p.stdout)
 
+    def test_um_dia_no_singular(self):
+        p = self.comando('--limpar-antigos', '--dias', '1')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('encerrada há mais de 1 dia com prova', p.stdout)
+        self.encerrada('antiga')
+        self.encerrada('recente', dias=0)
+        self.envelhecer()
+        p = self.comando('--limpar-antigos', '--dias', '1')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('encerradas há mais de 1 dia, com prova', p.stdout)
+        self.assertIn('encerrada há menos de 1 dia: 8 itens', p.stdout)
+        self.assertNotIn(' 1 dias', p.stdout)
+
     def test_argumentos_invalidos(self):
         for argumentos in (('--dias', '0'), ('--dias', 'x'), ('--dias',), ('--outra',), ('--dias', '36501')):
             p = self.comando('--limpar-antigos', *argumentos)
