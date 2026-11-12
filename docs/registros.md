@@ -1032,6 +1032,12 @@ bordas para conferir assinaturas não entra nessas contagens.
   - `quando`: data da remoção, com fuso.
   - `resultado`: `removido`, ou `parcial` quando alguma entrada ficou pela
     metade; o erro sai no terminal.
+- **Remoção:** entrada que já não existe antes da primeira exclusão é
+  pulada, sem linha e sem erro. Descendente que some no meio da remoção
+  não é falha. Falha antes da primeira exclusão mantém a entrada, sem
+  linha, com aviso e código 1; depois dela, a entrada entra na linha do
+  grupo com `resultado` `parcial`. Interrupção pelo teclado grava a linha
+  do que já foi apagado e para com código 1.
 - **Falha na gravação:** a linha é gravada até o fim; escrita que falha ou
   não avança encerra a limpeza com código 1, diz no terminal o que foi
   apagado sem registro completo e mantém os grupos seguintes. O arquivo

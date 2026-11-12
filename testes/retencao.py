@@ -10,6 +10,7 @@ import ambiente
 import base64
 import contextlib
 import fcntl
+import functools
 import hashlib
 import io
 import json
@@ -581,8 +582,8 @@ class Remocao(Base):
         self.envelhecer()
         original, feitas = retencao.apagar, []
 
-        def apagar(estado, partes, nome):
-            original(estado, partes, nome)
+        def apagar(estado, partes, nome, contagem):
+            original(estado, partes, nome, contagem)
             feitas.append(nome)
             if nome == 'validacao-antiga-r1.md.log':
                 mudanca()
@@ -761,8 +762,10 @@ class Remocao(Base):
                     _, erro = self.aplicar()
                     self.assertIn('mantido na reconferência', erro)
                     nome = os.listdir(self.estado.joinpath(*partes))[0]
+                    contagem = [0]
                     with self.assertRaises(retencao.Recusa):
-                        retencao.apagar(estado, partes, nome)
+                        retencao.apagar(estado, partes, nome, contagem)
+                    self.assertEqual(contagem, [0])
                 self.assertEqual(dados(self.estado), antes)
                 self.assertFalse(self.existe('limpezas.jsonl') and self.registros())
 
@@ -782,8 +785,10 @@ class Remocao(Base):
         try:
             list(estado.unidades())
             self.assertTrue(any(i.startswith('codex/') for i in estado.impedimentos), estado.impedimentos)
+            contagem = [0]
             with self.assertRaises(retencao.Recusa):
-                retencao.apagar(estado, ('codex',), 'antiga')
+                retencao.apagar(estado, ('codex',), 'antiga', contagem)
+            self.assertEqual(contagem, [0])
         finally:
             os.stat = original
         self.assertEqual(dados(self.estado), antes)
@@ -937,6 +942,228 @@ class Remocao(Base):
         registros = [json.loads(l) for l in (self.estado / 'limpezas.jsonl').read_text().splitlines() if l]
         self.assertEqual(registros[:2], anteriores)
         self.assertIn('codex/antiga', [c for r in registros[2:] for c in r['caminhos']])
+
+    def trocar(self, modulo, nome, falsa):
+        original = getattr(modulo, nome)
+        setattr(modulo, nome, lambda *args, **kwargs: falsa(original, *args, **kwargs))
+        self.addCleanup(setattr, modulo, nome, original)
+
+    def arvore_do_codex(self):
+        """codex/antiga com subpastas e vários arquivos, para a remoção ter várias etapas."""
+        self.encerrada('antiga')
+        for relativo in ('x/1.txt', 'x/2.txt', 'x/z/3.txt', 'y/4.txt', 'y/5.txt'):
+            self.gravar(f'codex/antiga/{relativo}')
+        self.envelhecer()
+
+    def removidos_sem_registro(self, antes):
+        """Entradas de área que sumiram e não estão em nenhuma linha do registro."""
+        depois = {item[0] for item in dados(self.estado)}
+        registrados = [c for r in self.registros() for c in r['caminhos']]
+        sumidos = {item[0] for item in antes if item[0] not in depois}
+        return {c for c in sumidos if not any(c == r or c.startswith(r + '/') for r in registrados)}
+
+    def test_descendente_que_some_no_meio_da_remocao(self):
+        for some in ('o resto da árvore', 'o resto da árvore e a própria pasta'):
+            with self.subTest(some=some):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.arvore_do_codex()
+                antes = dados(self.estado)
+                pasta = str(self.estado / 'codex' / 'antiga')
+                feito = []
+
+                def unlink(original, nome, *args, dir_fd=None, **kwargs):
+                    original(nome, *args, dir_fd=dir_fd, **kwargs)
+                    if dir_fd is not None and not feito and \
+                            os.readlink(f'/proc/self/fd/{dir_fd}').startswith(pasta + '/'):
+                        feito.append(nome)
+                        for raiz, pastas, arquivos in os.walk(pasta, topdown=False):
+                            for item in arquivos:
+                                original(os.path.join(raiz, item))
+                            for item in pastas:
+                                os.rmdir(os.path.join(raiz, item))
+                        if some.endswith('pasta'):
+                            os.rmdir(pasta)
+                with mock.patch.object(retencao.os, 'unlink', functools.partial(unlink, os.unlink)):
+                    codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+                self.assertTrue(feito)
+                self.assertEqual(codigo, 0, erro)
+                self.assertNotIn('codex/antiga', erro)
+                self.assertFalse(self.existe('codex/antiga'))
+                linha, = [r for r in self.registros() if r['tipo'] == 'codex']
+                self.assertEqual((linha['caminhos'], linha['resultado']), (['codex/antiga'], 'removido'))
+                self.assertEqual(self.removidos_sem_registro(antes), set())
+
+    def na_remocao(self, nome):
+        """Liga uma troca só depois da reconferência da entrada `nome`, já na remoção."""
+        ligado, original = [], retencao.reconferir
+
+        def reconferir(estado, unidade, grupo, travadas):
+            resposta = original(estado, unidade, grupo, travadas)
+            ligado[:] = [unidade['nome'] == nome]
+            return resposta
+        self.addCleanup(setattr, retencao, 'reconferir', original)
+        retencao.reconferir = reconferir
+        return ligado
+
+    def test_descendente_que_some_entre_a_listagem_e_a_consulta(self):
+        self.arvore_do_codex()
+        antes = dados(self.estado)
+        ligado, pasta = self.na_remocao('antiga'), str(self.estado / 'codex' / 'antiga' / 'x')
+
+        class Entrada:
+            def __init__(self, entrada, fd):
+                self.name, self.entrada, self.fd = entrada.name, entrada, fd
+
+            def stat(self, follow_symlinks=True):
+                if self.name == '1.txt':
+                    os.unlink(self.name, dir_fd=self.fd)
+                return self.entrada.stat(follow_symlinks=follow_symlinks)
+
+        def scandir(original, alvo='.'):
+            if ligado and ligado[0] and isinstance(alvo, int) and os.readlink(f'/proc/self/fd/{alvo}') == pasta:
+                with original(alvo) as entradas:
+                    return contextlib.nullcontext([Entrada(e, alvo) for e in entradas])
+            return original(alvo)
+        with mock.patch.object(retencao.os, 'scandir', functools.partial(scandir, os.scandir)):
+            codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 0, erro)
+        self.assertFalse(self.existe('codex/antiga'))
+        linha, = [r for r in self.registros() if r['tipo'] == 'codex']
+        self.assertEqual((linha['caminhos'], linha['resultado']), (['codex/antiga'], 'removido'))
+        self.assertEqual(self.removidos_sem_registro(antes), set())
+
+    def test_alvo_que_some_entre_a_consulta_e_a_abertura_e_pulado(self):
+        self.arvore_do_codex()
+        ligado, codex = self.na_remocao('antiga'), str(self.estado / 'codex')
+
+        def abrir(original, caminho, *args, dir_fd=None, **kwargs):
+            if (ligado and ligado[0] and caminho == 'antiga' and dir_fd is not None
+                    and os.readlink(f'/proc/self/fd/{dir_fd}') == codex):
+                ligado[0] = False
+                shutil.rmtree(self.estado / 'codex' / 'antiga')
+            return original(caminho, *args, dir_fd=dir_fd, **kwargs)
+        with mock.patch.object(retencao.os, 'open', functools.partial(abrir, os.open)):
+            codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 0, erro)
+        self.assertNotIn('codex/antiga', erro)
+        self.assertNotIn('codex/antiga', [c for r in self.registros() for c in r['caminhos']])
+        self.assertIn('codex/revisao-codex-antiga', [c for r in self.registros() for c in r['caminhos']])
+
+    def test_arquivo_que_some_entre_a_consulta_e_a_exclusao_e_pulado(self):
+        self.encerrada('antiga')
+        self.envelhecer()
+        alvo = 'validacao-antiga-r1.md.log'
+        ligado = self.na_remocao(alvo)
+
+        def unlink(original, nome, *args, **kwargs):
+            if ligado and ligado[0] and nome == alvo:
+                ligado[0] = False
+                (self.estado / 'agentes' / alvo).unlink()
+            return original(nome, *args, **kwargs)
+        with mock.patch.object(retencao.os, 'unlink', functools.partial(unlink, os.unlink)):
+            codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 0, erro)
+        self.assertNotIn(alvo, erro)
+        linha, = [r for r in self.registros() if r['tipo'] == 'rodadas em agentes']
+        self.assertEqual(linha['caminhos'], ['agentes/validacao-antiga-r2.contexto.json'])
+
+    def test_alvo_ausente_antes_de_comecar_e_pulado(self):
+        for alvo in ('codex/antiga', 'agentes/validacao-antiga-r1.md.log'):
+            with self.subTest(alvo=alvo):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                self.envelhecer()
+                original = retencao.reconferir
+
+                def reconferir(estado, unidade, grupo, travadas):
+                    resposta = original(estado, unidade, grupo, travadas)
+                    caminho = self.estado.joinpath(*unidade['partes'], unidade['nome'])
+                    if '/'.join(unidade['partes'] + (unidade['nome'],)) == alvo:
+                        shutil.rmtree(caminho) if caminho.is_dir() else caminho.unlink()
+                    return resposta
+                with mock.patch.object(retencao, 'reconferir', reconferir):
+                    codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+                self.assertEqual(codigo, 0, erro)
+                self.assertNotIn(alvo, erro)
+                caminhos = [c for r in self.registros() for c in r['caminhos']]
+                self.assertNotIn(alvo, caminhos)
+                self.assertIn('codex/revisao-codex-antiga', caminhos)
+                self.assertIn('agentes/validacao-antiga-r2.contexto.json', caminhos)
+
+    def test_falha_antes_da_primeira_exclusao_mantem_sem_registro(self):
+        self.arvore_do_codex()
+
+        def arvore(original, fd, *args):
+            if os.readlink(f'/proc/self/fd/{fd}') == str(self.estado / 'codex' / 'antiga'):
+                raise PermissionError(13, 'sem permissão')
+            return original(fd, *args)
+        with mock.patch.object(retencao, 'apagar_arvore', functools.partial(arvore, retencao.apagar_arvore)):
+            codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 1, erro)
+        self.assertIn('aviso: codex/antiga mantido: [Errno 13] sem permissão', erro)
+        self.assertTrue(self.existe('codex/antiga/x/1.txt'))
+        self.assertNotIn('codex/antiga', [c for r in self.registros() for c in r['caminhos']])
+
+    def test_falha_depois_da_primeira_exclusao_registra_parcial(self):
+        for falha in (PermissionError(13, 'sem permissão'), RuntimeError('inesperado')):
+            with self.subTest(falha=type(falha).__name__):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.arvore_do_codex()
+                antes = dados(self.estado)
+                pasta = str(self.estado / 'codex' / 'antiga')
+
+                def rmdir(original, nome, *args, dir_fd=None, **kwargs):
+                    if dir_fd is not None and os.readlink(f'/proc/self/fd/{dir_fd}').startswith(pasta):
+                        raise falha
+                    return original(nome, *args, dir_fd=dir_fd, **kwargs)
+                with mock.patch.object(retencao.os, 'rmdir', functools.partial(rmdir, os.rmdir)):
+                    codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+                self.assertEqual(codigo, 1, erro)
+                self.assertIn('erro: codex/antiga não foi apagado por inteiro', erro)
+                self.assertTrue(self.existe('codex/antiga'))
+                linha, = [r for r in self.registros() if r['tipo'] == 'codex']
+                self.assertEqual((linha['caminhos'], linha['resultado']), (['codex/antiga'], 'parcial'))
+                self.assertEqual(self.removidos_sem_registro(antes), set())
+                # O que restou foi alterado agora: o resto da sessão fica.
+                self.assertIn('codex/revisao-codex-antiga mantido na reconferência', erro)
+
+    def test_erro_inesperado_na_reconferencia_seguinte_registra_o_ja_apagado(self):
+        self.encerrada('antiga')
+        self.envelhecer()
+        original = retencao.reconferir
+
+        def reconferir(estado, unidade, grupo, travadas):
+            if unidade['nome'] == 'validacao-antiga-r2.contexto.json':
+                raise RuntimeError('inesperado')
+            return original(estado, unidade, grupo, travadas)
+        with mock.patch.object(retencao, 'reconferir', reconferir):
+            codigo, _, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 1, erro)
+        self.assertIn('agentes/validacao-antiga-r2.contexto.json mantido na reconferência', erro)
+        linha, = [r for r in self.registros() if r['tipo'] == 'rodadas em agentes']
+        self.assertEqual(linha['caminhos'], ['agentes/validacao-antiga-r1.md.log'])
+        self.assertTrue(self.existe('agentes/validacao-antiga-r2.contexto.json'))
+
+    def test_interrupcao_no_meio_registra_o_que_foi_apagado(self):
+        self.arvore_do_codex()
+        antes = dados(self.estado)
+        chamadas = []
+
+        def unlink(original, nome, *args, **kwargs):
+            chamadas.append(nome)
+            if len(chamadas) == 2:
+                raise KeyboardInterrupt
+            return original(nome, *args, **kwargs)
+        with mock.patch.object(retencao.os, 'unlink', functools.partial(unlink, os.unlink)):
+            codigo, saida, erro = self.aplicar_pelo_main(resposta='apagar')
+        self.assertEqual(codigo, 1, erro)
+        self.assertIn('erro: limpeza interrompida em antiga (codex); os grupos seguintes ficam mantidos', erro)
+        self.assertEqual([(r['caminhos'], r['resultado']) for r in self.registros()], [(['codex/antiga'], 'parcial')])
+        self.assertEqual(self.removidos_sem_registro(antes), set())
+        self.assertTrue(self.existe('codex/revisao-codex-antiga'))
 
     def motivo_do_revisor(self, sessao='antiga'):
         estado = self.abrir()

@@ -64,6 +64,10 @@ class Recusa(Exception):
     """Entrada que não pode ser medida nem apagada com segurança."""
 
 
+class Ausente(Exception):
+    """O alvo já não existia antes de qualquer exclusão: nada a registrar."""
+
+
 class RegistroDanificado(Recusa):
     """limpezas.jsonl que não termina em linhas JSON completas: só o dono conserta."""
 
@@ -581,52 +585,81 @@ def percorrer(fd, dispositivo, profundidade):
     return total, maior
 
 
-def apagar_arvore(fd, dispositivo, profundidade):
+def apagar_arvore(fd, dispositivo, profundidade, feitas):
+    """Descendente que some no meio já foi removido por outro: segue sem erro."""
     if profundidade > PROFUNDIDADE:
         raise Recusa('profundidade excedida')
+    filhos = []
     with os.scandir(fd) as entradas:
-        filhos = [(e.name, e.stat(follow_symlinks=False)) for e in entradas]
-    for nome, info in filhos:
-        if stat.S_ISDIR(info.st_mode):
-            if info.st_dev != dispositivo:
-                raise Recusa('ponto de montagem')
-            filho = os.open(nome, PASTA, dir_fd=fd)
+        for entrada in entradas:
             try:
-                conferir_mesma(filho, info)
-                apagar_arvore(filho, dispositivo, profundidade + 1)
-            finally:
-                os.close(filho)
-            os.rmdir(nome, dir_fd=fd)
-        else:
-            # Link é apagado como entrada; o destino não é aberto.
-            os.unlink(nome, dir_fd=fd)
+                filhos.append((entrada.name, entrada.stat(follow_symlinks=False)))
+            except FileNotFoundError:
+                pass
+    for nome, info in filhos:
+        try:
+            if stat.S_ISDIR(info.st_mode):
+                if info.st_dev != dispositivo:
+                    raise Recusa('ponto de montagem')
+                filho = os.open(nome, PASTA, dir_fd=fd)
+                try:
+                    conferir_mesma(filho, info)
+                    apagar_arvore(filho, dispositivo, profundidade + 1, feitas)
+                finally:
+                    os.close(filho)
+                os.rmdir(nome, dir_fd=fd)
+            else:
+                # Link é apagado como entrada; o destino não é aberto.
+                os.unlink(nome, dir_fd=fd)
+        except FileNotFoundError:
+            continue
+        feitas[0] += 1
 
 
-def apagar(estado, partes, nome):
-    """Apaga uma entrada direta da área, conferida de novo pelo caminho real."""
+def apagar(estado, partes, nome, feitas):
+    """Apaga uma entrada direta da área, conferida de novo pelo caminho real.
+
+    `feitas[0]` conta as exclusões já feitas. Ausente só sai antes da primeira;
+    qualquer outra exceção, com feitas[0] > 0, é remoção parcial."""
     pontos = montagens()
     fd, base = estado.abrir_area(partes, pontos)
     if fd is None:
-        raise FileNotFoundError(nome)
+        raise Ausente(nome)
     try:
         caminho = os.path.join(base, nome)
         if os.path.realpath(caminho) != caminho:
             raise Recusa('fora da pasta esperada')
-        info = os.stat(nome, dir_fd=fd, follow_symlinks=False)
+        try:
+            info = os.stat(nome, dir_fd=fd, follow_symlinks=False)
+        except FileNotFoundError:
+            raise Ausente(nome) from None
         if not stat.S_ISDIR(info.st_mode):
             if not stat.S_ISREG(info.st_mode):
                 raise Recusa('esperado arquivo regular')
-            os.unlink(nome, dir_fd=fd)
+            try:
+                os.unlink(nome, dir_fd=fd)
+            except FileNotFoundError:
+                raise Ausente(nome) from None
+            feitas[0] += 1
             return
         if cruza_montagem(caminho, pontos):
             raise Recusa('ponto de montagem')
-        filho = os.open(nome, PASTA, dir_fd=fd)
+        try:
+            filho = os.open(nome, PASTA, dir_fd=fd)
+        except FileNotFoundError:
+            raise Ausente(nome) from None
         try:
             conferir_mesma(filho, info)
-            apagar_arvore(filho, info.st_dev, 0)
+            apagar_arvore(filho, info.st_dev, 0, feitas)
         finally:
             os.close(filho)
-        os.rmdir(nome, dir_fd=fd)
+        try:
+            os.rmdir(nome, dir_fd=fd)
+        except FileNotFoundError:
+            if not feitas[0]:
+                raise Ausente(nome) from None
+            return
+        feitas[0] += 1
     finally:
         os.close(fd)
 
@@ -840,73 +873,100 @@ def reconferir(estado, unidade, grupo, travadas):
 
 
 def aplicar(estado, grupos, registro, erro=sys.stderr):
-    """Apaga cada grupo sob a trava do registro e as da sessão, reconferindo cada entrada logo antes."""
+    """Apaga cada grupo sob a trava do registro e as da sessão, reconferindo cada entrada logo antes.
+
+    O que foi apagado, inteiro ou em parte, sempre recebe a linha no registro;
+    se a gravação falha, o erro sai com a lista e nada mais é apagado."""
     apagados = falhas = 0
-    registro_falhou = False
+    parar = False
     textos = dict(MOTIVOS, sumiu='não existe mais', recusada='link, montagem, tipo ou nome fora do padrão',
                   dono='donos diferentes dos listados')
     prazo = plural(estado.dias, 'dia', 'dias')
     for grupo in grupos:
-        travas, registro_travado = [], False
+        travas, registro_travado, interrupcao = [], False, None
         rotulo = f'{grupo["sessao"]} ({grupo["tipo"]})'
         removidos, total, resultado = [], 0, 'removido'
         try:
-            # O registro primeiro: sem ele, nada do grupo é apagado.
-            esperar_trava(registro, 'limpezas.jsonl')
-            registro_travado = True
-            registro_integro(registro)
-            travadas = {s for u in grupo['unidades'] for s in u['travas']}
-            for sessao in sorted(travadas):
-                travas.append(travar_revisao(estado, sessao))
-                for provedor in sorted({u['provedor'] for u in grupo['unidades'] if u['provedor']}):
-                    travas.append(travar_provedor(estado, provedor, sessao))
-            for unidade in grupo['unidades']:
-                caminho = '/'.join(unidade['partes'] + (unidade['nome'],))
-                try:
-                    atual, motivo = reconferir(estado, unidade, grupo, travadas)
-                except (Recusa, OSError) as falha:
-                    # Sem a consulta de agora, nenhuma entrada restante do grupo é apagada.
-                    erro.write(f'aviso: {caminho} mantido na reconferência, com o resto do grupo: {falha}\n')
-                    falhas += 1
-                    break
-                if atual is None:
-                    erro.write(f'aviso: {caminho} mantido na reconferência: '
-                               f'{textos.get(motivo, motivo).format(dias=prazo)}\n')
-                    continue
-                try:
-                    apagar(estado, atual['partes'], atual['nome'])
-                except FileNotFoundError:
-                    continue
-                except (Recusa, OSError) as falha:
-                    erro.write(f'erro: {caminho} não foi apagado por inteiro: {falha}\n')
-                    resultado = 'parcial'
-                    falhas += 1
-                removidos.append(caminho)
-                total += atual['bytes']
+            try:
+                # O registro primeiro: sem ele, nada do grupo é apagado.
+                esperar_trava(registro, 'limpezas.jsonl')
+                registro_travado = True
+                registro_integro(registro)
+                travadas = {s for u in grupo['unidades'] for s in u['travas']}
+                for sessao in sorted(travadas):
+                    travas.append(travar_revisao(estado, sessao))
+                    for provedor in sorted({u['provedor'] for u in grupo['unidades'] if u['provedor']}):
+                        travas.append(travar_provedor(estado, provedor, sessao))
+                for unidade in grupo['unidades']:
+                    caminho = '/'.join(unidade['partes'] + (unidade['nome'],))
+                    try:
+                        atual, motivo = reconferir(estado, unidade, grupo, travadas)
+                    except Exception as falha:
+                        # Sem a consulta de agora, nenhuma entrada restante do grupo é apagada.
+                        erro.write(f'aviso: {caminho} mantido na reconferência, com o resto do grupo: {falha}\n')
+                        falhas += 1
+                        break
+                    if atual is None:
+                        erro.write(f'aviso: {caminho} mantido na reconferência: '
+                                   f'{textos.get(motivo, motivo).format(dias=prazo)}\n')
+                        continue
+                    feitas = [0]
+                    try:
+                        apagar(estado, atual['partes'], atual['nome'], feitas)
+                    except Ausente:
+                        continue
+                    except BaseException as falha:
+                        if not feitas[0]:
+                            if not isinstance(falha, Exception):
+                                raise
+                            erro.write(f'aviso: {caminho} mantido: {falha}\n')
+                            falhas += 1
+                            continue
+                        erro.write(f'erro: {caminho} não foi apagado por inteiro: {falha}\n')
+                        resultado = 'parcial'
+                        falhas += 1
+                        removidos.append(caminho)
+                        total += atual['bytes']
+                        if not isinstance(falha, Exception):
+                            raise
+                        continue
+                    removidos.append(caminho)
+                    total += atual['bytes']
+            except Exception as falha:
+                if removidos:
+                    erro.write(f'aviso: {rotulo}: resto do grupo mantido: {falha}\n')
+                elif isinstance(falha, RegistroDanificado):
+                    erro.write(f'erro: {falha}; {rotulo} e os grupos seguintes ficam mantidos\n')
+                    parar = True
+                else:
+                    erro.write(f'aviso: {rotulo} mantido: {falha}\n')
+                falhas += 1
+            except BaseException as falha:
+                # Interrupção: o já apagado ainda recebe a linha antes de parar.
+                interrupcao = falha
             if removidos:
-                registrar(registro, {'sessao': grupo['sessao'], 'tipo': grupo['tipo'], 'caminhos': removidos,
-                                     'bytes': total, 'encerrada': grupo['fim'].isoformat(timespec='seconds'),
-                                     'quando': datetime.now().astimezone().isoformat(timespec='seconds'),
-                                     'resultado': resultado})
-                apagados += 1
-        except (Recusa, OSError) as falha:
-            if removidos:
-                erro.write(f'erro: {rotulo}: apagado sem registro completo em limpezas.jsonl ({falha}): '
-                           f'{", ".join(removidos)}\n')
-                erro.write('erro: registro com falha; os grupos seguintes ficam mantidos\n')
-                registro_falhou = True
-            elif isinstance(falha, RegistroDanificado):
-                erro.write(f'erro: {falha}; {rotulo} e os grupos seguintes ficam mantidos\n')
-                registro_falhou = True
-            else:
-                erro.write(f'aviso: {rotulo} mantido: {falha}\n')
-            falhas += 1
+                try:
+                    registrar(registro, {'sessao': grupo['sessao'], 'tipo': grupo['tipo'], 'caminhos': removidos,
+                                         'bytes': total, 'encerrada': grupo['fim'].isoformat(timespec='seconds'),
+                                         'quando': datetime.now().astimezone().isoformat(timespec='seconds'),
+                                         'resultado': resultado})
+                    apagados += 1
+                except Exception as falha:
+                    erro.write(f'erro: {rotulo}: apagado sem registro completo em limpezas.jsonl ({falha}): '
+                               f'{", ".join(removidos)}\n')
+                    erro.write('erro: registro com falha; os grupos seguintes ficam mantidos\n')
+                    falhas += 1
+                    parar = True
         finally:
             for fd in travas:
                 os.close(fd)
             if registro_travado:
                 fcntl.flock(registro, fcntl.LOCK_UN)
-        if registro_falhou:
+        if interrupcao is not None:
+            erro.write(f'erro: limpeza interrompida em {rotulo}; os grupos seguintes ficam mantidos\n')
+            falhas += 1
+            parar = True
+        if parar:
             break
     return apagados, falhas
 
