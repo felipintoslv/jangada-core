@@ -7,6 +7,7 @@ digitada, exige o controlador de fora e vira pulado ali.
 """
 
 import ambiente
+import contextlib
 import fcntl
 import hashlib
 import io
@@ -401,9 +402,9 @@ class Remocao(Base):
     def test_nomes_hostis_e_links(self):
         self.encerrada('antiga')
         self.encerrada('ligada')
+        # No consumo, nome hostil recusa tudo (test_consumo_com_linha_invalida_nao_prova_nada).
         for nome in ('..', '.', 'a/b', 'a\nb', '../fora'):
             self.arquivar(nome)
-            self.consumir(nome, 90)
         (self.estado / 'codex/a\nb').mkdir()
         os.symlink(self.fora / 'alvo.txt', self.estado / 'codex/antiga/saida')
         os.symlink(self.fora / 'pasta', self.estado / 'codex/antiga/pasta')
@@ -424,7 +425,9 @@ class Remocao(Base):
         self.assertTrue(os.path.islink(self.estado / 'codex/ligada'))
         self.assertTrue(self.existe('agentes/fim-ligada.log'))
         self.assertTrue(self.existe('agentes/validacao-ligada-r3.md'))
-        self.assertFalse(self.existe('provedores/claude/ligada'))
+        # Entrada de ligada que não se mede mantém os outros dados da sessão.
+        self.assertTrue(self.existe('provedores/claude/ligada'))
+        self.assertEqual({u['motivo'] for u in unidades if u.get('sessao') == 'ligada'}, {'incerta'})
         recusadas = {(u['partes'], u['nome']) for u in unidades if u['motivo'] == 'recusada'}
         self.assertIn((('codex',), 'a\nb'), recusadas)
         self.assertIn((('codex',), 'ligada'), recusadas)
@@ -568,20 +571,113 @@ class Remocao(Base):
         erro = self.mudar_entre_remocoes(lambda: Path(str(self.vivas) + '.falha').touch())
         self.assertIn('não foi possível listar as sessões do tmux', erro)
 
-    def test_consumo_ilegivel_nao_prova(self):
+    def aplicar_pelo_main(self):
+        """O main com --aplicar, como se fosse fora do isolamento e num terminal, sem confirmar."""
+        saida, erro = io.StringIO(), io.StringIO()
+        isolado, isatty, entrada = retencao.isolado, os.isatty, sys.stdin
+        retencao.isolado, os.isatty, sys.stdin = (lambda *_: False), (lambda _: True), io.StringIO('nao\n')
+        try:
+            with contextlib.redirect_stdout(saida), contextlib.redirect_stderr(erro):
+                codigo = retencao.main([str(self.estado), 'claude', '--aplicar', '--',
+                                        'sh', '-c', FALSO_TMUX, str(self.vivas)])
+        finally:
+            retencao.isolado, os.isatty, sys.stdin = isolado, isatty, entrada
+        return codigo, saida.getvalue(), erro.getvalue()
+
+    def test_consumo_com_linha_invalida_nao_prova_nada(self):
+        recente = json.dumps(dict(sessao='antiga', fim=iso(self.agora)))
+        for linha in ('{"sessao":"\\u0061ntiga","fim":"2026-',
+                      recente[:len(recente) // 2],
+                      '[1]', '{"fim":"%s"}' % iso(self.agora), json.dumps(dict(sessao='../x', fim=iso(self.agora))),
+                      json.dumps(dict(sessao='outra', fim='ontem')), '{"sessao":"outra","fim":"\udcff"}'):
+            with self.subTest(linha=linha):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                self.encerrada('terceira')
+                with open(self.estado / 'consumo-tarefas.jsonl', 'ab') as arquivo:
+                    arquivo.write(linha.encode('utf-8', 'surrogateescape') + b'\n\n')
+                self.envelhecer()
+                antes = dados(self.estado)
+                estado = self.abrir()
+                self.assertTrue(estado.impedimentos)
+                self.assertTrue(any('consumo-tarefas.jsonl' in a for a in estado.avisos))
+                unidades, _ = self.aplicar()
+                self.assertEqual(dados(self.estado), antes)
+                self.assertTrue(all(u['motivo'] == 'sem_prova' for u in unidades if 'sessao' in u))
+                codigo, saida, erro = self.aplicar_pelo_main()
+                self.assertEqual(codigo, 1, saida + erro)
+                self.assertIn('nada foi apagado: consumo-tarefas.jsonl', erro)
+                self.assertNotIn('digite apagar', saida)
+                self.assertEqual(dados(self.estado), antes)
+
+    def test_consumo_valido_com_linha_em_branco_prova(self):
         self.encerrada('antiga')
-        self.encerrada('outra')
-        self.encerrada('terceira')
         with open(self.estado / 'consumo-tarefas.jsonl', 'a') as arquivo:
-            arquivo.write('{"sessao":"antiga","fim":"2026-11\n')
-            arquivo.write(json.dumps(dict(sessao='outra', fim='ontem')) + '\n')
-            arquivo.write('\n')
+            arquivo.write('\n  \n')
+        self.envelhecer()
+        self.assertFalse(self.abrir().impedimentos)
+        self.aplicar()
+        self.assertFalse(self.existe('codex/antiga'))
+
+    def test_alteracao_em_outra_area_depois_da_listagem(self):
+        self.encerrada('antiga')
+        self.envelhecer()
+        alvo = self.estado / 'provedores/claude/antiga/projetos/c.jsonl'
+        antes = dados(self.estado)
+        _, erro = self.aplicar(antes=lambda: os.utime(alvo))
+        self.assertEqual(sorted(i[0] for i in dados(self.estado)), sorted(i[0] for i in antes))
+        self.assertIn('codex/antiga mantido na reconferência: alterada depois do encerramento', erro)
+        self.assertEqual(self.registros(), [])
+
+    def test_alteracao_em_outra_area_entre_duas_remocoes(self):
+        alvo = self.estado / 'revisoes/validacao-antiga-r1.md.tmp'
+        erro = self.mudar_entre_remocoes(lambda: os.utime(alvo))
+        self.assertIn('alterada depois do encerramento', erro)
+        self.assertTrue(self.existe('revisoes/validacao-antiga-r1.md.tmp'))
+
+    def test_dado_que_nao_se_mede_mantem_a_sessao(self):
+        self.encerrada('antiga')
+        shutil.rmtree(self.estado / 'provedores/claude/antiga')
+        os.symlink(self.fora, self.estado / 'provedores/claude/antiga')
+        self.envelhecer()
+        antes = dados(self.estado)
+        unidades, _ = self.aplicar()
+        self.assertEqual(dados(self.estado), antes)
+        self.assertTrue(all(u['motivo'] in ('incerta', 'recusada') for u in unidades if 'antiga' in u.get('donos', ())))
+
+    def test_provedor_fora_da_lista_e_conferido(self):
+        self.encerrada('antiga')
+        self.gravar('provedores/agy-velha/antiga/e.json')
+        self.envelhecer()
+        os.utime(self.estado / 'provedores/agy-velha/antiga/e.json')
+        antes = dados(self.estado)
+        unidades, _ = self.aplicar()
+        self.assertEqual(dados(self.estado), antes)
+        self.assertTrue(all(u['motivo'] == 'alterada' for u in unidades if u.get('sessao') == 'antiga'))
         self.envelhecer()
         unidades, _ = self.aplicar()
-        self.assertTrue(self.existe('codex/antiga'))
-        self.assertTrue(self.existe('codex/outra'))
-        self.assertFalse(self.existe('codex/terceira'))
-        self.assertTrue(all(u['motivo'] == 'sem_prova' for u in unidades if u.get('sessao') in ('antiga', 'outra')))
+        self.assertFalse(self.existe('codex/antiga'))
+        self.assertTrue(self.existe('provedores/agy-velha/antiga/e.json'))
+        self.assertIn('fora_da_lista', {u['motivo'] for u in unidades})
+
+    def test_registro_travado_nada_apaga(self):
+        self.encerrada('antiga')
+        self.envelhecer()
+        antes = dados(self.estado)
+        caminho = self.estado / 'limpezas.jsonl'
+        caminho.touch(mode=0o600)
+        fd = os.open(caminho, os.O_RDONLY)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        espera, retencao.ESPERA_TRAVA = retencao.ESPERA_TRAVA, 0.2
+        try:
+            _, erro = self.aplicar()
+        finally:
+            retencao.ESPERA_TRAVA = espera
+            os.close(fd)
+        self.assertIn('limpezas.jsonl em uso', erro)
+        self.assertEqual(dados(self.estado), antes)
+        self.assertEqual(caminho.read_text(), '')
 
     def test_arquivo_ilegivel_faz_dono_desconhecido_pesar(self):
         self.encerrada('antiga')

@@ -53,7 +53,9 @@ PASTA = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 MOTIVOS = (('sem_prova', 'sem prova de encerramento'),
            ('aberta', 'sessão viva ou aberta'),
            ('recente', 'encerrada há menos de {dias}'),
-           ('alterada', 'alterada depois do encerramento'))
+           ('alterada', 'alterada depois do encerramento'),
+           ('incerta', 'outro dado da sessão não pôde ser medido'),
+           ('fora_da_lista', 'provedor fora do catálogo de contas'))
 
 
 class Recusa(Exception):
@@ -151,13 +153,14 @@ class Estado:
         self.agora = datetime.now().astimezone()
         self.limite = self.agora - timedelta(days=dias)
         self.avisos = []
-        self.arquivo_ilegivel = False
         self.atualizar()
 
     def fechar(self):
         os.close(self.fd)
 
     def atualizar(self):
+        """Lê de novo todas as provas. Impedimento recusa a aplicação inteira."""
+        self.impedimentos, self.arquivo_ilegivel = set(), False
         self.vivas = self.sessoes_vivas()
         self.arquivados = self.ler_arquivos()
         self.fins = self.ler_consumo()
@@ -222,39 +225,35 @@ class Estado:
     def ler_consumo(self):
         """Sessão -> data `fim` mais recente do consumo-tarefas.jsonl.
 
-        Linha ilegível pode esconder um `fim` mais novo: a sessão cujo nome
-        aparece nela, ou cuja linha traz `fim` inválido, fica sem prova."""
-        fins, self.ruins, self.duvidas = {}, [], set()
+        Uma linha não vazia que não seja registro válido pode esconder um `fim`
+        mais novo de qualquer sessão: nenhuma sessão tem prova e nada é apagado."""
+        fins = {}
         try:
             bruto = ler(self.fd, 'consumo-tarefas.jsonl')
         except FileNotFoundError:
             return fins
         except (OSError, ValueError):
-            self.avisar('consumo-tarefas.jsonl ilegível; nenhuma sessão tem prova de encerramento')
-            return fins
-        for linha in bruto.decode('utf-8', 'replace').splitlines():
+            return self.consumo_invalido('ilegível')
+        for numero, linha in enumerate(bruto.split(b'\n'), 1):
             if not linha.strip():
                 continue
             try:
-                registro = json.loads(linha)
+                registro = json.loads(linha.decode('utf-8'))
             except (ValueError, RecursionError):
-                registro = None
-            if not isinstance(registro, dict):
-                self.ruins.append(linha)
-                continue
-            sessao, fim = registro.get('sessao'), data(registro.get('fim'))
-            if not isinstance(sessao, str) or not nome_valido(sessao):
-                self.ruins.append(linha)
-            elif fim is None:
-                self.duvidas.add(sessao)
-            elif sessao not in fins or fim > fins[sessao]:
+                return self.consumo_invalido(f'linha {numero} inválida')
+            sessao = registro.get('sessao') if isinstance(registro, dict) else None
+            fim = data(registro.get('fim')) if isinstance(registro, dict) else None
+            if not isinstance(sessao, str) or not nome_valido(sessao) or fim is None:
+                return self.consumo_invalido(f'linha {numero} sem sessão ou fim válidos')
+            if sessao not in fins or fim > fins[sessao]:
                 fins[sessao] = fim
-        if self.ruins or self.duvidas:
-            self.avisar('consumo-tarefas.jsonl tem linha ilegível; as sessões citadas nela ficam sem prova')
         return fins
 
-    def duvidosa(self, sessao):
-        return sessao in self.duvidas or any(sessao in linha for linha in self.ruins)
+    def consumo_invalido(self, motivo):
+        texto = f'consumo-tarefas.jsonl {motivo}; nenhuma sessão tem prova de encerramento'
+        self.avisar(texto)
+        self.impedimentos.add(texto)
+        return {}
 
     def existe(self, partes, nome):
         """Presença sem seguir link. Na dúvida, diz que existe."""
@@ -281,7 +280,7 @@ class Estado:
         if self.existe(('agentes',), sessao + '.json') or self.existe(('revisoes',), sessao + '.json'):
             return 'aberta', None
         fim = self.fins.get(sessao)
-        if sessao not in self.arquivados or fim is None or self.duvidosa(sessao):
+        if sessao not in self.arquivados or fim is None:
             return 'sem_prova', None
         if fim > self.limite:
             return 'recente', fim
@@ -290,7 +289,7 @@ class Estado:
     def conhecida(self, sessao):
         """Nome com rastro de sessão. Com arquivo ilegível, todo nome conta como rastro."""
         return (self.arquivo_ilegivel or sessao in self.arquivados or sessao in self.fins
-                or self.duvidosa(sessao) or self.situacao(sessao)[0] == 'aberta')
+                or self.situacao(sessao)[0] == 'aberta')
 
     def decidir(self, donos):
         """Todos os donos elegíveis, salvo nome sem rastro de sessão.
@@ -312,14 +311,27 @@ class Estado:
         return 'elegivel', sessao, tipo, max(f for _, _, f in elegiveis), tuple(s for s, _, _ in elegiveis)
 
     def areas(self):
-        """(partes da pasta, tipo, espera pasta, dono do nome) de cada área com dados."""
+        """(partes da pasta, tipo, espera pasta, dono do nome, pode apagar) de cada área com dados.
+
+        Toda pasta de provedor presente entra na conferência; só as da lista são apagadas."""
         proprio = lambda nome: [(nome, None)]
-        return ([(('codex',), None, True, self.donos_codex)]
-                + [(('provedores', p), 'provedor ' + p, True, proprio) for p in self.provedores]
-                + [(('revisoes', 'inicios'), 'inicios', True, proprio),
-                   (('agentes',), 'rodadas em agentes', False, self.dono_rodada),
-                   (('revisoes',), 'rodadas em revisoes', False, self.dono_rodada),
-                   (('agentes',), 'registro do fim', False, self.dono_fim)])
+        provedores = sorted(set(self.provedores) | self.provedores_presentes())
+        return ([(('codex',), None, True, self.donos_codex, True)]
+                + [(('provedores', p), 'provedor ' + p, True, proprio, p in self.provedores) for p in provedores]
+                + [(('revisoes', 'inicios'), 'inicios', True, proprio, True),
+                   (('agentes',), 'rodadas em agentes', False, self.dono_rodada, True),
+                   (('revisoes',), 'rodadas em revisoes', False, self.dono_rodada, True),
+                   (('agentes',), 'registro do fim', False, self.dono_fim, True)])
+
+    def provedores_presentes(self):
+        fd = abrir_pasta(self.fd, ('provedores',))
+        if fd is None:
+            return set()
+        try:
+            with os.scandir(fd) as entradas:
+                return {e.name for e in entradas if PROVEDOR.fullmatch(e.name)}
+        finally:
+            os.close(fd)
 
     @staticmethod
     def donos_codex(nome):
@@ -346,15 +358,16 @@ class Estado:
         achado = FIM_LOG.fullmatch(nome)
         return [(achado[1], None)] if achado and nome_valido(achado[1]) else []
 
-    def unidades(self):
-        """Cada entrada das áreas, medida e decidida."""
+    def unidades(self, sessoes=None):
+        """Cada entrada das áreas, medida e decidida; com sessoes, só as que citam alguma delas."""
         pontos = montagens()
-        for area, (partes, tipo, espera_pasta, dono) in enumerate(self.areas()):
+        for partes, tipo, espera_pasta, dono, apaga in self.areas():
             try:
                 fd, base = self.abrir_area(partes)
             except (Recusa, OSError):
-                self.avisar('/'.join(partes) + '/ é link, não abre ou está fora do caminho esperado; '
-                            'fica fora da limpeza')
+                texto = '/'.join(partes) + '/ é link, não abre ou está fora do caminho esperado'
+                self.avisar(texto + '; nada é apagado enquanto isso')
+                self.impedimentos.add(texto)
                 continue
             if fd is None:
                 continue
@@ -363,13 +376,13 @@ class Estado:
                     nomes = sorted(e.name for e in entradas)
                 for nome in nomes:
                     if not nome_valido(nome):
-                        if espera_pasta:
-                            yield dict(motivo='recusada', partes=partes, nome=nome)
+                        if espera_pasta and sessoes is None:
+                            yield dict(motivo='recusada', partes=partes, nome=nome, donos=())
                         continue
                     donos = dono(nome)
-                    if not donos:
+                    if not donos or (sessoes is not None and not {s for s, _ in donos} & sessoes):
                         continue
-                    yield dict(self.unidade(fd, base, partes, nome, tipo, espera_pasta, donos, pontos), area=area)
+                    yield self.unidade(fd, base, partes, nome, tipo, espera_pasta, donos, pontos, apaga)
             finally:
                 os.close(fd)
 
@@ -384,35 +397,9 @@ class Estado:
             raise Recusa('área fora do caminho esperado')
         return fd, base
 
-    def remedir(self, unidade):
-        """A mesma unidade medida e decidida com o estado lido agora."""
-        partes, tipo, espera_pasta, dono = self.areas()[unidade['area']]
-        fd, base = self.abrir_area(partes)
-        if fd is None:
-            return dict(motivo='sumiu')
-        try:
-            return self.unidade(fd, base, partes, unidade['nome'], tipo, espera_pasta, dono(unidade['nome']),
-                                montagens())
-        finally:
-            os.close(fd)
-
-    def reler_provas(self, sessoes):
-        """Lê de novo o tmux, o consumo e os arquivos que provam o encerramento destas sessões."""
-        self.vivas = self.sessoes_vivas()
-        self.fins = self.ler_consumo()
-        fd = abrir_pasta(self.fd, ('revisoes', 'arquivo'))
-        try:
-            for sessao in sessoes:
-                nomes = [n for n in self.arquivados.pop(sessao, ())
-                         if fd is not None and self.conferir_arquivo(fd, n) == sessao]
-                if nomes:
-                    self.arquivados[sessao] = nomes
-        finally:
-            if fd is not None:
-                os.close(fd)
-
-    def unidade(self, fd, base, partes, nome, tipo, espera_pasta, donos, pontos):
-        unidade = dict(partes=partes, nome=nome)
+    def unidade(self, fd, base, partes, nome, tipo, espera_pasta, donos, pontos, apaga):
+        # Entrada que não se mede deixa as sessões donas sem a conferência de alteração.
+        unidade = dict(partes=partes, nome=nome, donos=tuple(s for s, _ in donos))
         try:
             unidade['bytes'], maior = medir(fd, base, nome, espera_pasta, pontos)
         except FileNotFoundError:
@@ -426,6 +413,8 @@ class Estado:
                        provedor=partes[1] if partes[0] == 'provedores' else None)
         if motivo == 'elegivel' and maior / 1e9 > fim.timestamp() + FOLGA:
             unidade['motivo'] = 'alterada'
+        elif motivo == 'elegivel' and not apaga:
+            unidade['motivo'] = 'fora_da_lista'
         return unidade
 
 
@@ -603,13 +592,17 @@ def travar_provedor(estado, provedor, sessao):
         os.close(pasta)
 
 
-def medir_todas(estado):
-    """As unidades das áreas. Dado alterado depois do fim mantém a sessão inteira."""
-    unidades = list(estado.unidades())
+def medir_todas(estado, sessoes=None):
+    """As unidades das áreas. Dado alterado depois do fim, ou que não se mede, mantém a sessão inteira."""
+    unidades = list(estado.unidades(sessoes))
     alteradas = {s for u in unidades if u.get('motivo') == 'alterada' for s in u['travas']}
+    incertas = {s for u in unidades if u.get('motivo') == 'recusada' for s in u['donos']}
     for unidade in unidades:
-        if unidade.get('motivo') == 'elegivel' and set(unidade['travas']) & alteradas:
-            unidade['motivo'] = 'alterada'
+        if unidade.get('motivo') in ('elegivel', 'fora_da_lista'):
+            if set(unidade['travas']) & alteradas:
+                unidade['motivo'] = 'alterada'
+            elif set(unidade['travas']) & incertas:
+                unidade['motivo'] = 'incerta'
     return unidades
 
 
@@ -667,41 +660,42 @@ def abrir_registro(estado):
 
 
 def registrar(fd, linha):
-    texto = json.dumps(linha, ensure_ascii=False, separators=(',', ':')) + '\n'
-    esperar_trava(fd, 'limpezas.jsonl')
-    try:
-        os.write(fd, texto.encode('utf-8'))
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
+    """Grava uma linha; quem chama já tem a trava do registro."""
+    os.write(fd, (json.dumps(linha, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8'))
 
 
 def reconferir(estado, unidade, grupo, travadas):
-    """(unidade lida agora, None) se continua elegível, ou (None, motivo).
+    """A unidade lida agora pelo mesmo caminho da listagem, para todas as áreas das sessões travadas.
 
-    Relê o tmux, o consumo e os arquivos de prova antes de cada entrada."""
-    estado.reler_provas({s for s, _ in estado.areas()[unidade['area']][3](unidade['nome'])})
-    try:
-        atual = estado.remedir(unidade)
-    except (Recusa, OSError):
-        return None, 'recusada'
+    Devolve (unidade, None) se continua elegível, ou (None, motivo). Impedimento levanta Recusa."""
+    estado.atualizar()
+    atuais = medir_todas(estado, travadas)
+    if estado.impedimentos:
+        raise Recusa('; '.join(sorted(estado.impedimentos)))
+    atual = next((u for u in atuais if u['partes'] == unidade['partes'] and u['nome'] == unidade['nome']), None)
+    if atual is None:
+        return None, 'sumiu'
     if atual['motivo'] != 'elegivel':
         return None, atual['motivo']
     if atual['sessao'] != grupo['sessao'] or atual['tipo'] != grupo['tipo'] or not set(atual['travas']) <= travadas:
         return None, 'dono'
-    return dict(atual, area=unidade['area']), None
+    return atual, None
 
 
 def aplicar(estado, grupos, registro, erro=sys.stderr):
-    """Apaga cada grupo sob as travas da sessão, reconferindo cada entrada logo antes."""
+    """Apaga cada grupo sob a trava do registro e as da sessão, reconferindo cada entrada logo antes."""
     apagados = falhas = 0
     textos = dict(MOTIVOS, sumiu='não existe mais', recusada='link, montagem, tipo ou nome fora do padrão',
                   dono='donos diferentes dos listados')
     prazo = plural(estado.dias, 'dia', 'dias')
     for grupo in grupos:
-        travas = []
+        travas, registro_travado = [], False
         rotulo = f'{grupo["sessao"]} ({grupo["tipo"]})'
         removidos, total, resultado = [], 0, 'removido'
         try:
+            # O registro primeiro: sem ele, nada do grupo é apagado.
+            esperar_trava(registro, 'limpezas.jsonl')
+            registro_travado = True
             travadas = {s for u in grupo['unidades'] for s in u['travas']}
             for sessao in sorted(travadas):
                 travas.append(travar_revisao(estado, sessao))
@@ -730,18 +724,22 @@ def aplicar(estado, grupos, registro, erro=sys.stderr):
                     falhas += 1
                 removidos.append(caminho)
                 total += atual['bytes']
+            if removidos:
+                registrar(registro, {'sessao': grupo['sessao'], 'tipo': grupo['tipo'], 'caminhos': removidos,
+                                     'bytes': total, 'encerrada': grupo['fim'].isoformat(timespec='seconds'),
+                                     'quando': datetime.now().astimezone().isoformat(timespec='seconds'),
+                                     'resultado': resultado})
+                apagados += 1
         except (Recusa, OSError) as falha:
             erro.write(f'aviso: {rotulo} mantido: {falha}\n')
+            if removidos:
+                erro.write(f'erro: apagado sem registro em limpezas.jsonl: {", ".join(removidos)}\n')
             falhas += 1
         finally:
             for fd in travas:
                 os.close(fd)
-        if removidos:
-            registrar(registro, {'sessao': grupo['sessao'], 'tipo': grupo['tipo'], 'caminhos': removidos,
-                                 'bytes': total, 'encerrada': grupo['fim'].isoformat(timespec='seconds'),
-                                 'quando': datetime.now().astimezone().isoformat(timespec='seconds'),
-                                 'resultado': resultado})
-            apagados += 1
+            if registro_travado:
+                fcntl.flock(registro, fcntl.LOCK_UN)
     return apagados, falhas
 
 
@@ -803,6 +801,10 @@ def main(argumentos):
         grupos = listar(estado, unidades, sys.stdout)
         for aviso in estado.avisos:
             sys.stderr.write(f'aviso: {aviso}\n')
+        if aplica and not simular and estado.impedimentos:
+            sys.stderr.write('jangada-agentes --limpar-antigos: nada foi apagado: '
+                             + '; '.join(sorted(estado.impedimentos)) + '\n')
+            return 1
         if not aplica or simular:
             if simular:
                 print('JANGADA_SIMULAR=1: --aplicar só lista; nada foi apagado.')
