@@ -240,7 +240,7 @@ class Estado:
         self.vivas = self.sessoes_vivas()
         self.arquivados = self.ler_arquivos()
         brutos = self.ler_registros()
-        self.fins = self.ler_consumo(brutos.pop('consumo-tarefas.jsonl', None))
+        self.fins = self.ler_consumo(brutos.get('consumo-tarefas.jsonl'))
         self.citados = self.citados_nos_registros(brutos)
 
     def conferir_registro(self):

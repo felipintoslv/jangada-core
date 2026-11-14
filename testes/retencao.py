@@ -1345,6 +1345,27 @@ class Remocao(Base):
                 self.aplicar()
                 self.assertTrue(self.existe('codex/revisao-codex-antiga/b.jsonl'))
 
+    def test_nome_em_outro_campo_do_consumo_mantem_a_pasta_do_revisor(self):
+        nome = 'revisao-codex-antiga'
+        for nota in (nome, f'agentes/{nome}.json', nome.replace('r', '\\u0072', 1)):
+            with self.subTest(nota=nota):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                caminho = self.estado / 'consumo-tarefas.jsonl'
+                registro = json.loads(caminho.read_text())
+                registro['nota'] = nome
+                linha = json.dumps(registro).replace(nome, nota)
+                self.assertIn(nome, json.loads(linha)['nota'])
+                caminho.write_text(linha + '\n')
+                self.envelhecer()
+                unidade = self.motivo_do_revisor()
+                self.assertEqual((unidade['motivo'], unidade['tipo']), ('sem_prova', retencao.DUVIDA))
+                self.aplicar()
+                self.assertTrue(self.existe(f'codex/{nome}/b.jsonl'))
+                self.assertFalse(self.existe('codex/antiga'))
+                self.assertNotIn(f'codex/{nome}', [c for r in self.registros() for c in r['caminhos']])
+
     def test_registros_sem_o_nome_inteiro_mantem_a_pasta_do_revisor_elegivel(self):
         self.encerrada('antiga')
         self.encerrada('outra')
