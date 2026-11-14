@@ -1366,6 +1366,31 @@ class Remocao(Base):
                 self.assertFalse(self.existe('codex/antiga'))
                 self.assertNotIn(f'codex/{nome}', [c for r in self.registros() for c in r['caminhos']])
 
+    def test_consumo_ilegivel_mantem_a_pasta_do_revisor_em_duvida(self):
+        nome = 'revisao-codex-antiga'
+        for caso in ('link', 'outra ligação física', 'acima do limite'):
+            with self.subTest(consumo=caso):
+                shutil.rmtree(self.estado)
+                self.estado.mkdir()
+                self.encerrada('antiga')
+                self.envelhecer()
+                self.assertEqual(self.motivo_do_revisor()['motivo'], 'elegivel')
+                caminho = self.estado / 'consumo-tarefas.jsonl'
+                if caso == 'link':
+                    caminho.unlink()
+                    caminho.symlink_to('/dev/null')
+                elif caso == 'outra ligação física':
+                    os.link(caminho, self.estado / 'consumo-copia')
+                else:
+                    os.truncate(caminho, retencao.LIMITE + 1)
+                unidade = self.motivo_do_revisor()
+                self.assertEqual((unidade['motivo'], unidade['tipo']), ('sem_prova', retencao.DUVIDA))
+                codigo, saida, erro = self.aplicar_pelo_main(resposta='apagar')
+                self.assertEqual(codigo, 1, saida + erro)
+                self.assertIn('nada foi apagado: consumo-tarefas.jsonl', erro)
+                self.assertTrue(self.existe(f'codex/{nome}/b.jsonl'))
+                self.assertFalse(self.registros())
+
     def test_registros_sem_o_nome_inteiro_mantem_a_pasta_do_revisor_elegivel(self):
         self.encerrada('antiga')
         self.encerrada('outra')
